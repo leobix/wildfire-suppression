@@ -14,6 +14,9 @@ LINE_PER_CREW = 17     # how much perimeter prevented per crew per time period
 FIRE_CODE = 1
 BASE_CODE = 2
 
+AGG_PREC = 0
+PASSIVE_STATES = 0
+
 function get_rotation_orders(crew_regions)
     
     # initialize output

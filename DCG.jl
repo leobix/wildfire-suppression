@@ -1,7 +1,7 @@
 include("CGStructs.jl")
 
 using DataFrames, CSV, DelimitedFiles, JuMP, Gurobi
-const GRB_ENV = Gurobi.Env()
+
 
 NUM_CREWS = 10                
 BREAK_LENGTH = 2       # how long at base to be considered "rested"
@@ -1709,10 +1709,13 @@ function run_CG_step(cg, arcs, costs, global_data, region_data, fire_model_confi
     
     true_rho = copy(rho)
     
-    if cg_config["ws_dual_weight"] > 0
-        lambda = cg_config["ws_dual_weight"]
-        ws_dual_values = cg_config["ws_dual"]
-        rho = (lambda * (ws_dual_values)) .+ ((1 - lambda) * rho)
+    if "ws_dual_weight" in keys(cg_config)
+        if cg_config["ws_dual_weight"] > 0
+            error("Wrong type of dual warm start (useless stabilization)")
+            # lambda = cg_config["ws_dual_weight"]
+            # ws_dual_values = cg_config["ws_dual"]
+            # rho = (lambda * (ws_dual_values)) .+ ((1 - lambda) * rho)
+        end
     end
     
     
@@ -1796,6 +1799,19 @@ function run_CG_step(cg, arcs, costs, global_data, region_data, fire_model_confi
     # println(t)
     return mp, obj, rho, allotments
 end
+
+function get_fire_allotments(solved_mp, cg_data_object)
+    
+    mp_allotment = zeros(size(cg_data_object.suppression_plans.crews_present[:, 1, :]))
+    
+    for plan in eachindex(solved_mp["plan"])
+        new_allot = cg_data_object.suppression_plans.crews_present[plan[1], plan[2], :] * value(solved_mp["plan"][plan])
+        mp_allotment[plan[1], :] += new_allot
+    end
+    
+    return mp_allotment
+end
+
 
 function suppression_plan_perturbations(start_plan, count)
     

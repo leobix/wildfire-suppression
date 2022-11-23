@@ -4,8 +4,8 @@
 #SBATCH --mem-per-cpu=1G
 #SBATCH --partition=sched_mit_sloan_batch
 #SBATCH --time=0-08:00
-#SBATCH -o /home/jacobwac/ihc_routing/experimental_outputs/20221123/output_\%a.out
-#SBATCH -e /home/jacobwac/ihc_routing/experimental_outputs/20221123/error_\%a.err
+#SBATCH -o /home/jacobwac/ihc_routing/data/experimental_outputs/20221123/output_\%a.out
+#SBATCH -e /home/jacobwac/ihc_routing/data/experimental_outputs/20221123/error_\%a.err
 #SBATCH --mail-type=BEGIN,END,FAIL
 #SBATCH --mail-user=jacobwac@mit.edu
 

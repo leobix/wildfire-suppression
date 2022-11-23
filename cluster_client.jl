@@ -24,7 +24,7 @@ function run_experiment(date, json_name, write_output)
     global LINE_PER_CREW = dcg_params["line_per_crew"]
 
     # set perturbations in int-aware-plan generating phase
-    capacity_perturbations = [-2, -1, 0, 1, 2]
+    capacity_perturbations = [-2, -1, 0, 1, 2] .* (NUM_CREWS / 20)
 
     # process all the relevant location, fire data
     preprocessed_data = preprocess(dcg_params["in_path"])

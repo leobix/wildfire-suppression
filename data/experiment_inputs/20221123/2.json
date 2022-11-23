@@ -1,0 +1,7 @@
+{
+    "dcg": {
+        "num_crews": 20,
+        "num_fires": 6,
+        "line_per_crew": 17
+    }
+}

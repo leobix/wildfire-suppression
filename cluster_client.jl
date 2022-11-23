@@ -73,6 +73,6 @@ end
 
 date = ARGS[1]
 number = ARGS[2]
-run_experiment(date, "precompile", false)
-run_experiment(date, number, true)
+run_experiment(string(date), "precompile", false)
+run_experiment(string(date), string(number), true)
 

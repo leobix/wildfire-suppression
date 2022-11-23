@@ -1,8 +1,8 @@
 {
     "restore_integrality": {
-        "formulation_time": 13.417177258,
-        "pb_objective": 4.552990707450807e6,
-        "solve_time": 286.74347819
+        "formulation_time": 11.999530404,
+        "pb_objective": 4.4752079768228205e6,
+        "solve_time": 288.093484873
     },
     "initial_DCG": {
         "iterations": 45,
@@ -7343,11 +7343,11 @@
             ]
         },
         "times": {
-            "mp_reformulate": 1.71838084,
-            "init_cg": 1.412624818,
-            "cg": 17.332071836,
-            "mp_resolve": 0.024784188,
-            "ws": 4.806611301
+            "mp_reformulate": 1.667074353,
+            "init_cg": 1.462396601,
+            "cg": 17.178662171,
+            "mp_resolve": 0.024758541,
+            "ws": 5.962253635
         },
         "solutions": {
             "master_problem_reconstructed": 4.306750530868218e6,
@@ -14378,18 +14378,18 @@
     },
     "generate_additional_plans": {
         "iterations": [
-            53,
-            56,
+            44,
+            58,
             59,
-            80,
-            76
+            69,
+            69
         ],
         "timings": [
-            20.700070886,
-            21.939085169,
-            23.424307828,
-            31.802544598,
-            30.314266094
+            17.486076614,
+            22.403190383,
+            24.085242798,
+            28.098439079,
+            27.57526366
         ]
     }
 }

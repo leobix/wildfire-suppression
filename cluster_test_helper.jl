@@ -1,3 +1,6 @@
+import Pkg;
+Pkg.add("DataFrames")
+
 include("DCG.jl")
 
 function preprocess(in_path)

@@ -1,5 +1,5 @@
-include("DCG.jl")
 include("cluster_test_helper.jl")
+include("DCG.jl")
 
 using JSON
 const GRB_ENV = Gurobi.Env()

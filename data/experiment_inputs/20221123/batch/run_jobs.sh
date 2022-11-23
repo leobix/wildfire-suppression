@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -a 1-2
+#SBATCH -a 1-5
 #SBATCH --cpus-per-task=16
 #SBATCH --mem-per-cpu=1G
 #SBATCH --partition=sched_mit_sloan_batch
@@ -9,7 +9,7 @@
 #SBATCH --mail-type=BEGIN,END,FAIL
 #SBATCH --mail-user=jacobwac@mit.edu
 
-module load julia/1.7.1
+module load julia/1.7.3
 module load gurobi/8.1.1
 
 

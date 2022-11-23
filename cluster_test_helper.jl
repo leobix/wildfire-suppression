@@ -263,7 +263,7 @@ function default_params()
     return params
 end
 
-function generate_new_plans(cg_params, cg_data, excesses, crew_thresh, fire_thresh)
+function generate_new_plans(cg_params, prepped_data, cg_data, excesses, crew_thresh, fire_thresh)
     
     iters = []
     times = []
@@ -284,7 +284,7 @@ function generate_new_plans(cg_params, cg_data, excesses, crew_thresh, fire_thre
         pattern = [(excess, 1e30)]
         cg_params["int_aware_price_adjustment"] = [pattern for i in 1:cg_params["max_iters"]]
 
-        t = @elapsed d2, cg_data2 = single_DCG_node(cg_params, deepcopy(preprocessed_data))
+        t = @elapsed d2, cg_data2 = single_DCG_node(cg_params, deepcopy(prepped_data))
         push!(iters, d2["iterations"])
         push!(times, t)
 

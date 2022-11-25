@@ -24,7 +24,7 @@ function run_experiment(date, json_name, write_output)
     global LINE_PER_CREW = dcg_params["line_per_crew"]
 
     # set perturbations in int-aware-plan generating phase
-    capacity_perturbations = [-1, -0.5, -0.25, 0, 0.25, 0.5, 1] .* (NUM_CREWS / 20)
+    capacity_perturbations = [-2, -1, 0, 1, 2] .* (NUM_CREWS / 20)
 
     # process all the relevant location, fire data
     preprocessed_data = preprocess(dcg_params["in_path"])
@@ -40,7 +40,7 @@ function run_experiment(date, json_name, write_output)
     iterations, timings, cg_data = generate_new_plans(dcg_params, preprocessed_data, cg_data, capacity_perturbations, -1, -1)
     
     # restore integrality
-    form_time, sol_time, pb = restore_integrality(cg_data, 300);
+    form_time, sol_time, pb = restore_integrality(cg_data, 7200);
     
     # write output to JSON
     if write_output
@@ -60,6 +60,7 @@ function run_experiment(date, json_name, write_output)
         outputs["restore_integrality"]["formulation_time"] = form_time
         outputs["restore_integrality"]["solve_time"] = sol_time
         outputs["restore_integrality"]["pb_objective"] = objective_value(pb["m"])
+        outputs["restore_integrality"]["pb_objective_bound"] = objective_bound(pb["m"])
         
         open(out_dir * json_name * ".json", "w") do f
             JSON.print(f, outputs, 4)

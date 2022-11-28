@@ -37,10 +37,10 @@ function run_experiment(date, json_name, write_output)
     dcg_params["int_aware_capacities"] = d["allotments"]["master_problem_reconstructed"]
     
     # generate int-aware plans
-    iterations, timings, cg_data = generate_new_plans(dcg_params, preprocessed_data, cg_data, capacity_perturbations, -1, -1)
+    iterations, timings, cg_data = generate_new_plans(dcg_params, preprocessed_data, cg_data, capacity_perturbations, -1, 0)
     
     # restore integrality
-    form_time, sol_time, pb = restore_integrality(cg_data, 7200);
+    form_time, sol_time, pb = restore_integrality(cg_data, 3600);
     
     # write output to JSON
     if write_output

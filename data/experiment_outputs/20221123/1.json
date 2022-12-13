@@ -1,9 +1,32 @@
 {
+    "cg_data": {
+        "routes": [
+            95,
+            82,
+            83,
+            88,
+            91,
+            80,
+            81,
+            86,
+            84,
+            76
+        ],
+        "plans": [
+            61,
+            25,
+            11
+        ]
+    },
     "restore_integrality": {
-        "formulation_time": 0.434441296,
+        "pb_objective_new": 1.1979169922556602e6,
+        "pb_objective_bound_new": 1.1979169922556602e6,
+        "solve_time_new": 1.13358678,
+        "formulation_time": 0.418794774,
+        "formulation_time_new": 0.464162899,
         "pb_objective_bound": 1.1979169922556605e6,
         "pb_objective": 1.1979169922556605e6,
-        "solve_time": 0.441112824
+        "solve_time": 0.395464343
     },
     "initial_DCG": {
         "iterations": 51,
@@ -3828,11 +3851,11 @@
             ]
         },
         "times": {
-            "mp_reformulate": 0.141850726,
-            "init_cg": 0.187167049,
-            "cg": 1.667061396,
-            "mp_resolve": 0.005008718,
-            "ws": 0.638018207
+            "mp_reformulate": 0.123308579,
+            "init_cg": 0.127315507,
+            "cg": 1.4402978260000003,
+            "mp_resolve": 0.004838381,
+            "ws": 0.630429997
         },
         "solutions": {
             "master_problem_reconstructed": 1.1388023920293038e6,
@@ -7522,11 +7545,11 @@
             37
         ],
         "timings": [
-            1.071702662,
-            1.232983444,
-            0.721514851,
-            0.774998536,
-            1.4093093
+            0.827910016,
+            0.904644998,
+            0.618148888,
+            0.72298304,
+            1.309945027
         ]
     }
 }

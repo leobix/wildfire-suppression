@@ -56,6 +56,9 @@ function run_experiment(date, json_name, write_output)
         outputs["generate_additional_plans"] = Dict{String, Any}()
         outputs["generate_additional_plans"]["iterations"] = iterations
         outputs["generate_additional_plans"]["timings"] = timings
+        outputs["cg_data"] = Dict{String, Any}()
+        outputs["cg_data"]["routes"] = cg_data.routes.routes_per_crew
+        outputs["cg_data"]["plans"] = cg_data.suppression_plans.plans_per_fire
         outputs["restore_integrality"] = Dict{String, Any}()
         outputs["restore_integrality"]["formulation_time"] = form_time
         outputs["restore_integrality"]["solve_time"] = sol_time

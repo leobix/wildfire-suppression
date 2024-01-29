@@ -1,4 +1,3 @@
-include("environment.jl")
 include("cluster_test_helper.jl")
 include("DCG.jl")
 

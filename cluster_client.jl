@@ -40,7 +40,7 @@ function run_experiment(date, json_name, write_output)
     iterations, timings, cg_data = generate_new_plans(dcg_params, preprocessed_data, cg_data, capacity_perturbations, -1, 0)
     
     # restore integrality
-    form_time, sol_time, pb, form_time_2, sol_time_2, pb_2 = restore_integrality(cg_data, 3600);
+    form_time, sol_time, pb = restore_integrality(cg_data, 3600);
     
     # write output to JSON
     if write_output
@@ -64,10 +64,6 @@ function run_experiment(date, json_name, write_output)
         outputs["restore_integrality"]["solve_time"] = sol_time
         outputs["restore_integrality"]["pb_objective"] = objective_value(pb["m"])
         outputs["restore_integrality"]["pb_objective_bound"] = objective_bound(pb["m"])
-        outputs["restore_integrality"]["formulation_time_new"] = form_time_2
-        outputs["restore_integrality"]["solve_time_new"] = sol_time_2
-        outputs["restore_integrality"]["pb_objective_new"] = objective_value(pb_2["m"])
-        outputs["restore_integrality"]["pb_objective_bound_new"] = objective_bound(pb_2["m"])
         
         
         open(out_dir * json_name * ".json", "w") do f

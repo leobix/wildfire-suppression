@@ -350,8 +350,5 @@ function restore_integrality(cg_data, time_limit)
     set_optimizer_attribute(pb["m"], "TimeLimit", time_limit - form_time)
     sol_time = @elapsed optimize!(pb["m"])
     
-    form_time_2 = @elapsed pb_2 = price_branch(config, cg_data.routes, cg_data.suppression_plans, 
-                                             r_data, rotation_order, 0, true)
-    
     return form_time, sol_time, pb
 end

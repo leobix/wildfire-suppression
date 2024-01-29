@@ -95,46 +95,46 @@ function generate_arcs(gd, rd, cs)
     # get fire-to-fire arcs
     ff = [[c, FIRE_CODE, f_from, FIRE_CODE, f_to, t_from, t_from + gd.ff_tau[f_to, f_from], rest, rest]
           for c = 1:NUM_CREWS, f_from = 1:NUM_FIRES, f_to = 1:NUM_FIRES, t_from = 1:NUM_TIME_PERIODS, rest = 0:1]
-    ff = copy(reduce(hcat, ff)')
+    ff = Base.copy(reduce(hcat, ff)')
 
     # get fire-to-fire arcs from start, based on cs.current crew locations
     from_start_ff = [[c, FIRE_CODE, cs.current_fire[c], FIRE_CODE, f_to, 0, gd.ff_tau[f_to, cs.current_fire[c]], 0, 0]
                      for c = 1:NUM_CREWS, f_to = 1:NUM_FIRES if cs.current_fire[c] != -1]
-    from_start_ff = copy(reduce(hcat, from_start_ff)')
+    from_start_ff = Base.copy(reduce(hcat, from_start_ff)')
 
     # get base-to-fire arcs
     rf = [[c, BASE_CODE, c, FIRE_CODE, f_to, t_from, t_from + gd.bf_tau[c, f_to], rest, rest]
           for c = 1:NUM_CREWS, f_to = 1:NUM_FIRES, t_from = 1:NUM_TIME_PERIODS, rest = 0:1]
-    rf = copy(reduce(hcat, rf)')
+    rf = Base.copy(reduce(hcat, rf)')
 
     # get base-to-fire arcs from start
     from_start_rf = [[c, BASE_CODE, c, FIRE_CODE, f_to, 0, gd.bf_tau[c, f_to], 0, 0]
                      for c = 1:NUM_CREWS, f_to = 1:NUM_FIRES if cs.current_fire[c] == -1]
-    from_start_rf = copy(reduce(hcat, from_start_rf)')
+    from_start_rf = Base.copy(reduce(hcat, from_start_rf)')
 
     # get fire-to-base arcs
     fr = [[c, FIRE_CODE, f_from, BASE_CODE, c, t_from, t_from + gd.bf_tau[c, f_from], rest, rest]
           for c = 1:NUM_CREWS, f_from = 1:NUM_FIRES, t_from = 1:NUM_TIME_PERIODS, rest = 0:1]
-    fr = copy(reduce(hcat, fr)')
+    fr = Base.copy(reduce(hcat, fr)')
 
     # get fire-to-base arcs from start, based on cs.current crew locations
     from_start_fr = [[c, FIRE_CODE, cs.current_fire[c], BASE_CODE, c, 0, gd.bf_tau[c, cs.current_fire[c]], 0, 0]
                      for c = 1:NUM_CREWS if cs.current_fire[c] != -1]
-    from_start_fr = copy(reduce(hcat, from_start_fr)')
+    from_start_fr = Base.copy(reduce(hcat, from_start_fr)')
 
     # get base-to-base arcs
     rr = [[c, BASE_CODE, c, BASE_CODE, c, t_from, t_from + 1 + (BREAK_LENGTH - 1) * rest, 0, rest]
           for c = 1:NUM_CREWS, t_from = 1:NUM_TIME_PERIODS, rest = 0:1]
-    rr = copy(reduce(hcat, rr)')
+    rr = Base.copy(reduce(hcat, rr)')
     rr_rested = [[c, BASE_CODE, c, BASE_CODE, c, t_from, t_from + 1, 1, 1]
                  for c = 1:NUM_CREWS, t_from = 1:NUM_TIME_PERIODS]
-    rr_rested = copy(reduce(hcat, rr_rested)')
+    rr_rested = Base.copy(reduce(hcat, rr_rested)')
 
     # get base-to-base arcs from start, based on cs.current days rested
     from_start_rr = [[c, BASE_CODE, c, BASE_CODE, c, 0,
         1 + (BREAK_LENGTH - max(cs.rested_periods[c], 0) - 1) * rest, 0, rest]
                      for c = 1:NUM_CREWS, rest = 0:1 if cs.current_fire[c] == -1]
-    from_start_rr = copy(reduce(hcat, from_start_rr)')
+    from_start_rr = Base.copy(reduce(hcat, from_start_rr)')
 
     A = vcat(ff, from_start_ff, rf, from_start_rf, fr, from_start_fr, rr, rr_rested, from_start_rr)
 
@@ -1162,7 +1162,7 @@ function arcs_from_state_graph(graph)
     edges = []
 
     for (i, j) in visitable
-        push!(edges, copy(reduce(hcat, [[i, j, j + 1, a[1], a[2]] for a in graph[i, j]])'))
+        push!(edges, Base.copy(reduce(hcat, [[i, j, j + 1, a[1], a[2]] for a in graph[i, j]])'))
     end
 
     return vcat([size(graph)[1], 0, 1, size(graph)[1], 0]', reduce(vcat, edges))
@@ -1344,7 +1344,7 @@ function generate_graphs(states, params, round_types)
         while curr_time < NUM_TIME_PERIODS + 1
 
             # copy the indices to check and reset next_to_check
-            to_check = copy(next_to_check)
+            to_check = Base.copy(next_to_check)
             next_to_check = []
 
             # for each state index feasible to reach at this time period
@@ -1490,7 +1490,7 @@ function init_suppression_plan_subproblem(config)
     elseif config["solver_type"] == "network_flow_gurobi"
 
         # get graph formulation
-        d = copy(config)
+        d = Base.copy(config)
         d["solver_type"] = "dp"
         sp_dp = init_suppression_plan_subproblem(d)
 
@@ -1684,7 +1684,7 @@ function initialize_column_generation(arcs, costs, constraint_data, fire_model_c
 
     plan_sps = []
     for fire in 1:NUM_FIRES
-        config = copy(solver_configs[fire])
+        config = Base.copy(solver_configs[fire])
         config["model_data"] = fire_model_configs[fire]
         config["warm_start"] = false
         d = init_suppression_plan_subproblem(config)
@@ -1721,7 +1721,7 @@ function initialize_column_generation(arcs, costs, constraint_data, fire_model_c
     # for each fire
     for fire in 1:NUM_FIRES
 
-        sp_config = copy(solver_configs[fire])
+        sp_config = Base.copy(solver_configs[fire])
         sp_config["model_data"] = fire_model_configs[fire]
         sp_config["solver_strategy"] = "ceiling"
         sp_config["warm_start"] = "dummy"
@@ -1762,8 +1762,8 @@ end
 function run_CG_step(cg, arcs, costs, global_data, region_data, fire_model_configs, solver_configs, cg_config,
     rot_order, gamma, recover_fire_sp_cost, mp)
 
-    last_num_routes = copy(cg.routes.routes_per_crew)
-    last_num_plans = copy(cg.suppression_plans.plans_per_fire)
+    last_num_routes = Base.copy(cg.routes.routes_per_crew)
+    last_num_plans = Base.copy(cg.suppression_plans.plans_per_fire)
 
     t = @elapsed optimize!(mp["m"])
     obj = objective_value(mp["m"])
@@ -1780,7 +1780,7 @@ function run_CG_step(cg, arcs, costs, global_data, region_data, fire_model_confi
 
 
 
-    true_rho = copy(rho)
+    true_rho = Base.copy(rho)
 
     if "ws_dual_weight" in keys(cg_config)
         if cg_config["ws_dual_weight"] > 0
@@ -1803,7 +1803,7 @@ function run_CG_step(cg, arcs, costs, global_data, region_data, fire_model_confi
     for fire in 1:NUM_FIRES
 
         # run the subproblem
-        sp_config = copy(solver_configs[fire])
+        sp_config = Base.copy(solver_configs[fire])
         sp_config["model_data"] = fire_model_configs[fire]
         sp_config["solver_strategy"] = "ceiling"
         sp_config["warm_start"] = false
@@ -1895,7 +1895,7 @@ function suppression_plan_perturbations(start_plan, count)
     ixs_2 = [i - 1 for i in 2:NUM_TIME_PERIODS if start_plan[i] > 0]
     ixs_to_perturb = sort(unique(vcat(ixs, ixs_1, ixs_2)))
 
-    start_plan_copy = copy(start_plan)
+    start_plan_copy = Base.copy(start_plan)
 
     # hack if no fire suppression
     if length(ixs) == 0
@@ -1913,9 +1913,9 @@ function suppression_plan_perturbations(start_plan, count)
         curr_length = length(found)
 
         # push a new possible plan
-        new_plan = copy(start_plan_copy)
+        new_plan = Base.copy(start_plan_copy)
         new_plan[ixs[1]] = new_plan[ixs[1]] + perturb
-        push!(found, copy(new_plan))
+        push!(found, Base.copy(new_plan))
 
         # find all ways to perturb the valid indices while saying within
         # prescribed crew bounds and keeping total crews unchanged
@@ -1926,11 +1926,11 @@ function suppression_plan_perturbations(start_plan, count)
                 for ix in nonzero
                     for ix2 in nonfull
                         if ix2 != ix
-                            next_arr = copy(current_arr)
+                            next_arr = Base.copy(current_arr)
                             next_arr[ix] -= 1
                             next_arr[ix2] += 1
                             if !(next_arr in found)
-                                push!(found, copy(next_arr))
+                                push!(found, Base.copy(next_arr))
                             end
                         end
                     end

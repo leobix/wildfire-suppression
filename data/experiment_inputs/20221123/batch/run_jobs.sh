@@ -9,7 +9,7 @@
 #SBATCH --mail-type=BEGIN,END,FAIL
 #SBATCH --mail-user=jacobwac@mit.edu
 
-module load julia/1.7.3
+module load julia/1.8.5
 module load gurobi/8.1.1
 
 

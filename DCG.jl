@@ -1632,7 +1632,7 @@ function run_CG_step(cg, arcs, costs, global_data, region_data, fire_model_confi
     last_num_plans = copy(cg.suppression_plans.plans_per_fire)
 
     t = @elapsed optimize!(mp["m"])
-    obj = objective_value(mp["m"])
+    mp_obj = objective_value(mp["m"])
     rho = dual.(mp["rho"])
     allotments = get_fire_allotments(mp, cg)
     # println("solve")
@@ -1643,7 +1643,7 @@ function run_CG_step(cg, arcs, costs, global_data, region_data, fire_model_confi
     rho = dual.(mp["rho"])
     eta = dual.(mp["eta"])
     pie = dual.(mp["pi"]) # lol can't overwrite "pi" in Julia
-
+    reduced_costs = []
 
 
     true_rho = copy(rho)
@@ -1698,6 +1698,7 @@ function run_CG_step(cg, arcs, costs, global_data, region_data, fire_model_confi
                 if rel_cost < pie[fire] - 0.0001
 
                     found_plan = true
+                    push!(reduced_costs, rel_cost - pie[fire])
 
                     # adjust cost to true value if needed
                     if recover_fire_sp_cost
@@ -1724,6 +1725,7 @@ function run_CG_step(cg, arcs, costs, global_data, region_data, fire_model_confi
             # add it
             crew_arcs = [i for i in cg.route_sps[crew]["arc_ixs"] if (value(assignments[i]) > 0.5)]
             update_available_routes(crew, crew_arcs, arcs, costs, cg.routes)
+            push!(reduced_costs, obj - sigma[crew])
 
         end
 
@@ -1736,7 +1738,7 @@ function run_CG_step(cg, arcs, costs, global_data, region_data, fire_model_confi
     t += @elapsed mp = update_master_problem(mp, cg.routes, cg.suppression_plans, routes, plans)
     # println("formulate")
     # println(t)
-    return mp, obj, rho, allotments
+    return mp, mp_obj, reduced_costs, rho, sigma, pie, allotments
 end
 
 function get_fire_allotments(solved_mp, cg_data_object)

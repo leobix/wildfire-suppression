@@ -17,6 +17,12 @@ function run_experiment(date, json_name, write_output)
     for key in keys(external_params["dcg"])
         dcg_params[key] = external_params["dcg"][key]
     end
+    for key in keys(external_params)
+        if key in keys(dcg_params)
+            dcg_params[key] = external_params[key]
+        end
+    end
+
 
     # update global variables
     global NUM_FIRES = dcg_params["num_fires"]
@@ -40,7 +46,8 @@ function run_experiment(date, json_name, write_output)
     iterations, timings, cg_data = generate_new_plans(dcg_params, preprocessed_data, cg_data, capacity_perturbations, -1, 0)
     
     # restore integrality
-    form_time, sol_time, pb = restore_integrality(cg_data, 3600);
+    form_time, sol_time, pb = restore_integrality(cg_data, 3600)
+    pb_allot = convert.(Int, round.(100 .* get_fire_allotments(pb, cg_data)) ./ 100);
     
     # write output to JSON
     if write_output
@@ -64,6 +71,8 @@ function run_experiment(date, json_name, write_output)
         outputs["restore_integrality"]["solve_time"] = sol_time
         outputs["restore_integrality"]["pb_objective"] = objective_value(pb["m"])
         outputs["restore_integrality"]["pb_objective_bound"] = objective_bound(pb["m"])
+        outputs["restore_integrality"]["allotment"] = pb_allot
+        
         
         
         open(out_dir * json_name * ".json", "w") do f
@@ -72,7 +81,7 @@ function run_experiment(date, json_name, write_output)
   
     end
     
-    return 1  
+    return cg_data
 end
     
 

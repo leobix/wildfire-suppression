@@ -1712,21 +1712,11 @@ function run_CG_step(cg, arcs, costs, global_data, region_data, fire_model_confi
         end
     end
 
-    crew_objs = Vector(undef, NUM_CREWS)
-    crew_assignments = Vector(undef, NUM_CREWS)
-    Threads.@threads for crew in 1:NUM_CREWS
-        print(Threads.threadid())
-        print(Threads.nthreads())
-        crew_objs[crew], crew_assignments[crew] = run_crew_subproblem(cg.route_sps, crew, costs, local_costs)
-    end
-
     # for each crew
     for crew in 1:NUM_CREWS
 
         # run the crew subproblem
-        # obj, assignments = run_crew_subproblem(cg.route_sps, crew, costs, local_costs)
-        obj = crew_objs[crew]
-        assignments = crew_assignments[crew]
+        obj, assignments = run_crew_subproblem(cg.route_sps, crew, costs, local_costs)
 
 
         # if there is an improving route

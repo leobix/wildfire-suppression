@@ -705,16 +705,40 @@ function master_problem(col_gen_config, route_data, supp_plan_data, region_data,
     # linking constraint
 
     if col_gen_config["master_problem"]["dual_stabilization"] == false
-        @constraint(m, linking[g=1:NUM_FIRES, t=1:NUM_TIME_PERIODS],
 
-            # crews at fire
-            sum(route[c, r] * route_data.fires_fought[c, r, g, t]
-                for c = 1:NUM_CREWS, r = 1:route_data.routes_per_crew[c])
-            >=
+        if false
 
-            # crews suppressing
-            sum(plan[g, p] * supp_plan_data.crews_present[g, p, t]
-                for p = 1:supp_plan_data.plans_per_fire[g]))
+            # we want to make natural variables and prioritize them for branching
+            @variable(m, supply[g=1:NUM_FIRES, t=1:NUM_TIME_PERIODS] >= 0, Int)
+            @variable(m, demand[g=1:NUM_FIRES, t=1:NUM_TIME_PERIODS] >= 0, Int)
+            @constraint(m, supply_sum[g=1:NUM_FIRES, t=1:NUM_TIME_PERIODS], 
+                        sum(route[c, r] * route_data.fires_fought[c, r, g, t]
+                            for c = 1:NUM_CREWS, r = 1:route_data.routes_per_crew[c])
+                        == supply[g, t])
+            @constraint(m, demand_sum[g=1:NUM_FIRES, t=1:NUM_TIME_PERIODS],
+                        sum(plan[g, p] * supp_plan_data.crews_present[g, p, t]
+                            for p = 1:supp_plan_data.plans_per_fire[g]) 
+                        == demand[g, t])
+            for g in 1:NUM_FIRES
+                for t in 1:NUM_TIME_PERIODS
+                    MOI.set(m, Gurobi.VariableAttribute("BranchPriority"), supply[g, t], 5)
+                    MOI.set(m, Gurobi.VariableAttribute("BranchPriority"), demand[g, t], 4)
+                end
+            end
+            @constraint(m, linking[g=1:NUM_FIRES, t=1:NUM_TIME_PERIODS], supply[g, t] >= demand[g, t])
+  
+        else
+            @constraint(m, linking[g=1:NUM_FIRES, t=1:NUM_TIME_PERIODS],
+
+                # crews at fire
+                sum(route[c, r] * route_data.fires_fought[c, r, g, t]
+                    for c = 1:NUM_CREWS, r = 1:route_data.routes_per_crew[c])
+                >=
+
+                # crews suppressing
+                sum(plan[g, p] * supp_plan_data.crews_present[g, p, t]
+                    for p = 1:supp_plan_data.plans_per_fire[g]))
+        end
     elseif col_gen_config["master_problem"]["dual_stabilization"] == "global"
 
         # get expected dual value ratios
@@ -846,7 +870,7 @@ function init_suppression_plan_subproblem(progs, perims, fire, beta)
 end
 
 function full_network_flow(region_data, constraint_data, rotation_order,
-    r_arc_costs, f_arc_costs, crews_needed, fire_linking_arcs,
+    r_arc_costs, f_arc_costs, crews_needed, fire_linking_arcs, state_offsets,
     fire_start_arcs, f_out_arcs, f_in_arcs, gamma, integer=false, verbose=false)
 
     # get number of arcs
@@ -938,7 +962,8 @@ function full_network_flow(region_data, constraint_data, rotation_order,
     )
 
     return Dict("m" => m, "d" => d, "z" => z, "y" => y, "q" => q, "oor" => out_of_region,
-        "r_linking" => route_linking, "f_linking" => fire_linking)
+        "r_linking" => route_linking, "f_linking" => fire_linking, "crew_flow" => fire_flow, "fire_flow" => state_flow, 
+        "fire_state_lookup" => state_offsets)
 
 end
 
@@ -988,6 +1013,7 @@ function warm_start_suppression_plans(plans_per_fire, fire_model_configs, region
     state_offsets = [size(fire_sps[fire][round_type]["out_arcs"])[1] for fire in 1:NUM_FIRES]
     state_offsets = cumsum(state_offsets)
 
+    arcs_by_fire = []
     for all_arcs in [all_out_arcs, all_in_arcs]
         for i in 1:size(all_arcs)[1]
             for fire in 1:NUM_FIRES
@@ -1005,7 +1031,7 @@ function warm_start_suppression_plans(plans_per_fire, fire_model_configs, region
     start_arcs = reduce(vcat, all_in_arcs[:, 1])
 
     network_flow_model = full_network_flow(region_data, constraint_data, rotation_order,
-        r_arc_costs, fire_arc_costs, crew_requirements, fire_linking,
+        r_arc_costs, fire_arc_costs, crew_requirements, fire_linking, state_offsets,
         start_arcs, all_out_arcs, all_in_arcs, gamma, integer, verbose)
 
     if integer
@@ -1018,6 +1044,7 @@ function warm_start_suppression_plans(plans_per_fire, fire_model_configs, region
     d = network_flow_model["d"]
     network_flow_model["arcs"] = concat_fire_arcs
     network_flow_model["arc_costs"] = fire_arc_costs
+
 
     return [suppression_plan_perturbations(ceil.(value.(d[fire, :]) .- 0.00001), plans_per_fire) for fire in 1:NUM_FIRES], network_flow_model
 end
@@ -1666,6 +1693,7 @@ function run_CG_step(cg, arcs, costs, global_data, region_data, fire_model_confi
     ## run subproblems ##
 
     # for each fire
+    fire_sp_time = 0
     for fire in 1:NUM_FIRES
 
         # run the subproblem
@@ -1690,7 +1718,7 @@ function run_CG_step(cg, arcs, costs, global_data, region_data, fire_model_confi
                 sp_config["break_capacity_penalty"] = adjust_price[2]
 
 
-                cost, modified_rel_cost, allotment = run_fire_subproblem(cg.plan_sps[fire], sp_config, rho[fire, :])
+                fire_sp_time += @elapsed cost, modified_rel_cost, allotment = run_fire_subproblem(cg.plan_sps[fire], sp_config, rho[fire, :])
 
                 rel_cost = cost + sum(allotment .* true_rho[fire, :])
 
@@ -1712,11 +1740,13 @@ function run_CG_step(cg, arcs, costs, global_data, region_data, fire_model_confi
         end
     end
 
+    
     # for each crew
+    crew_sp_time = 0
     for crew in 1:NUM_CREWS
 
         # run the crew subproblem
-        obj, assignments = run_crew_subproblem(cg.route_sps, crew, costs, local_costs)
+        crew_sp_time += @elapsed obj, assignments = run_crew_subproblem(cg.route_sps, crew, costs, local_costs)
 
 
         # if there is an improving route
@@ -1738,6 +1768,9 @@ function run_CG_step(cg, arcs, costs, global_data, region_data, fire_model_confi
     t += @elapsed mp = update_master_problem(mp, cg.routes, cg.suppression_plans, routes, plans)
     # println("formulate")
     # println(t)
+    # println(fire_sp_time)
+    # println(crew_sp_time)
+    # println()
     return mp, mp_obj, reduced_costs, rho, sigma, pie, allotments
 end
 

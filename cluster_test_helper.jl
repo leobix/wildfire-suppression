@@ -69,19 +69,29 @@ function single_DCG_node(test_features, data)
         ts["ws"] = @elapsed ws, ws_dict = warm_start_suppression_plans(10, fire_configs, r_data, c_data, rotation_order, arc_costs,
             gamma, false, false, 3600)
 
+
         if test_features["dual_warm_start"] == "calculate"
+
+            # recreate linking constraints in full network flow formulation
             test_features["dual_warm_start"] = dual.(ws_dict["f_linking"])
+            # test_features["dual_warm_start"] += dual.(ws_dict["r_linking"])
+            # state_bounds = vcat([0], ws_dict["fire_state_lookup"])
+            # test_features["dual_warm_start"] += dropdims(sum(dual.(ws_dict["crew_flow"]), dims=(1, 4)), dims=(1, 4))
+            # fire_flow_duals = reduce(hcat, [dropdims(sum(dual.(ws_dict["fire_flow"])[state_bounds[g]+1:state_bounds[g+1], :], dims=1), dims=1) for g in 1:NUM_FIRES])'
+            # test_features["dual_warm_start"] += fire_flow_duals
+
+            test_features["warm_start_allotments"] = value.(ws_dict["d"])
         end
 
-        if test_features["apply_warm_start"]
-            for fire in 1:NUM_FIRES
-                ws_fire = ws[fire]
-                for plan in ws_fire
-                    cost = get_fire_cost(plan, fire_configs[fire])
-                    update_available_supp_plans(fire, cost, plan, col_gen_data.suppression_plans)
-                end
-            end
-        end
+        # if test_features["apply_warm_start"]
+        #     for fire in 1:NUM_FIRES
+        #         ws_fire = ws[fire]
+        #         for plan in ws_fire
+        #             cost = get_fire_cost(plan, fire_configs[fire])
+        #             update_available_supp_plans(fire, cost, plan, col_gen_data.suppression_plans)
+        #         end
+        #     end
+        # end
 
         global AGG_PREC = test_features["agg_prec"]
         global PASSIVE_STATES = test_features["passive_states"]
@@ -109,7 +119,6 @@ function single_DCG_node(test_features, data)
 
     current_num_routes = copy(col_gen_data.routes.routes_per_crew)
     current_num_plans = copy(col_gen_data.suppression_plans.plans_per_fire)
-
 
     while (~opt) & (n_iters < max_iters) & (ts["cg"] < max_time)
 
@@ -235,8 +244,10 @@ function single_DCG_node(test_features, data)
     d["pis"] = pis
     d["mp"] = mp
     d["allotment_history"] = allotment_history
+    allotments["warm_start"] = test_features["warm_start_allotments"]
     d["allotments"] = allotments
     d["reduced_costs"] = reduced_costs
+    d["dual_warm_start"] = test_features["dual_warm_start"]
     return d, col_gen_data
 end
 
@@ -359,7 +370,8 @@ function restore_integrality(cg_data, time_limit)
 
     form_time = @elapsed pb = master_problem(config, cg_data.routes, cg_data.suppression_plans,
         r_data, rotation_order, 0, true)
-    set_optimizer_attribute(pb["m"], "TimeLimit", time_limit - form_time)
+    set_optimizer_attribute(pb["m"], "TimeLimit", max(1, time_limit - form_time))
+    set_optimizer_attribute(pb["m"], "OutputFlag", 0)
     sol_time = @elapsed optimize!(pb["m"])
 
     return form_time, sol_time, pb

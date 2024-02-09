@@ -1358,6 +1358,184 @@ function get_state_entrance_cost(state, enter_time, params)
     end
 end
 
+function fire_dp_inner_loop(arc, arc_ix, this_arc_cost, path_costs, min_cost, min_index) 
+
+    TIME_FROM_ = 3
+    STATE_FROM_ = 2 
+
+    # get the time from which this arc comes
+    time_from = arc[TIME_FROM_]
+
+    # arcs from time 0 have no past state cost
+    past_state_cost = 0
+    
+    # but for other arcs
+    if time_from >= 1
+
+        # get the info of where the arc came from
+        state_from = arc[STATE_FROM_]
+        time_from = arc[TIME_FROM_]
+
+        # get the min cost path to the prior state
+        past_state_cost = path_costs[state_from, time_from]   
+    end
+
+    # find the path cost, update min cost and index if needed
+    possible_cost = this_arc_cost + past_state_cost
+    if possible_cost < min_cost
+        min_cost = possible_cost
+        min_index = arc_ix
+    end
+
+    return min_cost, min_index
+end
+
+function fire_dp_subproblem(arcs, arc_costs, state_in_arcs)
+
+    TIME_FROM_ = 3
+    STATE_FROM_ = 2 
+
+    path_costs = zeros(Float64, size(state_in_arcs)) .+ 1e30
+    in_arcs = zeros(Int, size(state_in_arcs))
+    states, times = size(state_in_arcs)
+    
+    # iterate over times first for algorithm correctness
+    for t in 1:times
+        for s in 1:states
+            min_cost = 1e30
+            min_index = -1
+
+            # for each arc entering this state
+            for arc_ix in state_in_arcs[s, t]
+
+                arc = @view arcs[:, arc_ix]
+                this_arc_cost = arc_costs[arc_ix]
+                min_cost, min_index = fire_dp_inner_loop(arc, arc_ix, this_arc_cost, path_costs, min_cost, min_index)
+            end
+
+            # store state shortest path and cost
+            path_costs[s, t] = min_cost
+            in_arcs[s, t] = min_index        
+        end
+    end
+    
+    lowest_cost, end_index = findmin(path_costs[:, times, :])
+    full_min_index = (Tuple(end_index)[1], times, Tuple(end_index)[2])
+    
+    current_state = full_min_index
+    arcs_used = []
+    while (current_state[2] != 0)
+        arc_ix = in_arcs[current_state...]
+        push!(arcs_used, arc_ix)
+        arc = @view arcs[:, arc_ix]
+        state_from = arc[STATE_FROM_]
+        time_from = arc[TIME_FROM_]
+        current_state = (state_from, time_from)
+    end
+
+    return lowest_cost, arcs_used
+end
+
+function crew_dp_inner_loop(arc, arc_ix, this_arc_cost, path_costs, min_cost, min_index) 
+
+    BASE_CODE_ = 2
+    FROM_TYPE_ = 2
+    LOC_FROM_ = 3
+    TIME_FROM_ = 6
+    REST_FROM_ = 8
+
+    # get the time from which this arc comes
+    time_from = arc[TIME_FROM_]
+
+    # arcs from time 0 have no past state cost
+    past_state_cost = 0
+
+    # but for other arcs
+    if time_from >= 1
+
+        # get the info of where the arc came from
+        from_type = arc[FROM_TYPE_]
+        loc_from = arc[LOC_FROM_]
+        rest_from = arc[REST_FROM_] + 1
+
+        # if we came from a base, that's the last row in the state matrix
+        if from_type == BASE_CODE_
+            past_state_cost = path_costs[size(path_costs)[1], time_from, rest_from]
+
+        # otherwise it is the fire index row
+        else
+            past_state_cost = path_costs[loc_from, time_from, rest_from]   
+        end
+    end
+
+    # find the path cost, update min cost and index if needed
+    
+    possible_cost = this_arc_cost + past_state_cost
+    if possible_cost < min_cost
+        min_cost = possible_cost
+        min_index = arc_ix
+    end
+
+    return min_cost, min_index
+end
+
+function crew_dp_subproblem(arcs, arc_costs, state_in_arcs)
+
+    BASE_CODE_ = 2
+    FROM_TYPE_ = 2
+    LOC_FROM_ = 3
+    TIME_FROM_ = 6
+    REST_FROM_ = 8
+
+    path_costs = zeros(size(state_in_arcs)) .+ 1e30
+    in_arcs = zeros(Int, size(state_in_arcs))
+    locs, times, rests = size(state_in_arcs)
+    
+    # iterate over times first for algorithm correctness, locs last for performance
+    for t in 1:times
+        for r in 1:rests
+            for l in 1:locs
+                min_cost = 1e30
+                min_index = -1
+    
+                # for each arc entering this state
+                for arc_ix in state_in_arcs[l, t, r]
+
+                    arc = @view arcs[:, arc_ix]
+                    this_arc_cost = arc_costs[arc_ix]
+                    min_cost, min_index = crew_cp_inner_loop(arc, arc_ix, this_arc_cost, path_costs, min_cost, min_index)
+                end
+    
+                # store state shortest path and cost
+                path_costs[l, t, r] = min_cost
+                in_arcs[l, t, r] = min_index        
+                    
+            end
+        end
+    end
+    
+    lowest_cost, end_index = findmin(path_costs[:, times, :])
+    full_min_index = (Tuple(end_index)[1], times, Tuple(end_index)[2])
+    
+    current_state = full_min_index
+    arcs_used = []
+    while (current_state[2] != 0)
+        arc_ix = in_arcs[current_state...]
+        push!(arcs_used, arc_ix)
+        time_from = arcs[TIME_FROM, arc_ix]
+        from_type = arcs[FROM_TYPE, arc_ix]
+        loc_from = arcs[LOC_FROM, arc_ix]
+        rest_from = arcs[REST_FROM, arc_ix] + 1
+        if from_type == BASE_CODE
+            current_state = (locs, time_from, rest_from)
+        else
+            current_state = (loc_from, time_from, rest_from)   
+        end
+    end
+
+    return lowest_cost, arcs_used
+end
+
 function init_suppression_plan_subproblem(config)
 
     if config["solver_type"] == "dp"
@@ -1379,6 +1557,52 @@ function init_suppression_plan_subproblem(config)
         end
 
         return Dict("graphs" => graphs, "avail_nodes" => nodes_avail, "state_costs" => state_costs)
+
+    elseif config["solver_type"] == "dp_fast"
+
+        # make graphs (legacy)
+        states = create_discrete_fire_states(config["model_data"])
+        graphs = generate_graphs(states, config["model_data"], ["ceiling", "floor"])
+
+        # get costs to enter each state
+        state_costs = zeros(length(states), NUM_TIME_PERIODS + 1)
+        for i = 1:length(states)
+            for j = 1:NUM_TIME_PERIODS+1
+                state_costs[i, j] = get_state_entrance_cost(states[i], j, config["model_data"])
+            end
+        end
+
+        # use the conservative graph for crew requirements
+        graph = graphs["ceiling"]
+
+        # get the arcs and crew requirements
+        arc_array = arcs_from_state_graph(graph)
+        n_arcs = length(arc_array[:, 1])
+
+        # add crew to front (actually, this is deprecated, adding just -1's to keep column order)
+        arc_array = hcat(convert.(Int, zeros(length(arc_array[:, 1]))) .- 1, arc_array)
+
+        # get costs
+        arc_costs = [state_costs[arc_array[i, 5], arc_array[i, 4]] for i in 1:n_arcs]
+
+        # get states
+        n_states = size(state_costs)[1]
+
+        # get arcs entering (in) and exiting (out) each state
+        out_arcs = Array{Vector{Int64}}(undef, n_states, NUM_TIME_PERIODS+1)
+        in_arcs = Array{Vector{Int64}}(undef, n_states, NUM_TIME_PERIODS+1)
+        for s in 1:n_states
+            state_arcs = [i for i in 1:n_arcs if arc_array[i, 5] == s]
+            for t in 1:NUM_TIME_PERIODS+1
+                in_arcs[s, t] = [i for i in state_arcs if arc_array[i, 4] == t]
+            end
+        end
+
+        # column based array storage in Julia makes this faster with transpose
+        arc_array = collect(arc_array')
+
+        return Dict("arcs" => arc_array, "costs" => arc_costs, "in_arcs" => in_arcs)
+
 
     elseif config["solver_type"] == "network_flow_gurobi"
 
@@ -1476,7 +1700,38 @@ end
 
 function run_fire_subproblem(sp, config, rho)
 
-    if config["solver_type"] == "gurobi"
+    if config["solver_type"] == "dp_fast"
+
+        orig_costs = sp["costs"]
+        arcs = sp["arcs"]
+
+        TIME_FROM_ = 3
+        CREWS_PRESENT_ = 6
+
+        # no dual cost start edge
+        # add a 0 index for faster lookup, could be optimized
+        temp_rho = vcat(0., rho)
+
+        if config["warm_start"] == "dummy"
+            temp_rho = zeros(length(temp_rho)) .+ 1e30
+        end
+
+        rel_costs = temp_rho[arcs[TIME_FROM_, :] .+ 1] .* arcs[CREWS_PRESENT_, :]
+
+        break_capacity_penalty = config["break_capacity_penalty"]
+        if break_capacity_penalty > 0
+            capacities = config["capacities"]
+            temp_capacities = vcat(0., capacities)
+            cap_costs = (arcs[CREWS_PRESENT_, :] .> temp_capacities[arcs[TIME_FROM_, :] .+ 1]) .* break_capacity_penalty
+            rel_costs += cap_costs
+        end
+
+        total_costs = orig_costs + rel_costs
+        lowest_cost, arcs_used = fire_dp_subproblem(arcs, total_costs, sp["in_arcs"])
+        true_cost = sum(orig_costs[arcs_used])
+        return true_cost, lowest_cost, reverse(arcs[CREWS_PRESENT_, arcs_used][1:NUM_TIME_PERIODS])
+
+    elseif config["solver_type"] == "gurobi"
 
         if config["model_data"]["model_type"] == "simple_linear"
 
@@ -1619,12 +1874,15 @@ function initialize_column_generation(arcs, costs, constraint_data, fire_model_c
         sp_config["solver_strategy"] = "ceiling"
         sp_config["warm_start"] = "dummy"
 
-        if sp_config["solver_type"] == "dp"
+        if (sp_config["solver_type"] == "dp") | (sp_config["solver_type"] == "dp_fast")
             sp_config["capacities"] = zeros(NUM_TIME_PERIODS)
             sp_config["break_capacity_penalty"] = 0
         end
 
         cost, rel_cost, allotment = run_fire_subproblem(plan_sps[fire], sp_config, zeros(NUM_TIME_PERIODS))
+        # println(fire)
+        # println(allotment)
+        # println()
 
         # update suppression plans
         update_available_supp_plans(fire, cost, allotment, suppression_plans)
@@ -1652,6 +1910,16 @@ function run_crew_subproblem(sps, crew, costs, local_costs)
     return objective_value(m), z
 end
 
+function grab_duals(mp)
+
+    sigma = dual.(mp["sigma"])
+    rho = dual.(mp["rho"])
+    eta = dual.(mp["eta"])
+    pie = dual.(mp["pi"]) # lol can't overwrite "pi" in Julia
+
+    return sigma, rho, eta, pie
+end
+
 function run_CG_step(cg, arcs, costs, global_data, region_data, fire_model_configs, solver_configs, cg_config,
     rot_order, gamma, recover_fire_sp_cost, mp)
 
@@ -1659,42 +1927,37 @@ function run_CG_step(cg, arcs, costs, global_data, region_data, fire_model_confi
     last_num_plans = copy(cg.suppression_plans.plans_per_fire)
 
     t = @elapsed optimize!(mp["m"])
+    println("solve")
+    println(t)
     mp_obj = objective_value(mp["m"])
-    rho = dual.(mp["rho"])
-    allotments = get_fire_allotments(mp, cg)
-    # println("solve")
-    # println(t)
+    t = @elapsed allotments = get_fire_allotments(mp, cg)
+    println("get fire allotments")
+    println(t)
+
 
     # grab the dual variables
-    sigma = dual.(mp["sigma"])
-    rho = dual.(mp["rho"])
-    eta = dual.(mp["eta"])
-    pie = dual.(mp["pi"]) # lol can't overwrite "pi" in Julia
+    t = @elapsed sigma, rho, eta, pie = grab_duals(mp)
+    println("grab duals")
+    println(t)
+
+
     reduced_costs = []
-
-
     true_rho = copy(rho)
-
-    if "ws_dual_weight" in keys(cg_config)
-        if cg_config["ws_dual_weight"] > 0
-            error("Wrong type of dual warm start (useless stabilization)")
-            # lambda = cg_config["ws_dual_weight"]
-            # ws_dual_values = cg_config["ws_dual"]
-            # rho = (lambda * (ws_dual_values)) .+ ((1 - lambda) * rho)
-        end
-    end
-
 
 
     # using the dual variables, get the local adjustments to the arc costs in the route subproblems
-    d = Dict("out_of_region_dual" => eta, "region_data" => region_data, "rotation_order" => rot_order, "linking_dual" => rho)
-    local_costs = get_arc_costs(global_data, arcs, d)
+    t = @elapsed d = Dict("out_of_region_dual" => eta, "region_data" => region_data, "rotation_order" => rot_order, "linking_dual" => rho)
+    println("make arc modify input dict")
+    println(t)
+    t = @elapsed local_costs = get_arc_costs(global_data, arcs, d)
+    println("modify arcs")
+    println(t)
 
     ## run subproblems ##
 
     # for each fire
     fire_sp_time = 0
-    for fire in 1:NUM_FIRES
+    full_fire_sp_time = @elapsed for fire in 1:NUM_FIRES
 
         # run the subproblem
         sp_config = copy(solver_configs[fire])
@@ -1707,19 +1970,25 @@ function run_CG_step(cg, arcs, costs, global_data, region_data, fire_model_confi
 
             if ~found_plan
                 if "int_aware_capacities" in keys(sp_config)
-                    allotments = sp_config["int_aware_capacities"]
+                    capacities = sp_config["int_aware_capacities"]
                 else
                     # grab the allotments
-                    allotments = get_fire_allotments(mp, cg)
+                    capacities = allotments
                 end
 
-                sp_config["capacities"] = (allotments.+adjust_price[1])[fire, :]
+                sp_config["capacities"] = (capacities.+adjust_price[1])[fire, :]
                 sp_config["capacities"] = max.(sp_config["capacities"], 0)
                 sp_config["break_capacity_penalty"] = adjust_price[2]
 
 
                 fire_sp_time += @elapsed cost, modified_rel_cost, allotment = run_fire_subproblem(cg.plan_sps[fire], sp_config, rho[fire, :])
-
+                # if fire == 1
+                #     println(cost)
+                #     println(modified_rel_cost)
+                #     println(allotment)
+                #     println(rho[fire, :])
+                #     println()
+                # end
                 rel_cost = cost + sum(allotment .* true_rho[fire, :])
 
                 # if there is an improving plan
@@ -1743,7 +2012,7 @@ function run_CG_step(cg, arcs, costs, global_data, region_data, fire_model_confi
     
     # for each crew
     crew_sp_time = 0
-    for crew in 1:NUM_CREWS
+    full_crew_sp_time = @elapsed for crew in 1:NUM_CREWS
 
         # run the crew subproblem
         crew_sp_time += @elapsed obj, assignments = run_crew_subproblem(cg.route_sps, crew, costs, local_costs)
@@ -1766,11 +2035,15 @@ function run_CG_step(cg, arcs, costs, global_data, region_data, fire_model_confi
     t += @elapsed plans = findall(last_num_plans .< cg.suppression_plans.plans_per_fire)
     t += @elapsed routes = findall(last_num_routes .< cg.routes.routes_per_crew)
     t += @elapsed mp = update_master_problem(mp, cg.routes, cg.suppression_plans, routes, plans)
-    # println("formulate")
-    # println(t)
-    # println(fire_sp_time)
-    # println(crew_sp_time)
-    # println()
+    println("formulate")
+    println(t)
+    println("fire sp, crew sp")
+    println(fire_sp_time)
+    println(crew_sp_time)
+    println("full fire sp, full crew sp")
+    println(full_fire_sp_time)
+    println(full_crew_sp_time)
+    println()
     return mp, mp_obj, reduced_costs, rho, sigma, pie, allotments
 end
 

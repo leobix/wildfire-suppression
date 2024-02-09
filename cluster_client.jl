@@ -1,6 +1,7 @@
 include("cluster_test_helper.jl")
 include("DCG.jl")
 
+using Profile
 using JSON
 const GRB_ENV = Gurobi.Env()
 
@@ -36,61 +37,60 @@ function run_experiment(date, json_name, write_output)
     preprocessed_data = preprocess(dcg_params["in_path"])
 
     # run DCG at root node, saving dual warm start for future iterations
-    t = @elapsed d, cg_data = single_DCG_node(dcg_params, deepcopy(preprocessed_data))
-    @assert dcg_params["dual_warm_start"] != "calculate"
-    d["routes"] = deepcopy(cg_data.routes.routes_per_crew)
-    d["plans"] = deepcopy(cg_data.suppression_plans.plans_per_fire)
+    d, cg_data = single_DCG_node(dcg_params, deepcopy(preprocessed_data))
+    # @assert dcg_params["dual_warm_start"] != "calculate"
+    # d["routes"] = deepcopy(cg_data.routes.routes_per_crew)
+    # d["plans"] = deepcopy(cg_data.suppression_plans.plans_per_fire)
     
-    # update int-aware capacities from weighted average primal solution
-    dcg_params["int_aware_capacities"] = d["allotments"]["master_problem_reconstructed"]
+    # # update int-aware capacities from weighted average primal solution
+    # dcg_params["int_aware_capacities"] = d["allotments"]["master_problem_reconstructed"]
     
-    # generate int-aware plans
-    iterations, timings, cg_data = generate_new_plans(dcg_params, preprocessed_data, cg_data, capacity_perturbations, -1, 0)
-    # iterations, timings, a = (1, 1, 1)
+    # # generate int-aware plans
+    # iterations, timings, cg_data = generate_new_plans(dcg_params, preprocessed_data, cg_data, capacity_perturbations, -1, 0)
+    # # iterations, timings, a = (1, 1, 1)
     
-    # restore integrality
-    form_time, sol_time, pb = restore_integrality(cg_data, 30)
-    pb_allot = convert.(Int, round.(100 .* get_fire_allotments(pb, cg_data)) ./ 100);
+    # # restore integrality
+    # form_time, sol_time, pb = restore_integrality(cg_data, 30)
+    # pb_allot = convert.(Int, round.(100 .* get_fire_allotments(pb, cg_data)) ./ 100);
     
-    # write output to JSON
-    if write_output
+    # # write output to JSON
+    # if write_output
         
-        out_dir = "data/experiment_outputs/" * date * "/"
-        if (~isdir(out_dir))
-            mkpath(out_dir)
-        end
+    #     out_dir = "data/experiment_outputs/" * date * "/"
+    #     if (~isdir(out_dir))
+    #         mkpath(out_dir)
+    #     end
         
-        outputs = Dict{String, Any}()
-        delete!(d, "mp")
-        outputs["initial_DCG"] = d
-        outputs["generate_additional_plans"] = Dict{String, Any}()
-        outputs["generate_additional_plans"]["iterations"] = iterations
-        outputs["generate_additional_plans"]["timings"] = timings
-        outputs["cg_data"] = Dict{String, Any}()
-        outputs["cg_data"]["routes"] = cg_data.routes
-        outputs["cg_data"]["plans"] = cg_data.suppression_plans
-        outputs["restore_integrality"] = Dict{String, Any}()
-        outputs["restore_integrality"]["formulation_time"] = form_time
-        outputs["restore_integrality"]["solve_time"] = sol_time
-        outputs["restore_integrality"]["pb_objective"] = objective_value(pb["m"])
-        outputs["restore_integrality"]["pb_objective_bound"] = objective_bound(pb["m"])
-        outputs["restore_integrality"]["allotment"] = pb_allot
+    #     outputs = Dict{String, Any}()
+    #     delete!(d, "mp")
+    #     outputs["initial_DCG"] = d
+    #     outputs["generate_additional_plans"] = Dict{String, Any}()
+    #     outputs["generate_additional_plans"]["iterations"] = iterations
+    #     outputs["generate_additional_plans"]["timings"] = timings
+    #     outputs["cg_data"] = Dict{String, Any}()
+    #     outputs["cg_data"]["routes"] = cg_data.routes
+    #     outputs["cg_data"]["plans"] = cg_data.suppression_plans
+    #     outputs["restore_integrality"] = Dict{String, Any}()
+    #     outputs["restore_integrality"]["formulation_time"] = form_time
+    #     outputs["restore_integrality"]["solve_time"] = sol_time
+    #     outputs["restore_integrality"]["pb_objective"] = objective_value(pb["m"])
+    #     outputs["restore_integrality"]["pb_objective_bound"] = objective_bound(pb["m"])
+    #     outputs["restore_integrality"]["allotment"] = pb_allot
         
         
         
-        open(out_dir * json_name * ".json", "w") do f
-            JSON.print(f, outputs, 4)
-        end
+    #     open(out_dir * json_name * ".json", "w") do f
+    #         JSON.print(f, outputs, 4)
+    #     end
   
-    end
+    # end
     
     return cg_data
 end
     
-
+# run_experiment("20221123", "1", false)
 date = ARGS[1]
 number = ARGS[2]
-# run_experiment("20221123", "1", false)
 run_experiment(string(date), "precompile", false)
 run_experiment(string(date), string(number), true)
 

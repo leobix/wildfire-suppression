@@ -131,9 +131,12 @@ function single_DCG_node(test_features, data)
             end
         end
 
-        ts["cg"] += @elapsed mp, a, r_costs, r, s, p, c = run_CG_step(col_gen_data, A, arc_costs, g_data, r_data, fire_configs,
+        t = @elapsed mp, a, r_costs, r, s, p, c =  run_CG_step(col_gen_data, A, arc_costs, g_data, r_data, fire_configs,
             fire_solver_configs, col_gen_config, rotation_order, gamma,
             test_features["restore_cost"], mp)
+        println(t)
+        println()
+        ts["cg"] += t
 
         push!(objs, a)
         push!(reduced_costs, r_costs)
@@ -262,7 +265,7 @@ function default_params()
     params["num_fires"] = 6
     params["num_crews"] = 20
     params["line_per_crew"] = 17
-    params["fire_solver_type"] = "dp"
+    params["fire_solver_type"] = "dp_fast"
 
     params["apply_warm_start"] = false
     params["restore_cost"] = false

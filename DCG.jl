@@ -669,7 +669,7 @@ function load_data(path)
         CrewStatus(rest_by, current_fire, rested_periods))
 end
 
-function update_master_problem(mp, route_data, supp_plan_data, new_routes, new_plans)
+function update_master_problem!(mp, route_data, supp_plan_data, new_routes, new_plans)
 
     # for each crew where we found a new route
     for crew in new_routes
@@ -1882,7 +1882,7 @@ function initialize_column_generation(arcs, costs, constraint_data, fire_model_c
     wide_arcs = collect(arcs')
     # initialize subproblems
     route_sps = []
-    for crew in 1:NUM_CREWS
+    t = @elapsed for crew in 1:NUM_CREWS
         if crew_solver_configs[crew]["solver_type"] == "gurobi"
             ixs = [i for i in 1:length(arcs[:, 1]) if arcs[i, 1] == crew]
             d = init_route_subproblem(ixs, crew, constraint_data)
@@ -1893,15 +1893,19 @@ function initialize_column_generation(arcs, costs, constraint_data, fire_model_c
             push!(route_sps, sp)
         end
     end
+    println("init crews")
+    println(t)
 
     plan_sps = []
-    for fire in 1:NUM_FIRES
+    t = @elapsed for fire in 1:NUM_FIRES
         config = copy(fire_solver_configs[fire])
         config["model_data"] = fire_model_configs[fire]
         config["warm_start"] = false
         d = init_suppression_plan_subproblem(config)
         push!(plan_sps, d)
     end
+    println("init fires")
+    println(t)
 
     # initialize routes and suppression plans to populate
     routes = initialize_route_data(max_plans)
@@ -1992,7 +1996,8 @@ function run_CG_step(cg, wide_arcs, arc_costs, global_data, region_data, fire_mo
     t = @elapsed optimize!(mp["m"])
     println("solve")
     println(t)
-    mp_obj = objective_value(mp["m"])
+    t = @elapsed mp_obj = objective_value(mp["m"])
+    println(t)
     t = @elapsed allotments = get_fire_allotments(mp, cg)
     println("get fire allotments")
     println(t)
@@ -2101,7 +2106,7 @@ function run_CG_step(cg, wide_arcs, arc_costs, global_data, region_data, fire_mo
     t = 0
     t += @elapsed plans = findall(last_num_plans .< cg.suppression_plans.plans_per_fire)
     t += @elapsed routes = findall(last_num_routes .< cg.routes.routes_per_crew)
-    t += @elapsed mp = update_master_problem(mp, cg.routes, cg.suppression_plans, routes, plans)
+    t += @elapsed update_master_problem!(mp, cg.routes, cg.suppression_plans, routes, plans)
     println("formulate")
     println(t)
     println("fire sp, crew sp")
@@ -2111,7 +2116,7 @@ function run_CG_step(cg, wide_arcs, arc_costs, global_data, region_data, fire_mo
     println(full_fire_sp_time)
     println(full_crew_sp_time)
     println()
-    return mp, mp_obj, reduced_costs, rho, sigma, pie, allotments
+    return mp_obj, reduced_costs, rho, sigma, pie, allotments
 end
 
 function get_fire_allotments(solved_mp, cg_data_object)

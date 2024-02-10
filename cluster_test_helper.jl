@@ -132,7 +132,7 @@ function single_DCG_node(test_features, data)
             end
         end
 
-        t = @elapsed mp, a, r_costs, r, s, p, c =  run_CG_step(col_gen_data, collect(A'), arc_costs, g_data, r_data, fire_configs,
+        t = @elapsed a, r_costs, r, s, p, c =  run_CG_step(col_gen_data, collect(A'), arc_costs, g_data, r_data, fire_configs,
             fire_solver_configs, crew_solver_configs, col_gen_config, rotation_order, gamma,
             test_features["restore_cost"], mp)
         println(t)

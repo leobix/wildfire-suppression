@@ -16,7 +16,7 @@ function preprocess(in_path)
 
     rest_pen = get_rest_penalties(crew_status.rest_by, 1e10, positive)
     cost_params = Dict("cost_per_mile" => 1, "rest_violation" => rest_pen, "fight_fire" => ALPHA)
-    arc_costs = get_arc_costs(g_data, A, cost_params)
+    arc_costs = get_static_arc_costs(g_data, A, cost_params)
 
     c_data = define_network_constraint_data(A)
 
@@ -55,10 +55,11 @@ function single_DCG_node(test_features, data)
     allotments = Dict{String,Any}()
 
     fire_solver_configs = [Dict{String,Any}("solver_type" => test_features["fire_solver_type"]) for fire in 1:NUM_FIRES]
+    crew_solver_configs = [Dict{String,Any}("solver_type" => test_features["crew_solver_type"]) for crew in 1:NUM_CREWS]
 
     max_plans = 1000
     ts["init_cg"] = @elapsed col_gen_data = initialize_column_generation(A, arc_costs, c_data, fire_configs,
-        fire_solver_configs, max_plans)
+        fire_solver_configs, crew_solver_configs, max_plans)
 
 
     if (test_features["apply_warm_start"]) | (test_features["dual_warm_start"] == "calculate")
@@ -131,8 +132,8 @@ function single_DCG_node(test_features, data)
             end
         end
 
-        t = @elapsed mp, a, r_costs, r, s, p, c =  run_CG_step(col_gen_data, A, arc_costs, g_data, r_data, fire_configs,
-            fire_solver_configs, col_gen_config, rotation_order, gamma,
+        t = @elapsed mp, a, r_costs, r, s, p, c =  run_CG_step(col_gen_data, collect(A'), arc_costs, g_data, r_data, fire_configs,
+            fire_solver_configs, crew_solver_configs, col_gen_config, rotation_order, gamma,
             test_features["restore_cost"], mp)
         println(t)
         println()
@@ -266,6 +267,7 @@ function default_params()
     params["num_crews"] = 20
     params["line_per_crew"] = 17
     params["fire_solver_type"] = "dp_fast"
+    params["crew_solver_type"] = "dp_fast"
 
     params["apply_warm_start"] = false
     params["restore_cost"] = false

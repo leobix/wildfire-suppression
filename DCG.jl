@@ -167,7 +167,7 @@ function get_distance(from_type, from_ix, to_type, to_ix, fire_fire, base_fire)
     return dist
 end
 
-function get_arc_costs(gd, arcs, cost_param_dict)
+function get_static_arc_costs(gd, arcs, cost_param_dict)
 
     # get number of arcs
     n_arcs = length(arcs[:, 1])
@@ -192,8 +192,8 @@ function get_arc_costs(gd, arcs, cost_param_dict)
         # find the rest violation scores
         rest_violation_matrix = cost_param_dict["rest_violation"]
         rest_violations = [(arcs[i, 8] == 0) & (arcs[i, 6] > 0) ?
-                           rest_violation_matrix[arcs[i, 1], arcs[i, 6]] : 0
-                           for i in 1:n_arcs]
+                            rest_violation_matrix[arcs[i, 1], arcs[i, 6]] : 0
+                            for i in 1:n_arcs]
 
         # add to costs
         costs = costs .+ rest_violations
@@ -201,61 +201,95 @@ function get_arc_costs(gd, arcs, cost_param_dict)
 
     if "fight_fire" in keys(cost_param_dict)
         costs = costs .+ [(arcs[i, 4] == FIRE_CODE) ? cost_param_dict["fight_fire"] : 0
-                          for i in 1:n_arcs]
+                            for i in 1:n_arcs]
     end
 
-    # if we have to adjust for linking dual constraints
-    if "linking_dual" in keys(cost_param_dict)
+    return costs
+end
 
-        # get the dual variables
-        rho = cost_param_dict["linking_dual"]
+function get_fires_fought(wide_arcs, arcs_used, rho)
 
-        # get linking costs (really benefits) if arc goes to a fire
-        linking_costs = [((arcs[i, 4] == FIRE_CODE) & (arcs[i, 7] <= NUM_TIME_PERIODS)) ?
-                         -rho[arcs[i, 5], arcs[i, 7]] : 0
-                         for i in 1:n_arcs]
+    FIRE_CODE_ = 1
+    TO_TYPE_ = 4
+    LOC_TO_ = 5
+    TIME_TO_ = 7
 
-        # add to costs
-        costs = costs .+ linking_costs
+    time_periods = size(rho)[2]
 
+    # initialize fires fought matrix
+    fires_fought = zeros(Int8, NUM_FIRES, NUM_TIME_PERIODS)
+
+    # for each arc used
+    for ix in arcs_used
+        arc = @view wide_arcs[:, ix]
+
+        # update fires_fought
+        if (arc[TO_TYPE_] == FIRE_CODE_) & (arc[TIME_TO_] <= time_periods)
+            fires_fought[arc[LOC_TO_], arc[TIME_TO_]] += 1
+        end
     end
 
-    # if we have to adjust for linking dual constraints
-    if "out_of_region_dual" in keys(cost_param_dict)
+    return fires_fought
+end
 
-        # get needed regional info
-        regs = cost_param_dict["region_data"].crew_regions
-        rot_order = cost_param_dict["rotation_order"]
+function linking_dual_adjust_crew_arcs(wide_arcs, rho)
 
-        # get the dual variables
-        eta = cost_param_dict["out_of_region_dual"]
+    FIRE_CODE_ = 1
+    TO_TYPE_ = 4
+    LOC_TO_ = 5
+    TIME_TO_ = 7
 
-        # get adjustment for crew allotment
-        c1 = [(arcs[i, 10] > 0) ? sum(eta[arcs[i, 1], t_0]
-                                      for t_0 = arcs[i, 6]:NUM_TIME_PERIODS
-        ) : 0
+    time_periods = size(rho)[2]
+    n_arcs = size(wide_arcs)[2]
 
-              for i in 1:n_arcs
-        ]
+    return [((wide_arcs[TO_TYPE_, i] == FIRE_CODE) & (wide_arcs[TIME_TO_, i] <= time_periods)) ?
+    -rho[wide_arcs[LOC_TO_, i], wide_arcs[TIME_TO_, i]] : 0
+    for i in 1:n_arcs]
+end
 
-        # get adjustment for region average allotment
-        c2 = [(arcs[i, 10] > 0) ? sum(eta[c, t_0]
-                                      for c in keys(rot_order[regs[arcs[i, 1]]]),
-                                      t_0 = arcs[i, 6]:NUM_TIME_PERIODS) /
-                                  length(keys(rot_order[regs[arcs[i, 1]]])) : 0
 
-              for i in 1:n_arcs
-        ]
+# inefficiently written (transpose not needed)
+function get_rotation_order_costs(gd, wide_arcs, cost_param_dict)
 
-        # get adjustment for big-M constraint
-        c3 = [(arcs[i, 10] > 0) ? NUM_TIME_PERIODS * eta[arcs[i, 1], arcs[i, 6]] : 0
-              for i in 1:n_arcs
-        ]
+    arcs = collect(wide_arcs')
 
-        # add to costs
-        costs = costs .+ c1 .- c2 .+ c3
+    # get number of arcs
+    n_arcs = length(arcs[:, 1])
 
-    end
+    # initialize costs to 0
+    costs = zeros(n_arcs)
+
+    # get needed regional info
+    regs = cost_param_dict["region_data"].crew_regions
+    rot_order = cost_param_dict["rotation_order"]
+
+    # get the dual variables
+    eta = cost_param_dict["out_of_region_dual"]
+
+    # get adjustment for crew allotment
+    c1 = [(arcs[i, 10] > 0) ? sum(eta[arcs[i, 1], t_0]
+                                    for t_0 = arcs[i, 6]:NUM_TIME_PERIODS
+    ) : 0
+
+            for i in 1:n_arcs
+    ]
+
+    # get adjustment for region average allotment
+    c2 = [(arcs[i, 10] > 0) ? sum(eta[c, t_0]
+                                    for c in keys(rot_order[regs[arcs[i, 1]]]),
+                                    t_0 = arcs[i, 6]:NUM_TIME_PERIODS) /
+                                length(keys(rot_order[regs[arcs[i, 1]]])) : 0
+
+            for i in 1:n_arcs
+    ]
+
+    # get adjustment for big-M constraint
+    c3 = [(arcs[i, 10] > 0) ? NUM_TIME_PERIODS * eta[arcs[i, 1], arcs[i, 6]] : 0
+            for i in 1:n_arcs
+    ]
+
+    # add to costs
+    costs = costs .+ c1 .- c2 .+ c3
 
     return costs
 end
@@ -435,6 +469,20 @@ function update_available_routes(crew, route_ixs, arcs, costs, route_data)
 
     ## store this information to the route_data ##
     return update_available_crew_routes(crew, route_cost, fires_fought, out_of_region, route_data)
+
+end
+
+function update_available_crew_routes(crew, cost, fires_fought, route_data)
+
+    # add 1 to number of routes for this crew, store the index
+    route_data.routes_per_crew[crew] += 1
+    ix = route_data.routes_per_crew[crew]
+
+    # append the route cost
+    route_data.route_costs[crew, ix] = cost
+
+    # append the fires fought
+    route_data.fires_fought[crew, ix, :, :] = fires_fought
 
 end
 
@@ -1479,6 +1527,16 @@ function crew_dp_inner_loop(arc, arc_ix, this_arc_cost, path_costs, min_cost, mi
     return min_cost, min_index
 end
 
+function initialize_crew_dp_subproblem(crew, transposed_arcs, constraint_data)
+
+    base_time = constraint_data.b_in[crew, :, :]
+    state_in_arcs = vcat(constraint_data.f_in[crew, :, :, :], reshape(base_time, (1, size(base_time)...)))[:, :, :]
+    # crew_arc_ixs = findall(x -> x == crew, transposed_arcs[1, :])
+
+    return Dict("state_in_arcs" => state_in_arcs)
+
+end
+
 function crew_dp_subproblem(arcs, arc_costs, state_in_arcs)
 
     BASE_CODE_ = 2
@@ -1503,7 +1561,7 @@ function crew_dp_subproblem(arcs, arc_costs, state_in_arcs)
 
                     arc = @view arcs[:, arc_ix]
                     this_arc_cost = arc_costs[arc_ix]
-                    min_cost, min_index = crew_cp_inner_loop(arc, arc_ix, this_arc_cost, path_costs, min_cost, min_index)
+                    min_cost, min_index = crew_dp_inner_loop(arc, arc_ix, this_arc_cost, path_costs, min_cost, min_index)
                 end
     
                 # store state shortest path and cost
@@ -1522,11 +1580,11 @@ function crew_dp_subproblem(arcs, arc_costs, state_in_arcs)
     while (current_state[2] != 0)
         arc_ix = in_arcs[current_state...]
         push!(arcs_used, arc_ix)
-        time_from = arcs[TIME_FROM, arc_ix]
-        from_type = arcs[FROM_TYPE, arc_ix]
-        loc_from = arcs[LOC_FROM, arc_ix]
-        rest_from = arcs[REST_FROM, arc_ix] + 1
-        if from_type == BASE_CODE
+        time_from = arcs[TIME_FROM_, arc_ix]
+        from_type = arcs[FROM_TYPE_, arc_ix]
+        loc_from = arcs[LOC_FROM_, arc_ix]
+        rest_from = arcs[REST_FROM_, arc_ix] + 1
+        if from_type == BASE_CODE_
             current_state = (locs, time_from, rest_from)
         else
             current_state = (loc_from, time_from, rest_from)   
@@ -1819,20 +1877,26 @@ function run_fire_subproblem(sp, config, rho)
     end
 end
 
-function initialize_column_generation(arcs, costs, constraint_data, fire_model_configs, solver_configs, max_plans)
+function initialize_column_generation(arcs, costs, constraint_data, fire_model_configs, fire_solver_configs, crew_solver_configs, max_plans)
 
+    wide_arcs = collect(arcs')
     # initialize subproblems
     route_sps = []
     for crew in 1:NUM_CREWS
-        ixs = [i for i in 1:length(arcs[:, 1]) if arcs[i, 1] == crew]
-        d = init_route_subproblem(ixs, crew, constraint_data)
-        d["arc_ixs"] = ixs
-        push!(route_sps, d)
+        if crew_solver_configs[crew]["solver_type"] == "gurobi"
+            ixs = [i for i in 1:length(arcs[:, 1]) if arcs[i, 1] == crew]
+            d = init_route_subproblem(ixs, crew, constraint_data)
+            d["arc_ixs"] = ixs
+            push!(route_sps, d)
+        elseif crew_solver_configs[crew]["solver_type"] == "dp_fast"
+            sp = initialize_crew_dp_subproblem(crew, wide_arcs, constraint_data)
+            push!(route_sps, sp)
+        end
     end
 
     plan_sps = []
     for fire in 1:NUM_FIRES
-        config = copy(solver_configs[fire])
+        config = copy(fire_solver_configs[fire])
         config["model_data"] = fire_model_configs[fire]
         config["warm_start"] = false
         d = init_suppression_plan_subproblem(config)
@@ -1848,28 +1912,16 @@ function initialize_column_generation(arcs, costs, constraint_data, fire_model_c
     # for each crew
     for crew in 1:NUM_CREWS
 
-        # get the crew's subproblem instance
-        crew_sp = route_sps[crew]
-        m = crew_sp["m"]
-        z = crew_sp["z"]
-        crew_ixs = crew_sp["arc_ixs"]
-
-        # set objective in light of dual variables
-        @objective(m, Min, sum(z[ix] * (costs[ix]) for ix in crew_ixs))
-
-        # optimize
-        optimize!(m)
-
-        # update crew routes
-        crew_arcs = [i for i in crew_ixs if (value(z[i]) > 0.5)]
-        update_available_routes(crew, crew_arcs, arcs, costs, routes)
+        obj, crew_arcs = run_crew_subproblem(crew_solver_configs[crew]["solver_type"], route_sps[crew], wide_arcs, costs)
+        fires_fought = get_fires_fought(wide_arcs, crew_arcs, zeros(NUM_FIRES, NUM_TIME_PERIODS))
+        update_available_crew_routes(crew, obj, fires_fought, routes)
 
     end
 
     # for each fire
     for fire in 1:NUM_FIRES
 
-        sp_config = copy(solver_configs[fire])
+        sp_config = copy(fire_solver_configs[fire])
         sp_config["model_data"] = fire_model_configs[fire]
         sp_config["solver_strategy"] = "ceiling"
         sp_config["warm_start"] = "dummy"
@@ -1893,21 +1945,32 @@ function initialize_column_generation(arcs, costs, constraint_data, fire_model_c
 
 end
 
-function run_crew_subproblem(sps, crew, costs, local_costs)
+function run_crew_subproblem(solver_type, crew_sp, wide_arcs, local_arc_costs)
 
-    # get the crew's subproblem instance
-    crew_sp = sps[crew]
-    m = crew_sp["m"]
-    z = crew_sp["z"]
-    crew_ixs = crew_sp["arc_ixs"]
+    if solver_type == "gurobi"
+        # get the crew's subproblem instance
+        m = crew_sp["m"]
+        z = crew_sp["z"]
+        crew_ixs = crew_sp["arc_ixs"]
 
-    # set objective in light of dual variables
-    @objective(m, Min, sum(z[ix] * (local_costs[ix] + costs[ix]) for ix in crew_ixs))
+        # set objective in light of dual variables
+        @objective(m, Min, sum(z[ix] * (local_arc_costs[ix]) for ix in crew_ixs))
 
-    # optimize
-    optimize!(m)
+        # optimize
+        optimize!(m)
 
-    return objective_value(m), z
+        # get arcs used
+        crew_arcs = [i for i in crew_sp["arc_ixs"] if (value(z[i]) > 0.5)]
+
+        return objective_value(m), crew_arcs
+
+    elseif solver_type == "dp_fast"
+        state_in_arcs = crew_sp["state_in_arcs"]
+        return crew_dp_subproblem(wide_arcs, local_arc_costs, state_in_arcs)
+
+    else
+        raise("Not implemented")
+    end
 end
 
 function grab_duals(mp)
@@ -1920,7 +1983,7 @@ function grab_duals(mp)
     return sigma, rho, eta, pie
 end
 
-function run_CG_step(cg, arcs, costs, global_data, region_data, fire_model_configs, solver_configs, cg_config,
+function run_CG_step(cg, wide_arcs, arc_costs, global_data, region_data, fire_model_configs, fire_solver_configs, crew_solver_configs, cg_config,
     rot_order, gamma, recover_fire_sp_cost, mp)
 
     last_num_routes = copy(cg.routes.routes_per_crew)
@@ -1945,13 +2008,16 @@ function run_CG_step(cg, arcs, costs, global_data, region_data, fire_model_confi
     true_rho = copy(rho)
 
 
-    # using the dual variables, get the local adjustments to the arc costs in the route subproblems
-    t = @elapsed d = Dict("out_of_region_dual" => eta, "region_data" => region_data, "rotation_order" => rot_order, "linking_dual" => rho)
-    println("make arc modify input dict")
-    println(t)
-    t = @elapsed local_costs = get_arc_costs(global_data, arcs, d)
+    # using the dual variables, get the local adjustments to the crew arc costs in the route subproblems
+    t = @elapsed local_costs = linking_dual_adjust_crew_arcs(wide_arcs, true_rho)
+    t += @elapsed local_costs = local_costs .+ arc_costs
     println("modify arcs")
     println(t)
+    if false
+        t = @elapsed d = Dict("out_of_region_dual" => eta, "region_data" => region_data, "rotation_order" => rot_order, "linking_dual" => rho)
+        get_rotation_order_costs(global_data, wide_arcs, d)
+    end
+
 
     ## run subproblems ##
 
@@ -1960,7 +2026,7 @@ function run_CG_step(cg, arcs, costs, global_data, region_data, fire_model_confi
     full_fire_sp_time = @elapsed for fire in 1:NUM_FIRES
 
         # run the subproblem
-        sp_config = copy(solver_configs[fire])
+        sp_config = copy(fire_solver_configs[fire])
         sp_config["model_data"] = fire_model_configs[fire]
         sp_config["solver_strategy"] = "ceiling"
         sp_config["warm_start"] = false
@@ -2015,15 +2081,16 @@ function run_CG_step(cg, arcs, costs, global_data, region_data, fire_model_confi
     full_crew_sp_time = @elapsed for crew in 1:NUM_CREWS
 
         # run the crew subproblem
-        crew_sp_time += @elapsed obj, assignments = run_crew_subproblem(cg.route_sps, crew, costs, local_costs)
+        crew_sp_time += @elapsed obj, crew_arcs = run_crew_subproblem(crew_solver_configs[crew]["solver_type"], cg.route_sps[crew], wide_arcs, local_costs)
 
 
         # if there is an improving route
         if obj < sigma[crew] - 0.0001
 
             # add it
-            crew_arcs = [i for i in cg.route_sps[crew]["arc_ixs"] if (value(assignments[i]) > 0.5)]
-            update_available_routes(crew, crew_arcs, arcs, costs, cg.routes)
+            fires_fought = get_fires_fought(wide_arcs, crew_arcs, rho)
+            true_cost = sum(arc_costs[crew_arcs])
+            update_available_crew_routes(crew, true_cost, fires_fought, cg.routes)
             push!(reduced_costs, obj - sigma[crew])
 
         end

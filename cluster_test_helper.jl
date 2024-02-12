@@ -150,7 +150,20 @@ function single_DCG_node(test_features, data)
         next_num_plans = col_gen_data.suppression_plans.plans_per_fire
 
         if (sum(next_num_routes) == sum(current_num_routes)) & (sum(next_num_plans) == sum(current_num_plans))
-            opt = true
+            if normalized_rhs(mp["pi"][1]) <= 1.00001
+                println("HERREEE")
+                if n_iters > 50
+                    return
+                end
+                set_normalized_rhs.(mp["sigma"], 0.5)
+                set_normalized_rhs.(mp["pi"], 2)
+                println(n_iters)
+                println()
+            else
+                opt = true
+                println(n_iters)
+                println()
+            end
         end
 
         current_num_routes = copy(next_num_routes)
@@ -162,7 +175,10 @@ function single_DCG_node(test_features, data)
     col_gen_config["master_problem"]["dual_stabilization"] = false
 
     # for new JuMP, re-optimize before querying
+    set_normalized_rhs.(mp["sigma"], 1.0)
+    set_normalized_rhs.(mp["pi"], 1.0)
     optimize!(mp["m"])
+    
     best_sols["master_problem"] = objective_value(mp["m"])
     allotments["master_problem"] = get_fire_allotments(mp, col_gen_data)
 

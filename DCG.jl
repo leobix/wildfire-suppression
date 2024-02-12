@@ -1998,6 +1998,7 @@ function run_CG_step(cg, wide_arcs, arc_costs, global_data, region_data, fire_mo
     println(t)
     t = @elapsed mp_obj = objective_value(mp["m"])
     println(t)
+    println(mp_obj)
     t = @elapsed allotments = get_fire_allotments(mp, cg)
     println("get fire allotments")
     println(t)
@@ -2063,8 +2064,10 @@ function run_CG_step(cg, wide_arcs, arc_costs, global_data, region_data, fire_mo
                 rel_cost = cost + sum(allotment .* true_rho[fire, :])
 
                 # if there is an improving plan
-                if rel_cost < pie[fire] - 0.0001
-
+                if rel_cost <  pie[fire] - 0.0001
+                    println(rel_cost - normalized_rhs(mp["pi"][fire]) * pie[fire])
+                    println(rel_cost)
+                    println(normalized_rhs(mp["pi"][fire]))
                     found_plan = true
                     push!(reduced_costs, rel_cost - pie[fire])
 
@@ -2072,6 +2075,11 @@ function run_CG_step(cg, wide_arcs, arc_costs, global_data, region_data, fire_mo
                     if recover_fire_sp_cost
                         cost = get_fire_cost(allotment, fire_model_configs[fire])
                     end
+
+                    println(fire)
+                    println(allotment)
+                    println(cost)
+                    println()
 
                     # add the plan
                     update_available_supp_plans(fire, cost, allotment, cg.suppression_plans)
@@ -2087,7 +2095,6 @@ function run_CG_step(cg, wide_arcs, arc_costs, global_data, region_data, fire_mo
 
         # run the crew subproblem
         crew_sp_time += @elapsed obj, crew_arcs = run_crew_subproblem(crew_solver_configs[crew]["solver_type"], cg.route_sps[crew], wide_arcs, local_costs)
-
 
         # if there is an improving route
         if obj < sigma[crew] - 0.0001

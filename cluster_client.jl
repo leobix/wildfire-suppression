@@ -46,11 +46,11 @@ function run_experiment(date, json_name, write_output)
     dcg_params["int_aware_capacities"] = d["allotments"]["master_problem_reconstructed"]
     
     # generate int-aware plans
-    iterations, timings, cg_data = generate_new_plans(dcg_params, preprocessed_data, cg_data, capacity_perturbations, -1, 0)
+    # iterations, timings, cg_data = generate_new_plans(dcg_params, preprocessed_data, cg_data, capacity_perturbations, -1, 0)
     # iterations, timings, a = (1, 1, 1)
     
     # restore integrality
-    form_time, sol_time, pb = restore_integrality(cg_data, 30)
+    form_time, sol_time, pb = restore_integrality(cg_data, 120)
     pb_allot = convert.(Int, round.(100 .* get_fire_allotments(pb, cg_data)) ./ 100);
     
     # write output to JSON
@@ -64,12 +64,12 @@ function run_experiment(date, json_name, write_output)
         outputs = Dict{String, Any}()
         delete!(d, "mp")
         outputs["initial_DCG"] = d
-        outputs["generate_additional_plans"] = Dict{String, Any}()
-        outputs["generate_additional_plans"]["iterations"] = iterations
-        outputs["generate_additional_plans"]["timings"] = timings
-        outputs["cg_data"] = Dict{String, Any}()
-        outputs["cg_data"]["routes"] = cg_data.routes
-        outputs["cg_data"]["plans"] = cg_data.suppression_plans
+        # outputs["generate_additional_plans"] = Dict{String, Any}()
+        # outputs["generate_additional_plans"]["iterations"] = iterations
+        # outputs["generate_additional_plans"]["timings"] = timings
+        # outputs["cg_data"] = Dict{String, Any}()
+        # outputs["cg_data"]["routes"] = cg_data.routes
+        # outputs["cg_data"]["plans"] = cg_data.suppression_plans
         outputs["restore_integrality"] = Dict{String, Any}()
         outputs["restore_integrality"]["formulation_time"] = form_time
         outputs["restore_integrality"]["solve_time"] = sol_time

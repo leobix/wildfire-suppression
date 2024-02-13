@@ -715,7 +715,9 @@ end
 function master_problem(col_gen_config, route_data, supp_plan_data, region_data, rotation_order, gamma, price_branch)
 
     m = Model(() -> Gurobi.Optimizer(GRB_ENV))
-    set_optimizer_attribute(m, "OutputFlag", 0)
+    if price_branch
+        set_optimizer_attribute(m, "OutputFlag", 1)
+    end
     set_optimizer_attribute(m, "OptimalityTol", 1e-9)
     set_optimizer_attribute(m, "FeasibilityTol", 1e-9)
 
@@ -730,6 +732,24 @@ function master_problem(col_gen_config, route_data, supp_plan_data, region_data,
         @variable(m, route[c=1:NUM_CREWS, r=1:route_data.routes_per_crew[c]] >= 0)
         @variable(m, plan[g=1:NUM_FIRES, p=1:supp_plan_data.plans_per_fire[g]] >= 0)
         @variable(m, q[c=1:NUM_CREWS, t=0:NUM_TIME_PERIODS] >= 0)
+    end
+
+    if price_branch
+
+        # we want to make natural variables and prioritize them for branching
+        @variable(m, crew_visits[c=1:NUM_CREWS, g=1:NUM_FIRES, t=1:NUM_TIME_PERIODS] >= 0, Int)
+
+        @constraint(m, supply_sum[c = 1:NUM_CREWS, g=1:NUM_FIRES, t=1:NUM_TIME_PERIODS], 
+                    sum(route[c, r] * route_data.fires_fought[c, r, g, t]
+                        for r = 1:route_data.routes_per_crew[c]) == crew_visits[c, g, t])
+
+        for g in 1:NUM_FIRES
+            for t in 1:NUM_TIME_PERIODS
+                for c in 1:NUM_CREWS
+                    MOI.set(m, Gurobi.VariableAttribute("BranchPriority"), crew_visits[c, g, t], 5)
+                end
+            end
+        end
     end
 
     # if we are doing a dual_stabilization
@@ -752,41 +772,20 @@ function master_problem(col_gen_config, route_data, supp_plan_data, region_data,
 
     # linking constraint
 
+
     if col_gen_config["master_problem"]["dual_stabilization"] == false
-
-        if false
-
-            # we want to make natural variables and prioritize them for branching
-            @variable(m, supply[g=1:NUM_FIRES, t=1:NUM_TIME_PERIODS] >= 0, Int)
-            @variable(m, demand[g=1:NUM_FIRES, t=1:NUM_TIME_PERIODS] >= 0, Int)
-            @constraint(m, supply_sum[g=1:NUM_FIRES, t=1:NUM_TIME_PERIODS], 
-                        sum(route[c, r] * route_data.fires_fought[c, r, g, t]
-                            for c = 1:NUM_CREWS, r = 1:route_data.routes_per_crew[c])
-                        == supply[g, t])
-            @constraint(m, demand_sum[g=1:NUM_FIRES, t=1:NUM_TIME_PERIODS],
-                        sum(plan[g, p] * supp_plan_data.crews_present[g, p, t]
-                            for p = 1:supp_plan_data.plans_per_fire[g]) 
-                        == demand[g, t])
-            for g in 1:NUM_FIRES
-                for t in 1:NUM_TIME_PERIODS
-                    MOI.set(m, Gurobi.VariableAttribute("BranchPriority"), supply[g, t], 5)
-                    MOI.set(m, Gurobi.VariableAttribute("BranchPriority"), demand[g, t], 4)
-                end
-            end
-            @constraint(m, linking[g=1:NUM_FIRES, t=1:NUM_TIME_PERIODS], supply[g, t] >= demand[g, t])
   
-        else
-            @constraint(m, linking[g=1:NUM_FIRES, t=1:NUM_TIME_PERIODS],
+        @constraint(m, linking[g=1:NUM_FIRES, t=1:NUM_TIME_PERIODS],
 
-                # crews at fire
-                sum(route[c, r] * route_data.fires_fought[c, r, g, t]
-                    for c = 1:NUM_CREWS, r = 1:route_data.routes_per_crew[c])
-                >=
+            # crews at fire
+            sum(route[c, r] * route_data.fires_fought[c, r, g, t]
+                for c = 1:NUM_CREWS, r = 1:route_data.routes_per_crew[c])
+            >=
 
-                # crews suppressing
-                sum(plan[g, p] * supp_plan_data.crews_present[g, p, t]
-                    for p = 1:supp_plan_data.plans_per_fire[g]))
-        end
+            # crews suppressing
+            sum(plan[g, p] * supp_plan_data.crews_present[g, p, t]
+                for p = 1:supp_plan_data.plans_per_fire[g]))
+
     elseif col_gen_config["master_problem"]["dual_stabilization"] == "global"
 
         # get expected dual value ratios

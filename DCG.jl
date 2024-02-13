@@ -1755,51 +1755,6 @@ function init_suppression_plan_subproblem(config)
     end
 end
 
-function get_fire_arc_costs(arcs, rho, sunk_cost_allots)
-    TIME_FROM_ = 3
-    CREWS_PRESENT_ = 6
-    times_from = arcs[TIME_FROM_, :]
-    crews = arcs[CREWS_PRESENT_, :]
-    crews = max.(crews, sunk_cost_allots)
-    rel_costs = temp_rho[times_from .+ 1] .*  crews
-    return rel_costs
-end
-
-function run_fire_subproblem(sp, config, rho)
-
-    if config["solver_type"] != "dp_fast"
-        raise("Not implemented")
-    end
-
-    orig_costs = sp["costs"]
-    arcs = sp["arcs"]
-
-    TIME_FROM_ = 3
-    CREWS_PRESENT_ = 6
-
-    # no dual cost start edge
-    # add a 0 index for faster lookup, could be optimized
-    temp_rho = vcat(0., rho)
-
-    if config["warm_start"] == "dummy"
-        temp_rho = zeros(length(temp_rho)) .+ 1e30
-    end
-
-    rel_costs = temp_rho[arcs[TIME_FROM_, :] .+ 1] .* arcs[CREWS_PRESENT_, :]
-
-    break_capacity_penalty = config["break_capacity_penalty"]
-    if break_capacity_penalty > 0
-        capacities = config["capacities"]
-        temp_capacities = vcat(0., capacities)
-        cap_costs = (arcs[CREWS_PRESENT_, :] .> temp_capacities[arcs[TIME_FROM_, :] .+ 1]) .* break_capacity_penalty
-        rel_costs += cap_costs
-    end
-
-    total_costs = orig_costs + rel_costs
-    lowest_cost, arcs_used = fire_dp_subproblem(arcs, total_costs, sp["in_arcs"])
-    true_cost = sum(orig_costs[arcs_used])
-    return true_cost, lowest_cost, reverse(arcs[CREWS_PRESENT_, arcs_used][1:NUM_TIME_PERIODS])
-end
 
 function run_fire_subproblem(sp, config, rho)
 
@@ -2038,11 +1993,7 @@ function run_CG_step(cg, wide_arcs, arc_costs, global_data, region_data, fire_mo
     last_num_routes = copy(cg.routes.routes_per_crew)
     last_num_plans = copy(cg.suppression_plans.plans_per_fire)
 
-    println(ub)
-    println(lb)
-    println()
-
-    t = @elapsed ub = optimize!(mp["m"])
+    t = @elapsed optimize!(mp["m"])
     println("solve")
     println(t)
     t = @elapsed mp_obj = objective_value(mp["m"])
@@ -2101,7 +2052,15 @@ function run_CG_step(cg, wide_arcs, arc_costs, global_data, region_data, fire_mo
                 sp_config["break_capacity_penalty"] = adjust_price[2]
 
 
-                fire_sp_time += @elapsed cost, rel_cost, allotment = run_fire_subproblem(cg.plan_sps[fire], sp_config, rho[fire, :])
+                fire_sp_time += @elapsed cost, modified_rel_cost, allotment = run_fire_subproblem(cg.plan_sps[fire], sp_config, rho[fire, :])
+                # if fire == 1
+                #     println(cost)
+                #     println(modified_rel_cost)
+                #     println(allotment)
+                #     println(rho[fire, :])
+                #     println()
+                # end
+                rel_cost = cost + sum(allotment .* true_rho[fire, :])
 
                 # if there is an improving plan
                 if rel_cost < pie[fire] - 0.0001
@@ -2143,7 +2102,6 @@ function run_CG_step(cg, wide_arcs, arc_costs, global_data, region_data, fire_mo
 
     end
 
-    lb = ub + last(reduced_costs)
     # formulate and solve the master problem
     t = 0
     t += @elapsed plans = findall(last_num_plans .< cg.suppression_plans.plans_per_fire)

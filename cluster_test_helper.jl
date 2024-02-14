@@ -1,6 +1,6 @@
 include("DCG.jl")
 
-function preprocess(in_path)
+function preprocess(in_path, agg_prec, passive_states)
 
     # get inital fire perimeters and no-suppression progression parameters
     M = readdlm(in_path * "/sample_growth_patterns.csv", ',')
@@ -25,7 +25,13 @@ function preprocess(in_path)
         model_config = Dict("model_type" => "simple_linear", "progressions" => progressions[fire, :],
             "start_perim" => start_perims[fire], "line_per_crew" => LINE_PER_CREW,
             "beta" => BETA)
+        states, graphs, arc_arrays, state_costs = discretize_fire_model(model_config, agg_prec, passive_states)
+        d = Dict("states" => states, 
+        "graphs" => graphs, "arc_arrays" => arc_arrays,
+        "state_costs" => state_costs)
+        model_config["discretization"] = d
         push!(fire_configs, model_config)
+
     end
 
     return A, arc_costs, r_data, c_data, g_data, rotation_order, fire_configs
@@ -121,6 +127,7 @@ function single_DCG_node(test_features, data)
     current_num_routes = copy(col_gen_data.routes.routes_per_crew)
     current_num_plans = copy(col_gen_data.suppression_plans.plans_per_fire)
 
+
     while (~opt) & (n_iters < max_iters) & (ts["cg"] < max_time)
 
         n_iters += 1
@@ -165,6 +172,7 @@ function single_DCG_node(test_features, data)
     optimize!(mp["m"])
     best_sols["master_problem"] = objective_value(mp["m"])
     allotments["master_problem"] = get_fire_allotments(mp, col_gen_data)
+
 
     ts["mp_reformulate"] = @elapsed mp = master_problem(col_gen_config, col_gen_data.routes, col_gen_data.suppression_plans,
         r_data, rotation_order, gamma, false)
@@ -252,6 +260,7 @@ function single_DCG_node(test_features, data)
     d["allotments"] = allotments
     d["reduced_costs"] = reduced_costs
     d["dual_warm_start"] = test_features["dual_warm_start"]
+    
     return d, col_gen_data
 end
 
@@ -261,8 +270,8 @@ function default_params()
     params["gamma"] = 0
 
     params["in_path"] = "data/raw/big_fire"
-    params["agg_prec"] = 10
-    params["passive_states"] = 30
+    params["agg_prec"] = 5
+    params["passive_states"] = 40
     params["num_fires"] = 6
     params["num_crews"] = 20
     params["line_per_crew"] = 17
@@ -376,7 +385,7 @@ function restore_integrality(cg_data, time_limit)
     form_time = @elapsed pb = master_problem(config, cg_data.routes, cg_data.suppression_plans,
         r_data, rotation_order, 0, true)
     set_optimizer_attribute(pb["m"], "TimeLimit", max(1, time_limit - form_time))
-    set_optimizer_attribute(pb["m"], "OutputFlag", 0)
+    # set_optimizer_attribute(pb["m"], "OutputFlag", 0)
     sol_time = @elapsed optimize!(pb["m"])
 
     return form_time, sol_time, pb

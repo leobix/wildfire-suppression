@@ -715,9 +715,10 @@ end
 function master_problem(col_gen_config, route_data, supp_plan_data, region_data, rotation_order, gamma, price_branch)
 
     m = Model(() -> Gurobi.Optimizer(GRB_ENV))
-    if price_branch
-        set_optimizer_attribute(m, "OutputFlag", 1)
+    if ~price_branch
+        set_silent(m)
     end
+        
     set_optimizer_attribute(m, "OptimalityTol", 1e-9)
     set_optimizer_attribute(m, "FeasibilityTol", 1e-9)
 
@@ -736,20 +737,37 @@ function master_problem(col_gen_config, route_data, supp_plan_data, region_data,
 
     if price_branch
 
-        # we want to make natural variables and prioritize them for branching
-        @variable(m, crew_visits[c=1:NUM_CREWS, g=1:NUM_FIRES, t=1:NUM_TIME_PERIODS] >= 0, Int)
+        # # we want to make natural variables and prioritize them for branching
+        # @variable(m, crew_visits[c=1:NUM_CREWS, g=1:NUM_FIRES, t=1:NUM_TIME_PERIODS] >= 0, Int)
 
-        @constraint(m, supply_sum[c = 1:NUM_CREWS, g=1:NUM_FIRES, t=1:NUM_TIME_PERIODS], 
-                    sum(route[c, r] * route_data.fires_fought[c, r, g, t]
-                        for r = 1:route_data.routes_per_crew[c]) == crew_visits[c, g, t])
+        # @constraint(m, supply_sum[c = 1:NUM_CREWS, g=1:NUM_FIRES, t=1:NUM_TIME_PERIODS], 
+        #             sum(route[c, r] * route_data.fires_fought[c, r, g, t]
+        #                 for r = 1:route_data.routes_per_crew[c]) == crew_visits[c, g, t])
+
+        # for g in 1:NUM_FIRES
+        #     for t in 1:NUM_TIME_PERIODS
+        #         for c in 1:NUM_CREWS
+        #             MOI.set(m, Gurobi.VariableAttribute("BranchPriority"), crew_visits[c, g, t], 5)
+        #         end
+        #     end
+        # end
+
+        # we want to make natural variables and prioritize them for branching
+        @variable(m, fire_visits[g=1:NUM_FIRES, t=1:NUM_TIME_PERIODS] >= 0, Int)
+
+        @constraint(m, demand_sum[g=1:NUM_FIRES, t=1:NUM_TIME_PERIODS],
+        sum(plan[g, p] * supp_plan_data.crews_present[g, p, t]
+                for p = 1:supp_plan_data.plans_per_fire[g]) 
+                == fire_visits[g, t])
 
         for g in 1:NUM_FIRES
             for t in 1:NUM_TIME_PERIODS
-                for c in 1:NUM_CREWS
-                    MOI.set(m, Gurobi.VariableAttribute("BranchPriority"), crew_visits[c, g, t], 5)
-                end
+                MOI.set(m, Gurobi.VariableAttribute("BranchPriority"), fire_visits[g, t], 5)
             end
         end
+    else
+        @variable(m, fire_visits[g=1:NUM_FIRES, t=1:NUM_TIME_PERIODS] == 0)
+
     end
 
     # if we are doing a dual_stabilization
@@ -857,6 +875,8 @@ function master_problem(col_gen_config, route_data, supp_plan_data, region_data,
 
         # rotational queueing violations cost
         sum(q) * gamma
+
+        + 0.000001 + sum(fire_visits)
     )
 
     return Dict("m" => m, "q" => q, "sigma" => route_per_crew, "pi" => plan_per_fire,
@@ -1024,7 +1044,7 @@ function warm_start_suppression_plans(plans_per_fire, fire_model_configs, region
         config = all_fire_configs[fire]
         config["model_data"] = fire_model_configs[fire]
         config["warm_start"] = "lp_relax"
-        d = init_suppression_plan_subproblem(config)
+        d = init_suppression_plan_subproblem(config, AGG_PREC, PASSIVE_STATES)
         push!(fire_sps, d)
     end
 
@@ -1160,7 +1180,7 @@ function inverse_update_fire_stats(stats_from, stats_to, time_from, time_to, par
 
 end
 
-function create_discrete_fire_states(params)
+function create_discrete_fire_states(params, agg_prec, passive_states)
 
     if params["model_type"] == "simple_linear"
 
@@ -1173,9 +1193,9 @@ function create_discrete_fire_states(params)
         end
 
         # generalize this later
-        aggressive_precision = AGG_PREC
+        aggressive_precision = agg_prec
         num_aggressive_states = convert(Int, round(start_perim * 2 / aggressive_precision))
-        num_passive_states = PASSIVE_STATES
+        num_passive_states = passive_states
 
         aggressive_states = LinRange(0, num_aggressive_states * aggressive_precision, num_aggressive_states)
         passive_states = exp.(LinRange(log(num_aggressive_states * aggressive_precision + 1),
@@ -1593,12 +1613,42 @@ function crew_dp_subproblem(arcs, arc_costs, state_in_arcs)
     return lowest_cost, arcs_used
 end
 
+function discretize_fire_model(config, agg_prec, passive_states)
+    # make graphs 
+    states = create_discrete_fire_states(config, agg_prec, passive_states)
+    graphs = generate_graphs(states, config, ["ceiling", "floor"])
+    arc_arrays = Dict()
+    for key in keys(graphs)
+        arc_arrays[key] = arcs_from_state_graph(graphs[key])
+    end
+
+    # get costs to enter each state
+    state_costs = zeros(length(states), NUM_TIME_PERIODS + 1)
+    for i = 1:length(states)
+        for j = 1:NUM_TIME_PERIODS+1
+            state_costs[i, j] = get_state_entrance_cost(states[i], j, config)
+        end
+    end
+
+    return states, graphs, arc_arrays, state_costs
+end
+
+function init_suppression_plan_subproblem(config, agg_prec, passive_states)
+
+    model_config = deepcopy(config)     
+    states, graphs, arc_arrays, state_costs = discretize_fire_model(model_config["model_data"], agg_prec, passive_states)
+    d = Dict("states" => states, 
+    "graphs" => graphs, "arc_arrays" => arc_arrays,
+    "state_costs" => state_costs)
+    model_config["model_data"]["discretization"] = d
+    return init_suppression_plan_subproblem(model_config)
+end
+
 function init_suppression_plan_subproblem(config)
 
     if config["solver_type"] == "dp"
 
-        states = create_discrete_fire_states(config["model_data"])
-        graphs = generate_graphs(states, config["model_data"], ["ceiling", "floor"])
+        graphs = config["model_data"]["discretization"]["graphs"]
         nodes_avail = Dict()
         nodes_avail["floor"] = Dict(i => [j for j in 1:size(graphs["floor"])[1]
                                           if isassigned(graphs["floor"], j, i)]
@@ -1606,34 +1656,20 @@ function init_suppression_plan_subproblem(config)
         nodes_avail["ceiling"] = Dict(i => [j for j in 1:size(graphs["ceiling"])[1]
                                             if isassigned(graphs["ceiling"], j, i)]
                                       for i in 1:size(graphs["ceiling"])[2])
-        state_costs = zeros(length(states), NUM_TIME_PERIODS + 1)
-        for i = 1:length(states)
-            for j = 1:NUM_TIME_PERIODS+1
-                state_costs[i, j] = get_state_entrance_cost(states[i], j, config["model_data"])
-            end
-        end
 
-        return Dict("graphs" => graphs, "avail_nodes" => nodes_avail, "state_costs" => state_costs)
+        return Dict("graphs" => graphs, 
+                    "avail_nodes" => nodes_avail, 
+                    "state_costs" => config["model_data"]["discretization"]["state_costs"])
 
     elseif config["solver_type"] == "dp_fast"
 
-        # make graphs (legacy)
-        states = create_discrete_fire_states(config["model_data"])
-        graphs = generate_graphs(states, config["model_data"], ["ceiling", "floor"])
-
-        # get costs to enter each state
-        state_costs = zeros(length(states), NUM_TIME_PERIODS + 1)
-        for i = 1:length(states)
-            for j = 1:NUM_TIME_PERIODS+1
-                state_costs[i, j] = get_state_entrance_cost(states[i], j, config["model_data"])
-            end
-        end
-
-        # use the conservative graph for crew requirements
-        graph = graphs["ceiling"]
+        g_type = "ceiling"
+        states = config["model_data"]["discretization"]["states"]
+        graph = config["model_data"]["discretization"]["graphs"][g_type]
+        arc_array = config["model_data"]["discretization"]["arc_arrays"][g_type]
+        state_costs = config["model_data"]["discretization"]["state_costs"]
 
         # get the arcs and crew requirements
-        arc_array = arcs_from_state_graph(graph)
         n_arcs = length(arc_array[:, 1])
 
         # add crew to front (actually, this is deprecated, adding just -1's to keep column order)
@@ -1646,7 +1682,6 @@ function init_suppression_plan_subproblem(config)
         n_states = size(state_costs)[1]
 
         # get arcs entering (in) and exiting (out) each state
-        out_arcs = Array{Vector{Int64}}(undef, n_states, NUM_TIME_PERIODS+1)
         in_arcs = Array{Vector{Int64}}(undef, n_states, NUM_TIME_PERIODS+1)
         for s in 1:n_states
             state_arcs = [i for i in 1:n_arcs if arc_array[i, 5] == s]

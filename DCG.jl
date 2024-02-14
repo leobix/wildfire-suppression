@@ -167,7 +167,7 @@ function get_distance(from_type, from_ix, to_type, to_ix, fire_fire, base_fire)
     return dist
 end
 
-function get_static_arc_costs(gd, arcs, cost_param_dict)
+function get_static_crew_arc_costs(gd, arcs, cost_param_dict)
 
     # get number of arcs
     n_arcs = length(arcs[:, 1])
@@ -204,7 +204,7 @@ function get_static_arc_costs(gd, arcs, cost_param_dict)
                             for i in 1:n_arcs]
     end
 
-    return costs
+    return copy(costs)
 end
 
 function get_fires_fought(wide_arcs, arcs_used, rho)
@@ -1124,8 +1124,8 @@ function arcs_from_state_graph(graph)
     for (i, j) in visitable
         push!(edges, copy(reduce(hcat, [[i, j, j + 1, a[1], a[2]] for a in graph[i, j]])'))
     end
-
-    return vcat([size(graph)[1], 0, 1, size(graph)[1], 0]', reduce(vcat, edges))
+    
+    return convert.(Int, vcat([size(graph)[1], 0, 1, size(graph)[1], 0]', reduce(vcat, edges)))
 end
 
 function get_fire_cost(crew_allocations, params)
@@ -1457,14 +1457,14 @@ function fire_dp_inner_loop(arc, arc_ix, this_arc_cost, path_costs, min_cost, mi
     return min_cost, min_index
 end
 
-function fire_dp_subproblem(arcs, arc_costs, state_in_arcs)
+function fire_dp_subproblem(arcs, arc_costs, fire_state_in_arcs)
 
     TIME_FROM_ = 3
     STATE_FROM_ = 2 
 
-    path_costs = zeros(Float64, size(state_in_arcs)) .+ 1e30
-    in_arcs = zeros(Int, size(state_in_arcs))
-    states, times = size(state_in_arcs)
+    path_costs = zeros(Float64, size(fire_state_in_arcs)) .+ 1e30
+    in_arcs = zeros(Int, size(fire_state_in_arcs))
+    states, times = size(fire_state_in_arcs)
     
     # iterate over times first for algorithm correctness
     for t in 1:times
@@ -1473,7 +1473,7 @@ function fire_dp_subproblem(arcs, arc_costs, state_in_arcs)
             min_index = -1
 
             # for each arc entering this state
-            for arc_ix in state_in_arcs[s, t]
+            for arc_ix in fire_state_in_arcs[s, t]
 
                 arc = @view arcs[:, arc_ix]
                 this_arc_cost = arc_costs[arc_ix]
@@ -1552,11 +1552,11 @@ function initialize_crew_dp_subproblem(crew, transposed_arcs, constraint_data)
     state_in_arcs = vcat(constraint_data.f_in[crew, :, :, :], reshape(base_time, (1, size(base_time)...)))[:, :, :]
     # crew_arc_ixs = findall(x -> x == crew, transposed_arcs[1, :])
 
-    return Dict("state_in_arcs" => state_in_arcs)
+    return Dict("state_in_arcs" => copy(state_in_arcs))
 
 end
 
-function crew_dp_subproblem(arcs, arc_costs, state_in_arcs)
+function crew_dp_subproblem(arcs, crew_arc_costs, state_in_arcs)
 
     BASE_CODE_ = 2
     FROM_TYPE_ = 2
@@ -1579,7 +1579,7 @@ function crew_dp_subproblem(arcs, arc_costs, state_in_arcs)
                 for arc_ix in state_in_arcs[l, t, r]
 
                     arc = @view arcs[:, arc_ix]
-                    this_arc_cost = arc_costs[arc_ix]
+                    this_arc_cost = crew_arc_costs[arc_ix]
                     min_cost, min_index = crew_dp_inner_loop(arc, arc_ix, this_arc_cost, path_costs, min_cost, min_index)
                 end
     
@@ -1616,11 +1616,6 @@ end
 function discretize_fire_model(config, agg_prec, passive_states)
     # make graphs 
     states = create_discrete_fire_states(config, agg_prec, passive_states)
-    graphs = generate_graphs(states, config, ["ceiling", "floor"])
-    arc_arrays = Dict()
-    for key in keys(graphs)
-        arc_arrays[key] = arcs_from_state_graph(graphs[key])
-    end
 
     # get costs to enter each state
     state_costs = zeros(length(states), NUM_TIME_PERIODS + 1)
@@ -1629,19 +1624,57 @@ function discretize_fire_model(config, agg_prec, passive_states)
             state_costs[i, j] = get_state_entrance_cost(states[i], j, config)
         end
     end
+    
+    graphs = generate_graphs(states, config, ["ceiling", "floor"])
+    arc_arrays = Dict()
+    fire_arc_costs_dict = Dict()
+    in_arcs = Dict()
+    for key in keys(graphs)
+        arc_array = arcs_from_state_graph(graphs[key])
+        n_arcs = length(arc_array[:, 1])
+        
+        # add crew to front (actually, this is deprecated, adding just -1's to keep column order)
+        arc_array = hcat(convert.(Int, zeros(length(arc_array[:, 1]))) .- 1, arc_array)
 
-    return states, graphs, arc_arrays, state_costs
+
+        fire_arc_costs_dict[key] = [state_costs[arc_array[i, 5], arc_array[i, 4]] for i in 1:n_arcs]
+        arc_arrays[key] = copy(arc_array)
+
+        n_states = size(states)[1]
+        in_arcs[key] = get_state_in_arcs(arc_arrays[key], n_states)  
+    end
+
+
+
+    return states, graphs, arc_arrays, fire_arc_costs_dict, state_costs, in_arcs
 end
 
 function init_suppression_plan_subproblem(config, agg_prec, passive_states)
 
     model_config = deepcopy(config)     
-    states, graphs, arc_arrays, state_costs = discretize_fire_model(model_config["model_data"], agg_prec, passive_states)
+    states, graphs, arc_arrays, fire_arc_costs_dict, state_costs, in_arcs = discretize_fire_model(model_config["model_data"], agg_prec, passive_states)
     d = Dict("states" => states, 
-    "graphs" => graphs, "arc_arrays" => arc_arrays,
-    "state_costs" => state_costs)
+    "graphs" => graphs, "arc_arrays" => arc_arrays, "arc_costs" => fire_arc_costs_dict,
+    "state_costs" => state_costs, "in_arcs" => in_arcs)
     model_config["model_data"]["discretization"] = d
     return init_suppression_plan_subproblem(model_config)
+end
+
+function get_state_in_arcs(arc_array, n_states)        
+    
+    # get the arcs and crew requirements
+    n_arcs = length(arc_array[:, 1])
+
+    # get arcs entering (in) and exiting (out) each state
+    in_arcs = Array{Vector{Int64}}(undef, n_states, NUM_TIME_PERIODS+1)
+    for s in 1:n_states
+        state_arcs = [i for i in 1:n_arcs if arc_array[i, 5] == s]
+        for t in 1:NUM_TIME_PERIODS+1
+            in_arcs[s, t] = [i for i in state_arcs if arc_array[i, 4] == t]
+        end
+    end
+
+    return in_arcs
 end
 
 function init_suppression_plan_subproblem(config)
@@ -1664,36 +1697,14 @@ function init_suppression_plan_subproblem(config)
     elseif config["solver_type"] == "dp_fast"
 
         g_type = "ceiling"
-        states = config["model_data"]["discretization"]["states"]
-        graph = config["model_data"]["discretization"]["graphs"][g_type]
         arc_array = config["model_data"]["discretization"]["arc_arrays"][g_type]
-        state_costs = config["model_data"]["discretization"]["state_costs"]
-
-        # get the arcs and crew requirements
-        n_arcs = length(arc_array[:, 1])
-
-        # add crew to front (actually, this is deprecated, adding just -1's to keep column order)
-        arc_array = hcat(convert.(Int, zeros(length(arc_array[:, 1]))) .- 1, arc_array)
-
-        # get costs
-        arc_costs = [state_costs[arc_array[i, 5], arc_array[i, 4]] for i in 1:n_arcs]
-
-        # get states
-        n_states = size(state_costs)[1]
-
-        # get arcs entering (in) and exiting (out) each state
-        in_arcs = Array{Vector{Int64}}(undef, n_states, NUM_TIME_PERIODS+1)
-        for s in 1:n_states
-            state_arcs = [i for i in 1:n_arcs if arc_array[i, 5] == s]
-            for t in 1:NUM_TIME_PERIODS+1
-                in_arcs[s, t] = [i for i in state_arcs if arc_array[i, 4] == t]
-            end
-        end
+        in_arcs = config["model_data"]["discretization"]["in_arcs"][g_type]
+        fire_arc_costs = config["model_data"]["discretization"]["arc_costs"][g_type]
 
         # column based array storage in Julia makes this faster with transpose
         arc_array = collect(arc_array')
 
-        return Dict("arcs" => arc_array, "costs" => arc_costs, "in_arcs" => in_arcs)
+        return Dict("arcs" => arc_array, "costs" => fire_arc_costs, "in_arcs" => in_arcs)
 
 
     elseif config["solver_type"] == "network_flow_gurobi"
@@ -1716,7 +1727,7 @@ function init_suppression_plan_subproblem(config)
             arc_array = hcat(convert.(Int, zeros(length(arc_array[:, 1]))) .- 1, arc_array)
 
             state_costs = sp_dp["state_costs"]
-            arc_costs = [state_costs[arc_array[i, 5], arc_array[i, 4]] for i in 1:n_arcs]
+            fire_arc_costs = [state_costs[arc_array[i, 5], arc_array[i, 4]] for i in 1:n_arcs]
 
 
             n_states = size(state_costs)[1]
@@ -1739,7 +1750,7 @@ function init_suppression_plan_subproblem(config)
             end
 
             if config["warm_start"] == "lp_relax"
-                output[strategy] = Dict("arcs" => arc_array, "costs" => arc_costs,
+                output[strategy] = Dict("arcs" => arc_array, "costs" => fire_arc_costs,
                     "out_arcs" => out_arcs, "in_arcs" => in_arcs)
             else
                 # intialize model
@@ -1751,7 +1762,7 @@ function init_suppression_plan_subproblem(config)
                 @constraint(m, start, z[1] == 1)
 
 
-                output[strategy] = Dict("arcs" => arc_array, "costs" => arc_costs, "m" => m, "z" => z,
+                output[strategy] = Dict("arcs" => arc_array, "costs" => fire_arc_costs, "m" => m, "z" => z,
                     "out_arcs" => out_arcs, "in_arcs" => in_arcs)
             end
         end
@@ -1882,7 +1893,7 @@ function run_fire_subproblem(sp, config, rho)
         model_data = sp[strategy]
         m = model_data["m"]
         z = model_data["z"]
-        arc_costs = model_data["costs"]
+        fire_arc_costs = model_data["costs"]
         arc_array = model_data["arcs"]
 
         if config["warm_start"] == "dummy"
@@ -1896,13 +1907,13 @@ function run_fire_subproblem(sp, config, rho)
         # no cost to start edge
         duals = vcat([0], duals)
 
-        adj_costs = arc_costs .+ [arc_array[i, 6] * duals[arc_array[i, 3]+1] for i in 1:length(arc_costs)]
+        adj_costs = fire_arc_costs .+ [arc_array[i, 6] * duals[arc_array[i, 3]+1] for i in 1:length(fire_arc_costs)]
         @objective(m, Min, sum(adj_costs .* z))
         optimize!(m)
 
         rel_cost = objective_value(m)
         arcs_used = [i for i in 1:length(adj_costs) if value(z[i]) > 0.9]
-        cost = sum(arc_costs[arcs_used])
+        cost = sum(fire_arc_costs[arcs_used])
         allotments = arc_array[arcs_used[2:length(arcs_used)], 6]
 
         return cost, rel_cost, allotments
@@ -1911,7 +1922,7 @@ function run_fire_subproblem(sp, config, rho)
     end
 end
 
-function initialize_column_generation(arcs, costs, constraint_data, fire_model_configs, fire_solver_configs, crew_solver_configs, max_plans)
+function initialize_column_generation(arcs, crew_arc_costs, constraint_data, fire_model_configs, fire_solver_configs, crew_solver_configs, max_plans)
 
     wide_arcs = collect(arcs')
     # initialize subproblems
@@ -1950,7 +1961,7 @@ function initialize_column_generation(arcs, costs, constraint_data, fire_model_c
     # for each crew
     for crew in 1:NUM_CREWS
 
-        obj, crew_arcs = run_crew_subproblem(crew_solver_configs[crew]["solver_type"], route_sps[crew], wide_arcs, costs)
+        obj, crew_arcs = run_crew_subproblem(crew_solver_configs[crew]["solver_type"], route_sps[crew], wide_arcs, crew_arc_costs)
         fires_fought = get_fires_fought(wide_arcs, crew_arcs, zeros(NUM_FIRES, NUM_TIME_PERIODS))
         update_available_crew_routes(crew, obj, fires_fought, routes)
 
@@ -2021,7 +2032,7 @@ function grab_duals(mp)
     return sigma, rho, eta, pie
 end
 
-function run_CG_step(cg, wide_arcs, arc_costs, global_data, region_data, fire_model_configs, fire_solver_configs, crew_solver_configs, cg_config,
+function run_CG_step(cg, wide_arcs, crew_arc_costs, global_data, region_data, fire_model_configs, fire_solver_configs, crew_solver_configs, cg_config,
     rot_order, gamma, recover_fire_sp_cost, mp)
 
     last_num_routes = copy(cg.routes.routes_per_crew)
@@ -2049,7 +2060,7 @@ function run_CG_step(cg, wide_arcs, arc_costs, global_data, region_data, fire_mo
 
     # using the dual variables, get the local adjustments to the crew arc costs in the route subproblems
     t = @elapsed local_costs = linking_dual_adjust_crew_arcs(wide_arcs, true_rho)
-    t += @elapsed local_costs = local_costs .+ arc_costs
+    t += @elapsed local_costs = local_costs .+ crew_arc_costs
     println("modify arcs")
     println(t)
     if false
@@ -2128,7 +2139,7 @@ function run_CG_step(cg, wide_arcs, arc_costs, global_data, region_data, fire_mo
 
             # add it
             fires_fought = get_fires_fought(wide_arcs, crew_arcs, rho)
-            true_cost = sum(arc_costs[crew_arcs])
+            true_cost = sum(crew_arc_costs[crew_arcs])
             update_available_crew_routes(crew, true_cost, fires_fought, cg.routes)
             push!(reduced_costs, obj - sigma[crew])
 

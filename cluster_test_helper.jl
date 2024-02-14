@@ -16,7 +16,7 @@ function preprocess(in_path, agg_prec, passive_states)
 
     rest_pen = get_rest_penalties(crew_status.rest_by, 1e10, positive)
     cost_params = Dict("cost_per_mile" => 1, "rest_violation" => rest_pen, "fight_fire" => ALPHA)
-    arc_costs = get_static_arc_costs(g_data, A, cost_params)
+    crew_arc_costs = get_static_crew_arc_costs(g_data, A, cost_params)
 
     c_data = define_network_constraint_data(A)
 
@@ -25,16 +25,16 @@ function preprocess(in_path, agg_prec, passive_states)
         model_config = Dict("model_type" => "simple_linear", "progressions" => progressions[fire, :],
             "start_perim" => start_perims[fire], "line_per_crew" => LINE_PER_CREW,
             "beta" => BETA)
-        states, graphs, arc_arrays, state_costs = discretize_fire_model(model_config, agg_prec, passive_states)
+        states, graphs, arc_arrays, arc_costs, state_costs, in_arcs = discretize_fire_model(model_config, agg_prec, passive_states)
         d = Dict("states" => states, 
-        "graphs" => graphs, "arc_arrays" => arc_arrays,
-        "state_costs" => state_costs)
+        "graphs" => graphs, "arc_arrays" => arc_arrays, "arc_costs" => arc_costs,
+        "state_costs" => state_costs, "in_arcs" => in_arcs)
         model_config["discretization"] = d
         push!(fire_configs, model_config)
 
     end
 
-    return A, arc_costs, r_data, c_data, g_data, rotation_order, fire_configs
+    return A, crew_arc_costs, r_data, c_data, g_data, rotation_order, fire_configs
 end
 
 function single_DCG_node(test_features, data)
@@ -42,7 +42,7 @@ function single_DCG_node(test_features, data)
     ts = Dict{String,Float64}()
 
     # read in data 
-    A, arc_costs, r_data, c_data, g_data, rotation_order, fire_configs = data
+    A, all_crew_arc_costs, r_data, c_data, g_data, rotation_order, fire_configs = data
 
 
     rhos = []
@@ -64,7 +64,7 @@ function single_DCG_node(test_features, data)
     crew_solver_configs = [Dict{String,Any}("solver_type" => test_features["crew_solver_type"]) for crew in 1:NUM_CREWS]
 
     max_plans = 1000
-    ts["init_cg"] = @elapsed col_gen_data = initialize_column_generation(A, arc_costs, c_data, fire_configs,
+    ts["init_cg"] = @elapsed col_gen_data = initialize_column_generation(A, all_crew_arc_costs, c_data, fire_configs,
         fire_solver_configs, crew_solver_configs, max_plans)
 
 
@@ -73,7 +73,7 @@ function single_DCG_node(test_features, data)
         global AGG_PREC = 30
         global PASSIVE_STATES = 5
 
-        ts["ws"] = @elapsed ws, ws_dict = warm_start_suppression_plans(10, fire_configs, r_data, c_data, rotation_order, arc_costs,
+        ts["ws"] = @elapsed ws, ws_dict = warm_start_suppression_plans(10, fire_configs, r_data, c_data, rotation_order, all_crew_arc_costs,
             gamma, false, false, 3600)
 
 
@@ -139,7 +139,7 @@ function single_DCG_node(test_features, data)
             end
         end
 
-        t = @elapsed a, r_costs, r, s, p, c =  run_CG_step(col_gen_data, collect(A'), arc_costs, g_data, r_data, fire_configs,
+        t = @elapsed a, r_costs, r, s, p, c =  run_CG_step(col_gen_data, collect(A'), all_crew_arc_costs, g_data, r_data, fire_configs,
             fire_solver_configs, crew_solver_configs, col_gen_config, rotation_order, gamma,
             test_features["restore_cost"], mp)
         println(t)
@@ -202,7 +202,7 @@ function single_DCG_node(test_features, data)
     if test_features["solve_explicit_int_time_limit"] > 0
 
         tl = test_features["solve_explicit_int_time_limit"]
-        m, p, l, z, q, oor, linking = full_formulation(true, r_data, c_data, rotation_order, arc_costs,
+        m, p, l, z, q, oor, linking = full_formulation(true, r_data, c_data, rotation_order, all_crew_arc_costs,
             progressions, start_perims, BETA, gamma, false, tl)
         ts["explicit_int"] = @elapsed optimize!(m)
 
@@ -220,7 +220,7 @@ function single_DCG_node(test_features, data)
 
         tl = test_features["solve_explicit_lin_time_limit"]
 
-        m2, p, l, z, q, oor, linking = full_formulation(false, r_data, c_data, rotation_order, arc_costs,
+        m2, p, l, z, q, oor, linking = full_formulation(false, r_data, c_data, rotation_order, all_crew_arc_costs,
             progressions, start_perims, BETA, gamma, false, tl)
         ts["explicit_lr"] = @elapsed optimize!(m2)
 
@@ -235,7 +235,7 @@ function single_DCG_node(test_features, data)
 
     if test_features["solve_net_flow_time_limit"] > 0
         tl = test_features["solve_net_flow_time_limit"]
-        ts["net_flow_int"] = @elapsed ws, ws_dict = warm_start_suppression_plans(10, fire_configs, r_data, c_data, rotation_order, arc_costs, gamma, true, false, tl)
+        ts["net_flow_int"] = @elapsed ws, ws_dict = warm_start_suppression_plans(10, fire_configs, r_data, c_data, rotation_order, all_crew_arc_costs, gamma, true, false, tl)
         if has_values(ws_dict["m"])
             best_sols["net_flow_int"] = objective_value(ws_dict["m"])
             best_sols["net_flow_int_bound"] = objective_bound(ws_dict["m"])
@@ -270,8 +270,8 @@ function default_params()
     params["gamma"] = 0
 
     params["in_path"] = "data/raw/big_fire"
-    params["agg_prec"] = 5
-    params["passive_states"] = 40
+    params["agg_prec"] = 10
+    params["passive_states"] = 30
     params["num_fires"] = 6
     params["num_crews"] = 20
     params["line_per_crew"] = 17

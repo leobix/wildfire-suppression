@@ -66,11 +66,10 @@ function run_experiment(date, json_name, write_output)
     # generate int-aware plans
     # set perturbations in int-aware-plan generating phase
     capacity_perturbations = [-2, -1, 0, 1, 2] .* (NUM_CREWS / 20)
-    iterations, timings, cg_data = generate_new_plans(dcg_params, preprocessed_data, cg_data, capacity_perturbations, 0.0001, 0.0001)
-    iterations, timings, a = (1, 1, 1)
+    iterations, timings, cg_data = generate_new_plans(dcg_params, preprocessed_data, cg_data, capacity_perturbations, -1, 0)
     
     # restore integrality
-    form_time, sol_time, pb = restore_integrality(cg_data, 120)
+    form_time, sol_time, pb = restore_integrality(cg_data, 300)
     pb_allot = convert.(Int, round.(100 .* get_fire_allotments(pb, cg_data)) ./ 100);
     
     # write output to JSON
@@ -85,8 +84,8 @@ function run_experiment(date, json_name, write_output)
         delete!(d, "mp")
         outputs["initial_DCG"] = d
         outputs["generate_additional_plans"] = Dict{String, Any}()
-        # outputs["generate_additional_plans"]["iterations"] = iterations
-        # outputs["generate_additional_plans"]["timings"] = timings
+        outputs["generate_additional_plans"]["iterations"] = iterations
+        outputs["generate_additional_plans"]["timings"] = timings
         outputs["cg_data"] = Dict{String, Any}()
         outputs["cg_data"]["routes_per_crew"] = cg_data.routes.routes_per_crew
         outputs["cg_data"]["plans_per_fire"] = cg_data.suppression_plans.plans_per_fire

@@ -57,7 +57,7 @@ mutable struct SuppressionPlanData
     
     plans_per_fire::Vector{Int64} # could add in length
     plan_costs::Matrix{Float64}
-    crews_present::Array{Int8, 3}
+    crews_present::Array{Int16, 3}
     
 end
 

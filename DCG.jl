@@ -3,19 +3,19 @@ include("CGStructs.jl")
 using DataFrames, CSV, DelimitedFiles, JuMP, Gurobi
 
 
-NUM_CREWS = 10
-BREAK_LENGTH = 2       # how long at base to be considered "rested"
+NUM_CREWS::Int64 = 10
+BREAK_LENGTH::Int64 = 2       # how long at base to be considered "rested"
 
 # tradeoffs
-BETA = 100             # cost of one area unit burned / cost of mile traveled
-ALPHA = 200            # cost of crew-day of suppression / cost of mile traveled
-LINE_PER_CREW = 17     # how much perimeter prevented per crew per time period
+BETA::Int64 = 100             # cost of one area unit burned / cost of mile traveled
+ALPHA::Int64 = 200            # cost of crew-day of suppression / cost of mile traveled
+LINE_PER_CREW::Int64 = 17     # how much perimeter prevented per crew per time period
 
-FIRE_CODE = 1
-BASE_CODE = 2
+FIRE_CODE::Int64 = 1
+BASE_CODE::Int64 = 2
 
-AGG_PREC = 0
-PASSIVE_STATES = 0
+AGG_PREC::Int64 = 0
+PASSIVE_STATES::Int64 = 0
 
 function get_rotation_orders(crew_regions)
 

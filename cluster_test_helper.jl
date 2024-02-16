@@ -33,7 +33,6 @@ function preprocess(in_path, agg_prec, passive_states)
         push!(fire_configs, model_config)
 
     end
-
     return A, crew_arc_costs, r_data, c_data, g_data, rotation_order, fire_configs
 end
 

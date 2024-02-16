@@ -1,3 +1,16 @@
+struct TimeSpaceNetwork # TODO always make time the first index
+
+	arc_costs::Vector{Float64}
+	state_in_arcs::Array{Vector{Int64}}
+	model_type::String
+
+	# not quite sure how much this helps performance, but storing 2 copies
+	# of array data allows always column-wise access
+	long_arcs::Matrix{Int64}
+	wide_arcs::Matrix{Int64}
+
+end
+
 mutable struct CrewRouteData
 
 	n_crews::Int64

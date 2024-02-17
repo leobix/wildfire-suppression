@@ -1,10 +1,8 @@
 include("CommonStructs.jl")
-include("NetworkGeneration.jl")
-using .CrewModelFactory
-const CM = CrewModelFactory
+include("TSNetworkGeneration.jl")
 
 function get_adjusted_crew_arc_costs(
-	long_arcs::Matrix{Float64},
+	long_arcs::Matrix{Int64},
 	linking_duals::Matrix{Float64},
 	branching_rules::Vector{CrewSupplyBranchingRule},
 )
@@ -20,7 +18,7 @@ function get_adjusted_crew_arc_costs(
 		-linking_duals[long_arcs[i, CM.LOC_TO], long_arcs[i, CM.TIME_TO]] : 0
 		for i in 1:n_arcs
 	]
-	prohibited = []
+	prohibited = Int64[]
 
 	for rule in branching_rules
 		error("Not implemented")
@@ -31,12 +29,12 @@ function get_adjusted_crew_arc_costs(
 end
 
 function crew_dp_inner_loop(
-	arc,
-	arc_ix,
-	this_arc_cost,
-	path_costs,
-	min_cost,
-	min_index,
+	arc::SubArray{Int64, 1, Matrix{Int64}},
+	arc_ix::Int64,
+	this_arc_cost::Float64,
+	path_costs::Array{Float64},
+	min_cost::Float64,
+	min_index::Int64,
 )
 
 	# get the time from which this arc comes
@@ -77,9 +75,9 @@ end
 
 function crew_dp_subproblem(
 	arcs::Matrix{Int64},
-	arc_costs::Vector{Int64},
+	arc_costs::Vector{Float64},
 	prohibited_arcs::Vector{Int64},
-	state_in_arcs::Matrix{Vector{Int64}},
+	state_in_arcs::Array{Vector{Int64}, 3},
 )
 	""" Probably this should be refactored so the matrix is state * time
 	and then we could generalize code between fire and crew subproblem"""
@@ -130,7 +128,7 @@ function crew_dp_subproblem(
 
 	# if we did not find a path, return
 	if lowest_cost == Inf
-		return Inf, []
+		return Inf, Int64[]
 
 		# else, find it
 	else
@@ -138,7 +136,7 @@ function crew_dp_subproblem(
 
 		# starting at the end state
 		current_state = full_min_index
-		arcs_used = []
+		arcs_used = Int64[]
 
 		# while we are not at the start state
 		while (current_state[2] != 0)
@@ -168,20 +166,20 @@ function crew_dp_subproblem(
 end
 
 function get_fires_fought(
-	wide_arcs::Matrix{Float64},
+	wide_arcs::Matrix{Int64},
 	arcs_used::Vector{Int64},
-	(num_fires, num_time_periods)::Tuple{Int64},
+	(num_fires, num_time_periods)::Tuple{Int64, Int64},
 )
 
-	# initialize fires fought matrix
-	fires_fought = zeros(Int, num_fires, num_time_periods)
+	# initialize fires fought bit-matrix
+	fires_fought = falses(num_fires, num_time_periods)
 
 	# for each arc used
 	for ix in arcs_used
 		arc = @view wide_arcs[:, ix]
 
 		# update fires_fought
-		if (arc[CM.TO_TYPE] == CM.FIRE_CODE) & (arc[CM.TIME_TO] <= time_periods)
+		if (arc[CM.TO_TYPE] == CM.FIRE_CODE) & (arc[CM.TIME_TO] <= num_time_periods)
 			fires_fought[arc[CM.LOC_TO], arc[CM.TIME_TO]] += 1
 		end
 	end
@@ -203,7 +201,7 @@ function get_adjusted_fire_arc_costs(
 
 	# + 1 is because we appended the 0
 	rel_costs = duals[long_arcs[:, TIME_FROM_].+1] .* long_arcs[:, CREWS_PRESENT_]
-	prohibited_arcs = []
+	prohibited_arcs = Int64[]
 
 	for rule in branching_rules
 		error("not implemented, see DCG.jl#1825")
@@ -214,12 +212,12 @@ function get_adjusted_fire_arc_costs(
 end
 
 function fire_dp_inner_loop(
-	arc,
-	arc_ix,
-	this_arc_cost,
-	path_costs,
-	min_cost,
-	min_index,
+	arc::SubArray{Int64, 1, Matrix{Int64}},
+	arc_ix::Int64,
+	this_arc_cost::Float64,
+	path_costs::Matrix{Float64},
+	min_cost::Float64,
+	min_index::Int64,
 )
 
 	TIME_FROM_ = 3
@@ -253,7 +251,7 @@ function fire_dp_inner_loop(
 end
 
 function fire_dp_subproblem(arcs::Matrix{Int64},
-	arc_costs::Vector{Int64},
+	arc_costs::Vector{Float64},
 	prohibited_arcs::Vector{Int64},
 	state_in_arcs::Matrix{Vector{Int64}})
 
@@ -296,14 +294,14 @@ function fire_dp_subproblem(arcs::Matrix{Int64},
 
 	# if we did not find a path, return
 	if lowest_cost == Inf
-		return Inf, []
+		return Inf, Int64[]
 
 		# else, find it
 	else
 		full_min_index = (Tuple(end_index)[1], times, Tuple(end_index)[2])
 
 		current_state = full_min_index
-		arcs_used = []
+		arcs_used = Int64[]
 		while (current_state[2] != 0)
 			arc_ix = in_arcs[current_state...]
 			push!(arcs_used, arc_ix)

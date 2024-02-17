@@ -1,8 +1,26 @@
-module CrewModelFactory
-
 include("CommonStructs.jl")
-
 using DataFrames, CSV, DelimitedFiles
+
+module CrewArcArrayIndices
+
+	# indices for each crew arc
+	CREW_NUMBER = 1
+	FROM_TYPE = 2
+	LOC_FROM = 3
+	TO_TYPE = 4
+	LOC_TO = 5
+	TIME_FROM = 6
+	TIME_TO = 7
+	REST_FROM = 8
+	REST_TO = 9
+
+	# integer lookup for "FIRE" and "BASE"
+	FIRE_CODE = 1
+	BASE_CODE = 2
+
+end
+
+const CM = CrewArcArrayIndices
 
 struct LocationAndRestStatus
 
@@ -43,21 +61,6 @@ end
 
 end
 
-# indices for each crew arc
-CREW_NUMBER = 1
-FROM_TYPE = 2
-LOC_FROM = 3
-TO_TYPE = 4
-LOC_TO = 5
-TIME_FROM = 6
-TIME_TO = 7
-REST_FROM = 8
-REST_TO = 9
-
-# integer lookup for "FIRE" and "BASE"
-FIRE_CODE = 1
-BASE_CODE = 2
-
 function generate_arcs(
 	dists_and_times::DistancesAndTravelTimes,
 	crew_status::LocationAndRestStatus,
@@ -71,9 +74,9 @@ function generate_arcs(
 	ff = [
 		[
 			c,
-			FIRE_CODE,
+			CM.FIRE_CODE,
 			f_from,
-			FIRE_CODE,
+			CM.FIRE_CODE,
 			f_to,
 			t_from,
 			t_from + dists_and_times.ff_tau[f_to, f_from],
@@ -89,9 +92,9 @@ function generate_arcs(
 	from_start_ff = [
 		[
 			c,
-			FIRE_CODE,
+			CM.FIRE_CODE,
 			crew_status.current_fire[c],
-			FIRE_CODE,
+			CM.FIRE_CODE,
 			f_to,
 			0,
 			dists_and_times.ff_tau[f_to, crew_status.current_fire[c]],
@@ -107,9 +110,9 @@ function generate_arcs(
 	rf = [
 		[
 			c,
-			BASE_CODE,
+			CM.BASE_CODE,
 			c,
-			FIRE_CODE,
+			CM.FIRE_CODE,
 			f_to,
 			t_from,
 			t_from + dists_and_times.bf_tau[c, f_to],
@@ -123,7 +126,7 @@ function generate_arcs(
 
 	# get base-to-fire arcs from start
 	from_start_rf = [
-		[c, BASE_CODE, c, FIRE_CODE, f_to, 0, dists_and_times.bf_tau[c, f_to], 0, 0]
+		[c, CM.BASE_CODE, c, CM.FIRE_CODE, f_to, 0, dists_and_times.bf_tau[c, f_to], 0, 0]
 		for
 		c ∈ 1:num_crews, f_to ∈ 1:num_fires if crew_status.current_fire[c] == -1
 	]
@@ -133,9 +136,9 @@ function generate_arcs(
 	fr = [
 		[
 			c,
-			FIRE_CODE,
+			CM.FIRE_CODE,
 			f_from,
-			BASE_CODE,
+			CM.BASE_CODE,
 			c,
 			t_from,
 			t_from + dists_and_times.bf_tau[c, f_from],
@@ -151,9 +154,9 @@ function generate_arcs(
 	from_start_fr = [
 		[
 			c,
-			FIRE_CODE,
+			CM.FIRE_CODE,
 			crew_status.current_fire[c],
-			BASE_CODE,
+			CM.BASE_CODE,
 			c,
 			0,
 			dists_and_times.bf_tau[c, crew_status.current_fire[c]],
@@ -168,9 +171,9 @@ function generate_arcs(
 	rr = [
 		[
 			c,
-			BASE_CODE,
+			CM.BASE_CODE,
 			c,
-			BASE_CODE,
+			CM.BASE_CODE,
 			c,
 			t_from,
 			t_from + 1 + (break_length - 1) * rest,
@@ -181,14 +184,14 @@ function generate_arcs(
 	]
 	rr = copy(reduce(hcat, rr)')
 	rr_rested = [
-		[c, BASE_CODE, c, BASE_CODE, c, t_from, t_from + 1, 1, 1]
+		[c, CM.BASE_CODE, c, CM.BASE_CODE, c, t_from, t_from + 1, 1, 1]
 		for c ∈ 1:num_crews, t_from ∈ 1:num_time_periods
 	]
 	rr_rested = copy(reduce(hcat, rr_rested)')
 
 	# get base-to-base arcs from start, based on cs.current days rested
 	from_start_rr = [
-		[c, BASE_CODE, c, BASE_CODE, c, 0,
+		[c, CM.BASE_CODE, c, CM.BASE_CODE, c, 0,
 			1 + (break_length - max(crew_status.rested_periods[c], 0) - 1) * rest, 0,
 			rest]
 		for c ∈ 1:num_crews, rest ∈ 0:1 if crew_status.current_fire[c] == -1
@@ -215,15 +218,15 @@ function get_distance(from_type, from_ix, to_type, to_ix, fire_fire, base_fire)
 	dist = 0
 
 	# if fire to fire
-	if (from_type == FIRE_CODE) & (to_type == FIRE_CODE)
+	if (from_type == CM.FIRE_CODE) & (to_type == CM.FIRE_CODE)
 		dist = fire_fire[from_ix, to_ix]
 
 		# if fire to base
-	elseif (from_type == FIRE_CODE) & (to_type == BASE_CODE)
+	elseif (from_type == CM.FIRE_CODE) & (to_type == CM.BASE_CODE)
 		dist = base_fire[to_ix, from_ix]
 
 		# if base to fire
-	elseif (from_type == BASE_CODE) & (to_type == FIRE_CODE)
+	elseif (from_type == CM.BASE_CODE) & (to_type == CM.FIRE_CODE)
 		dist = base_fire[from_ix, to_ix]
 
 		# otherwise dist still 0
@@ -271,7 +274,7 @@ function get_static_crew_arc_costs(gd, arcs, cost_param_dict)
 	if "fight_fire" in keys(cost_param_dict)
 		costs =
 			costs .+ [
-				(arcs[i, 4] == FIRE_CODE) ? cost_param_dict["fight_fire"] : 0
+				(arcs[i, 4] == CM.FIRE_CODE) ? cost_param_dict["fight_fire"] : 0
 				for i in 1:n_arcs
 			]
 	end
@@ -346,7 +349,7 @@ function define_network_constraint_data(arcs, num_crews, num_fires, num_time_per
 				# get arcs leaving crew base at this time with this rest
 				b_out[crew, tm, rest] = [
 					i for i in crew_ixs if
-					(arcs[i, 2] == BASE_CODE) &
+					(arcs[i, 2] == CM.BASE_CODE) &
 					(arcs[i, 6] == tm) &
 					(arcs[i, 8] == rest - 1)
 				]
@@ -354,7 +357,7 @@ function define_network_constraint_data(arcs, num_crews, num_fires, num_time_per
 				# get arcs entering crew base at this time with this rest
 				b_in[crew, tm, rest] = [
 					i for i in crew_ixs if
-					(arcs[i, 4] == BASE_CODE) &
+					(arcs[i, 4] == CM.BASE_CODE) &
 					(arcs[i, 7] == tm) &
 					(arcs[i, 9] == rest - 1)
 				]
@@ -365,7 +368,7 @@ function define_network_constraint_data(arcs, num_crews, num_fires, num_time_per
 					# with this rest state
 					f_out[crew, fire, tm, rest] = [
 						i for i in crew_ixs if
-						(arcs[i, 2] == FIRE_CODE) &
+						(arcs[i, 2] == CM.FIRE_CODE) &
 						(arcs[i, 3] == fire) &
 						(arcs[i, 6] == tm) &
 						(arcs[i, 8] == rest - 1)
@@ -375,7 +378,7 @@ function define_network_constraint_data(arcs, num_crews, num_fires, num_time_per
 					# with this rest state
 					f_in[crew, fire, tm, rest] = [
 						i for i in crew_ixs if
-						(arcs[i, 4] == FIRE_CODE) &
+						(arcs[i, 4] == CM.FIRE_CODE) &
 						(arcs[i, 5] == fire) &
 						(arcs[i, 7] == tm) &
 						(arcs[i, 9] == rest - 1)
@@ -392,7 +395,7 @@ function define_network_constraint_data(arcs, num_crews, num_fires, num_time_per
 
 			# we count the crew as working *where they arrived* during this timestep
 			linking[fire, tm] = [
-				i for i in 1:n_arcs if (arcs[i, 4] == FIRE_CODE) &
+				i for i in 1:n_arcs if (arcs[i, 4] == CM.FIRE_CODE) &
 				(arcs[i, 5] == fire) &
 				(arcs[i, 7] == tm)
 			]
@@ -475,7 +478,7 @@ function build_crew_models(
 	constraint_data =
 		define_network_constraint_data(arcs, num_crews, num_fires, num_time_periods)
 
-	crew_sps = []
+	crew_sps = TimeSpaceNetwork[]
 	for crew in 1:num_crews
 
 		base_time = constraint_data.b_in[crew, :, :]
@@ -494,14 +497,6 @@ function build_crew_models(
 
 	return crew_sps
 end
-
-end
-
-module FireModelFactory
-
-include("CommonStructs.jl")
-
-using DataFrames, CSV, DelimitedFiles
 
 function create_discrete_fire_states(
 	params,
@@ -841,7 +836,7 @@ function build_fire_models(
 	start_perims = M[:, 1]
 	progressions = M[:, 2:15]
 
-	fire_models = []
+	fire_models = TimeSpaceNetwork[]
 	round_type = "ceiling"
 	agg_prec = 10
 	passive_states = 30
@@ -868,8 +863,6 @@ function build_fire_models(
 		push!(fire_models, fire_model)
 	end
 	return fire_models
-end
-
 end
 
 

@@ -1,9 +1,8 @@
 include("../TSNetworkGeneration.jl")
-using .CrewModelFactory, .FireModelFactory
 
 function test_fire_factory()
 
-	fc = FireModelFactory.build_fire_models("data/raw/big_fire", 3, 10, 14)
+	fc = build_fire_models("data/raw/big_fire", 3, 10, 14)
 	@assert all.(
 		fc[1].wide_arcs[:, 1000:1002] ==
 		[-1 -1 -1; 138 138 138; 4 4 4; 5 5 5; 122 123 125; 2 1 0]
@@ -217,7 +216,7 @@ end
 
 function test_crew_factory()
 
-	fc = CrewModelFactory.build_crew_models("data/raw/big_fire", 3, 10, 14)
+	fc = build_crew_models("data/raw/big_fire", 3, 10, 14)
 	@assert all.(fc[1].wide_arcs[:, 10] == [10, 1, 1, 1, 1, 1, 2, 0, 0])
 	@assert all.(fc[2].wide_arcs[:, 10] == [10, 1, 1, 1, 1, 1, 2, 0, 0])
 	@assert all.(

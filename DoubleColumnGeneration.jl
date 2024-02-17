@@ -3,34 +3,20 @@ include("Subproblems.jl")
 
 using JuMP
 
-@kwdef struct TimeSpaceNetwork # always make time the first index
-
-	arc_costs::Vector{Float64}
-	state_in_arcs::Matrix{Vector{Int64}}
-
-	# not quite sure how much this helps performance, but storing 2 copies
-	# of array data allows always column-wise access
-	crew_arc_array_long::Union{Nothing, Matrix{Int64}} = nothing
-	crew_arc_array_wide::Union{Nothing, Matrix{Int64}} = nothing
-	fire_arc_array_long::Union{Nothing, Matrix{Int64}} = nothing
-	fire_arc_array_wide::Union{Nothing, Matrix{Int64}} = nothing
-
-end
-
 mutable struct RestrictedMasterProblem # TODO can make some JuMP things const?
 
 	# model
 	model::JuMP.Model
 
 	# vars
-	routes::JuMP.Containers.SparseAxisArray{VariableRef, 2, Tuple{Int64, Int64}}
-	plans::JuMP.Containers.SparseAxisArray{VariableRef, 2, Tuple{Int64, Int64}}
+	routes::JuMP.Containers.SparseAxisArray{Any, 2, Tuple{Any, Any}} # could speed up?
+	plans::JuMP.Containers.SparseAxisArray{Any, 2, Tuple{Any, Any}} # could speed up?
 
 	# constraints
-	route_per_crew::Vector{ConstraintRef{Model, MOI.ConstraintIndex}}
-	plan_per_fire::Vector{ConstraintRef{Model, MOI.ConstraintIndex}}
-	supply_demand_linking::Matrix{ConstraintRef{Model, MOI.ConstraintIndex}}
-	linking_perturbation::Matrix{ConstraintRef{Model, MOI.ConstraintIndex}}
+	route_per_crew::Vector{ConstraintRef}
+	plan_per_fire::Vector{ConstraintRef}
+	supply_demand_linking::Matrix{ConstraintRef}
+	# linking_perturbation::Matrix{ConstraintRef}
 
 	# termination status
 	termination_status::MOI.TerminationStatusCode
@@ -48,14 +34,14 @@ end
 function define_restricted_master_problem(
 	gurobi_env,
 	crew_route_data::CrewRouteData,
-	crew_avail_ixs,
+	crew_avail_ixs::Vector{Vector{Int64}},
 	fire_plan_data::FirePlanData,
-	fire_avail_ixs,
+	fire_avail_ixs::Vector{Vector{Int64}},
 	dual_warm_start::Union{Nothing, DualWarmStart} = nothing,
 )
 
 	# get dimensions
-	num_crews, _, num_fires, num_time_periods = size(crew_route_data)
+	num_crews, _,  num_fires, num_time_periods = size(crew_route_data.fires_fought)
 
 	# inititalze JuMP model
 	m = Model(() -> Gurobi.Optimizer(gurobi_env))
@@ -69,6 +55,7 @@ function define_restricted_master_problem(
 
 	if ~isnothing(dual_warm_start)
 
+		error("Not implemented")
 		# dual stabilization variables
 		@variable(m, delta_plus[g = 1:num_fires, t = 1:num_time_periods] >= 0)
 		@variable(m, delta_minus[g = 1:num_fires, t = 1:num_time_periods] >= 0)
@@ -77,7 +64,7 @@ function define_restricted_master_problem(
 
 	# constraints that you must choose a plan per crew and per fire
 	@constraint(m, route_per_crew[c = 1:num_crews],
-		sum(route[c, r] for r ∈ 1:crew_avail_ixs[c]) == 1)
+		sum(route[c, r] for r ∈ crew_avail_ixs[c]) == 1)
 	@constraint(m, plan_per_fire[g = 1:num_fires],
 		sum(plan[g, p] for p ∈ fire_avail_ixs[g]) >= 1)
 
@@ -101,6 +88,8 @@ function define_restricted_master_problem(
 			))
 
 	elseif dual_warm_start.strategy == "global"
+
+		error("Not implemented")
 
 		# get expected dual value ratios
 		ratios = dual_warm_start.linking_values
@@ -158,8 +147,7 @@ function define_restricted_master_problem(
 		route_per_crew,
 		plan_per_fire,
 		linking,
-		perturb,
-		MOI.OPTIMIZE_NOT_CALLED,
+		MOI.OPTIMIZE_NOT_CALLED
 	)
 
 end
@@ -169,7 +157,7 @@ function add_column_to_plan_data!(
 	plan_data::FirePlanData,
 	fire::Int64,
 	cost::Float64,
-	crew_demands::Array{Int16, 2},
+	crew_demands::Vector{Int64},
 )
 
 	# add 1 to number of plans for this fire, store the index
@@ -181,6 +169,8 @@ function add_column_to_plan_data!(
 
 	# append the fires fought
 	plan_data.crews_present[fire, ix, :] = crew_demands
+
+	return ix
 
 end
 
@@ -201,16 +191,18 @@ function add_column_to_route_data!(
 	# append the fires fought
 	route_data.fires_fought[crew, ix, :, :] = fires_fought
 
+	return ix
+
 end
 
 function add_column_to_master_problem!(
 	rmp::RestrictedMasterProblem,
 	crew_routes::CrewRouteData,
-	crew::Int16,
+	crew::Int64,
 	ix::Int64,
 )
 
-    # define variable
+	# define variable
 	rmp.routes[crew, ix] =
 		@variable(rmp.model, base_name = "route[$crew,$ix]", lower_bound = 0)
 
@@ -231,20 +223,34 @@ function add_column_to_master_problem!(
 
 end
 
-function add_column_to_master_problem!(rmp::RestrictedMasterProblem, fire_plans::FirePlanData, fire::Int16, new_plan_ix)
+function add_column_to_master_problem!(
+	rmp::RestrictedMasterProblem,
+	fire_plans::FirePlanData,
+	fire::Int64,
+	ix::Int64,
+)
 
-    mp["plan"][fire, ix] = @variable(mp["m"], base_name = "plan[$fire,$ix]", lower_bound = 0)
+    # define variable
+	rmp.plans[fire, ix] =
+		@variable(rmp.model, base_name = "plan[$fire,$ix]", lower_bound = 0)
 
-    # update coefficient in objective
-    set_objective_coefficient(mp["m"], mp["plan"][fire, ix], supp_plan_data.plan_costs[fire, ix])
+	# update coefficient in objective
+	set_objective_coefficient(
+		rmp.model,
+		rmp.plans[fire, ix],
+		fire_plans.plan_costs[fire, ix],
+	)
 
-    # update coefficient in constraints
-    set_normalized_coefficient(mp["pi"][fire], mp["plan"][fire, ix], 1)
-    set_normalized_coefficient.(mp["rho"][fire, :], mp["plan"][fire, ix],
-        -supp_plan_data.crews_present[fire, ix, :])
+	# update coefficient in constraints
+	set_normalized_coefficient(rmp.plan_per_fire[fire], rmp.plans[fire, ix], 1)
+	set_normalized_coefficient.(
+		rmp.supply_demand_linking[fire, :],
+		rmp.plans[fire, ix],
+		-fire_plans.crews_present[fire, ix, :],
+	)
 end
 
-function double_column_generation(
+function double_column_generation!(
 	rmp::RestrictedMasterProblem,
 	crew_subproblems::Vector{TimeSpaceNetwork},
 	fire_subproblems::Vector{TimeSpaceNetwork},
@@ -255,7 +261,7 @@ function double_column_generation(
 	improving_column_relative_tolerance::Float64 = 1e-4)
 
 	# gather global information
-	num_crews, _, num_fires, num_time_periods = size(crew_routes)
+	num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)
 
 	# initialize with an (infeasible) dual solution that will suppress minimally
 	fire_duals = zeros(num_fires) .+ Inf
@@ -266,7 +272,7 @@ function double_column_generation(
 	terminate::Bool = false
 	iteration = 0
 
-	while ~terminate
+	while (~terminate & iteration < 200)
 
 		iteration += 1
 
@@ -281,7 +287,7 @@ function double_column_generation(
 
 			# generate the local costs of the arcs
 			rel_costs, prohibited_arcs = get_adjusted_crew_arc_costs(
-				subproblem.crew_arc_array_long,
+				subproblem.long_arcs,
 				linking_duals,
 				crew_branching_rules,
 			)
@@ -289,7 +295,7 @@ function double_column_generation(
 
 			# solve the subproblem
 			objective, arcs_used = crew_dp_subproblem(
-				subproblem.crew_arc_array_wide,
+				subproblem.wide_arcs,
 				arc_costs,
 				prohibited_arcs,
 				subproblem.state_in_arcs,
@@ -303,7 +309,7 @@ function double_column_generation(
 
 				# get the indicator matrix of fires fought at each time
 				fires_fought = get_fires_fought(
-					subproblem.crew_arc_array_wide,
+					subproblem.wide_arcs,
 					arcs_used,
 					(num_fires, num_time_periods),
 				)
@@ -327,7 +333,7 @@ function double_column_generation(
 
 			# generate the local costs of the arcs
 			rel_costs, prohibited_arcs = get_adjusted_fire_arc_costs(
-				subproblem.fire_arc_array_long,
+				subproblem.long_arcs,
 				linking_duals,
 				fire_branching_rules,
 			)
@@ -335,7 +341,7 @@ function double_column_generation(
 
 			# solve the subproblem
 			objective, arcs_used = fire_dp_subproblem(
-				subproblem.fire_arc_array_wide,
+				subproblem.wide_arcs,
 				arc_costs,
 				prohibited_arcs,
 				subproblem.state_in_arcs,
@@ -349,7 +355,7 @@ function double_column_generation(
 
 				# get the vector of crew demands at each time
 				crew_demands = get_crew_demands(
-					subproblem.fire_arc_array_wide,
+					subproblem.wide_arcs,
 					arcs_used,
 					num_time_periods,
 				)

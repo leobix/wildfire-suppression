@@ -1619,7 +1619,7 @@ function discretize_fire_model(config, agg_prec, passive_states)
 
     # get costs to enter each state
     state_costs = zeros(length(states), NUM_TIME_PERIODS + 1)
-    for i = 1:length(states)
+    for i = eachindex(states)
         for j = 1:NUM_TIME_PERIODS+1
             state_costs[i, j] = get_state_entrance_cost(states[i], j, config)
         end

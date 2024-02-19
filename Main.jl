@@ -1,6 +1,6 @@
 include("CommonStructs.jl")
 include("DoubleColumnGeneration.jl")
-using Gurobi
+using Gurobi, Profile
 const GRB_ENV = Gurobi.Env()
 
 function initialize_data_structures(
@@ -22,6 +22,7 @@ function initialize_data_structures(
 		num_time_periods,
 	)
 
+
 	crew_routes = CrewRouteData_init(10000, num_fires, num_crews, num_time_periods)
 	fire_plans = FirePlanData_init(10000, num_fires, num_time_periods)
 
@@ -36,17 +37,39 @@ function initialize_data_structures(
 	return crew_routes, fire_plans, crew_models, fire_models, rmp
 end
 
-crew_routes, fire_plans, crew_models, fire_models, rmp =
-	initialize_data_structures(3, 10, 14)
 
-double_column_generation!(
-	rmp,
-	crew_models,
-	fire_models,
-	CrewSupplyBranchingRule[],
-	FireDemandBranchingRule[],
-	crew_routes,
-	fire_plans,
+s = @elapsed crew_routes, fire_plans, crew_models, fire_models, rmp =
+    initialize_data_structures(3, 10, 14)
+
+
+t = @elapsed double_column_generation!(
+    rmp,
+    crew_models,
+    fire_models,
+    CrewSupplyBranchingRule[],
+    FireDemandBranchingRule[],
+    crew_routes,
+    fire_plans,
 )
 
+println(s)
+println(t)
+
+s = @elapsed crew_routes, fire_plans, crew_models, fire_models, rmp =
+    initialize_data_structures(6, 20, 14)
+
+Profile.init()
+@profile double_column_generation!(
+    rmp,
+    crew_models,
+    fire_models,
+    CrewSupplyBranchingRule[],
+    FireDemandBranchingRule[],
+    crew_routes,
+    fire_plans,
+)
+
+# println(s)
+# println(t)
 println(objective_value(rmp.model))
+Profile.print()

@@ -79,7 +79,7 @@ function crew_dp_subproblem(
 	prohibited_arcs::Vector{Int64},
 	state_in_arcs::Array{Vector{Int64}, 3},
 )
-	""" Probably this should be refactored so the matrix is state * time
+	""" Probably this could be refactored so the matrix is state * time
 	and then we could generalize code between fire and crew subproblem"""
 
 	# initialize path costs to all states
@@ -310,7 +310,6 @@ function fire_dp_subproblem(arcs::Matrix{Int64},
 			time_from = arc[TIME_FROM_]
 			current_state = (state_from, time_from)
 		end
-
 		return lowest_cost, arcs_used
 	end
 end

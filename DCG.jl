@@ -1950,13 +1950,6 @@ function initialize_column_generation(arcs, crew_arc_costs, constraint_data, fir
         push!(plan_sps, d)
 
     end
-    fc = plan_sps
-    println(fc[1]["arcs"][:, 1000:1002])
-    println(fc[3]["arcs"][:, 100:102])
-    println(size(fc[1]["arcs"]))
-    println(fc[1]["costs"][400:401])
-    println(fc[2]["in_arcs"][1, :])
-    return
     println("init fires")
     println(t)
 

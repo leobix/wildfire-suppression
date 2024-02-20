@@ -1,3 +1,5 @@
+using JuMP
+
 struct TimeSpaceNetwork # TODO always make time the first index
 
 	arc_costs::Vector{Float64}
@@ -78,6 +80,25 @@ struct FireDemandBranchingRule
 	branch_direction::String
 end
 
+mutable struct RestrictedMasterProblem # TODO can make some JuMP things const?
+
+	# model
+	model::JuMP.Model
+
+	# vars
+	routes::JuMP.Containers.SparseAxisArray{Any, 2, Tuple{Any, Any}} # could speed up?
+	plans::JuMP.Containers.SparseAxisArray{Any, 2, Tuple{Any, Any}} # could speed up?
+
+	# constraints
+	route_per_crew::Vector{ConstraintRef}
+	plan_per_fire::Vector{ConstraintRef}
+	supply_demand_linking::Matrix{ConstraintRef}
+	# linking_perturbation::Matrix{ConstraintRef}
+
+	# termination status
+	termination_status::MOI.TerminationStatusCode
+
+end
 
 @kwdef mutable struct BranchAndBoundNode
 
@@ -85,8 +106,9 @@ end
 	const parent_ix::Int64
 	child_ixs::Vector{Int64} = []
 	l_bound::Float64 = Inf
+	master_problem::RestrictedMasterProblem
+	crew_branching_rules::Vector{CrewSupplyBranchingRule} = []
+	fire_branching_rules::Vector{FireDemandBranchingRule} = []
 	feasible::Union{Nothing, Bool} = nothing
 	integer::Union{Nothing, Bool} = nothing
-	fire_plan_ixs_allowed::Vector{Int64} = []
-	crew_plan_ixs_allowed::Vector{Int64} = []
 end

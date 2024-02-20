@@ -1,6 +1,6 @@
 include("CommonStructs.jl")
 include("DoubleColumnGeneration.jl")
-using Gurobi, Profile
+using JuMP, Gurobi, Profile
 const GRB_ENV = Gurobi.Env()
 
 function initialize_data_structures(
@@ -56,10 +56,10 @@ println(s)
 println(t)
 
 s = @elapsed crew_routes, fire_plans, crew_models, fire_models, rmp =
-    initialize_data_structures(6, 20, 14)
+    initialize_data_structures(3, 10, 14)
 
-Profile.init()
-@profile double_column_generation!(
+# Profile.init()
+t = @elapsed double_column_generation!(
     rmp,
     crew_models,
     fire_models,
@@ -69,7 +69,7 @@ Profile.init()
     fire_plans,
 )
 
-# println(s)
-# println(t)
+println(s)
+println(t)
 println(objective_value(rmp.model))
-Profile.print()
+# Profile.print()

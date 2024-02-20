@@ -3,25 +3,6 @@ include("Subproblems.jl")
 
 using JuMP
 
-mutable struct RestrictedMasterProblem # TODO can make some JuMP things const?
-
-	# model
-	model::JuMP.Model
-
-	# vars
-	routes::JuMP.Containers.SparseAxisArray{Any, 2, Tuple{Any, Any}} # could speed up?
-	plans::JuMP.Containers.SparseAxisArray{Any, 2, Tuple{Any, Any}} # could speed up?
-
-	# constraints
-	route_per_crew::Vector{ConstraintRef}
-	plan_per_fire::Vector{ConstraintRef}
-	supply_demand_linking::Matrix{ConstraintRef}
-	# linking_perturbation::Matrix{ConstraintRef}
-
-	# termination status
-	termination_status::MOI.TerminationStatusCode
-
-end
 
 @kwdef mutable struct DualWarmStart
 
@@ -41,7 +22,7 @@ function define_restricted_master_problem(
 )
 
 	# get dimensions
-	num_crews, _,  num_fires, num_time_periods = size(crew_route_data.fires_fought)
+	num_crews, _, num_fires, num_time_periods = size(crew_route_data.fires_fought)
 
 	# inititalze JuMP model
 	m = Model(() -> Gurobi.Optimizer(gurobi_env))
@@ -148,7 +129,7 @@ function define_restricted_master_problem(
 		route_per_crew,
 		plan_per_fire,
 		linking,
-		MOI.OPTIMIZE_NOT_CALLED
+		MOI.OPTIMIZE_NOT_CALLED,
 	)
 
 end
@@ -229,7 +210,7 @@ function add_column_to_master_problem!(
 	ix::Int64,
 )
 
-    # define variable
+	# define variable
 	rmp.plans[fire, ix] =
 		@variable(rmp.model, base_name = "plan[$fire,$ix]", lower_bound = 0)
 
@@ -251,14 +232,14 @@ end
 
 function get_fire_allotments(rmp::RestrictedMasterProblem, plans::FirePlanData)
 
-    mp_allotment = zeros(size(plans.crews_present[:, 1, :]))
+	mp_allotment = zeros(size(plans.crews_present[:, 1, :]))
 
-    for plan in eachindex(rmp.plan_per_fire)
-        new_allot = plans.crews_present[plan[1], plan[2], :] * value(plans[plan])
-        mp_allotment[plan[1], :] += new_allot
-    end
+	for plan in eachindex(rmp.plan_per_fire)
+		new_allot = plans.crews_present[plan[1], plan[2], :] * value(plans[plan])
+		mp_allotment[plan[1], :] += new_allot
+	end
 
-    return mp_allotment
+	return mp_allotment
 end
 
 function double_column_generation!(
@@ -288,25 +269,37 @@ function double_column_generation!(
 		iteration += 1
 		new_column_found = false
 
+		# Not for any good reason, the crew subproblems all access the 
+		# same set of arcs in matrix form, and each runs its subproblem 
+		# on a subset of the arcs. This means that dual-adjusting arc 
+		# costs happens once only. In contrast, in the fire subproblems
+		# this happens inside the loop for each fire. 
+		# (TODO: see which is faster in Julia)
+		
+		subproblem = crew_subproblems[1]
+
+		# generate the local costs of the arcs
+		rel_costs, prohibited_arcs = get_adjusted_crew_arc_costs(
+			subproblem.long_arcs,
+			linking_duals,
+			crew_branching_rules,
+		)
+		arc_costs = rel_costs .+ subproblem.arc_costs
+		
 		# for each crew
 		for crew in 1:num_crews
 
 			# extract the subproblem
 			subproblem = crew_subproblems[crew]
 
-			# generate the local costs of the arcs
-			rel_costs, prohibited_arcs = get_adjusted_crew_arc_costs(
-				subproblem.long_arcs,
-				linking_duals,
-				crew_branching_rules,
-			)
-			arc_costs = rel_costs .+ subproblem.arc_costs
+			# grab the prohibited arcs belonging to this crew only 
+			crew_prohibited_arcs = Int64[]
 
 			# solve the subproblem
 			objective, arcs_used = crew_dp_subproblem(
 				subproblem.wide_arcs,
 				arc_costs,
-				prohibited_arcs,
+				crew_prohibited_arcs,
 				subproblem.state_in_arcs,
 			)
 
@@ -401,7 +394,7 @@ function double_column_generation!(
 				@assert iteration == 1
 				println("RMP solution infeasible, surprising to catch this here")
 				rmp.termination_status = MOI.INFEASIBLE
-				
+
 				return rmp
 			else
 
@@ -416,7 +409,7 @@ function double_column_generation!(
 			end
 
 
-		# if no new column added, we have proof of optimality
+			# if no new column added, we have proof of optimality
 		else
 			rmp.termination_status = MOI.OPTIMAL
 		end

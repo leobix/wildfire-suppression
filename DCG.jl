@@ -217,7 +217,7 @@ function get_fires_fought(wide_arcs, arcs_used, rho)
     time_periods = size(rho)[2]
 
     # initialize fires fought matrix
-    fires_fought = zeros(Int16, NUM_FIRES, NUM_TIME_PERIODS)
+    fires_fought = zeros(Int64, NUM_FIRES, NUM_TIME_PERIODS)
 
     # for each arc used
     for ix in arcs_used
@@ -523,7 +523,7 @@ function initialize_supp_plan_data(max_supp_plans)
 
     return SuppressionPlanData(zeros(NUM_FIRES),
         Matrix{Float64}(undef, NUM_FIRES, max_supp_plans),
-        zeros(Int16, (NUM_FIRES, max_supp_plans, NUM_TIME_PERIODS))
+        zeros(Int64, (NUM_FIRES, max_supp_plans, NUM_TIME_PERIODS))
     )
 end
 

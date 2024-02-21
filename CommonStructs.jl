@@ -22,7 +22,7 @@ mutable struct CrewRouteData
 
 end
 
-function CrewRouteData_init(
+function CrewRouteData(
 	max_routes::Int64,
 	num_fires::Int64,
 	num_crews::Int64,
@@ -39,11 +39,11 @@ mutable struct FirePlanData
 	const n_fires::Int64
 	plans_per_fire::Vector{Int64}
 	plan_costs::Matrix{Float64}
-	crews_present::Array{Int16, 3}
+	crews_present::Array{Int64, 3}
 
 end
 
-function FirePlanData_init(
+function FirePlanData(
 	max_supp_plans::Int64,
 	num_fires::Int64,
 	num_time_periods::Int64,
@@ -51,7 +51,7 @@ function FirePlanData_init(
 
 	return FirePlanData(num_fires, zeros(num_fires),
 		Matrix{Float64}(undef, num_fires, max_supp_plans),
-		zeros(Int16, (num_fires, max_supp_plans, num_time_periods)),
+		zeros(Int64, (num_fires, max_supp_plans, num_time_periods)),
 	)
 end
 
@@ -80,14 +80,67 @@ struct FireDemandBranchingRule
 	branch_direction::String
 end
 
+function satisfies_branching_rule(
+	b_rule::CrewSupplyBranchingRule,
+	fires_fought::BitArray{2},
+)
+
+	return fires_fought[b_rule.fire_ix, b_rule.time_ix] ==
+		   b_rule.visits
+end
+
+function satisfies_branching_rule(
+	b_rule::CrewSupplyBranchingRule,
+	fire_fought::Bool,
+)
+
+	return fire_fought == b_rule.visits
+end
+
+function satisfies_branching_rule(
+	b_rule::FireDemandBranchingRule,
+	crews_present::Vector{Int64},
+)
+	satisfies::Bool = false
+	if b_rule.branch_direction == "less_than_or_equal"
+		satisfies = crews_present[b_rule.time_ix] <= b_rule.allotment
+	elseif b_rule.branch_direction == "equals"
+		satisfies = crews_present[b_rule.time_ix] == b_rule.allotment
+	elseif b_rule.branch_direction == "greater_than_or_equal"
+		satisfies = crews_present[b_rule.time_ix] >= b_rule.allotment
+	else
+		error("Branch direction not implemented")
+	end
+
+	return satisfies
+end
+
+function satisfies_branching_rule(
+	b_rule::FireDemandBranchingRule,
+	crews_present::Int64,
+)
+	satisfies::Bool = false
+	if b_rule.branch_direction == "less_than_or_equal"
+		satisfies = crews_present <= b_rule.allotment
+	elseif b_rule.branch_direction == "equals"
+		satisfies = crews_present == b_rule.allotment
+	elseif b_rule.branch_direction == "greater_than_or_equal"
+		satisfies = crews_present >= b_rule.allotment
+	else
+		error("Branch direction not implemented")
+	end
+
+	return satisfies
+end
+
 mutable struct RestrictedMasterProblem # TODO can make some JuMP things const?
 
 	# model
 	model::JuMP.Model
 
 	# vars
-	routes::JuMP.Containers.SparseAxisArray{Any, 2, Tuple{Any, Any}} # could speed up?
-	plans::JuMP.Containers.SparseAxisArray{Any, 2, Tuple{Any, Any}} # could speed up?
+	routes::JuMP.Containers.SparseAxisArray # could speed up?
+	plans::JuMP.Containers.SparseAxisArray # could speed up?
 
 	# constraints
 	route_per_crew::Vector{ConstraintRef}
@@ -103,12 +156,12 @@ end
 @kwdef mutable struct BranchAndBoundNode
 
 	const ix::Int64
-	const parent_ix::Int64
-	child_ixs::Vector{Int64} = []
-	l_bound::Float64 = Inf
-	master_problem::RestrictedMasterProblem
-	crew_branching_rules::Vector{CrewSupplyBranchingRule} = []
-	fire_branching_rules::Vector{FireDemandBranchingRule} = []
+	const parent::Union{Nothing, BranchAndBoundNode}
+	const new_crew_branching_rules::Vector{CrewSupplyBranchingRule} = []
+	const new_fire_branching_rules::Vector{FireDemandBranchingRule} = []
+	children::Vector{BranchAndBoundNode} = []
+	l_bound::Float64 = -Inf
+	master_problem::Union{Nothing, RestrictedMasterProblem} = nothing
 	feasible::Union{Nothing, Bool} = nothing
 	integer::Union{Nothing, Bool} = nothing
 end

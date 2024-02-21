@@ -110,7 +110,7 @@ function define_restricted_master_problem(
 
 		# route costs
 		sum(
-			route[c, r] * route_data.route_costs[c, r]
+			route[c, r] * crew_route_data.route_costs[c, r]
 			for c ∈ 1:num_crews, r ∈ crew_avail_ixs[c]
 		)
 		+
@@ -293,6 +293,7 @@ function double_column_generation!(
 			subproblem = crew_subproblems[crew]
 
 			# grab the prohibited arcs belonging to this crew only 
+			# TODO unhardcode this
 			crew_prohibited_arcs = Int64[]
 
 			# solve the subproblem
@@ -403,16 +404,14 @@ function double_column_generation!(
 				crew_duals = dual.(rmp.route_per_crew)
 				linking_duals = dual.(rmp.supply_demand_linking)
 
-				println(objective_value(rmp.model))
-				println(iteration)
-
 			end
 
 
-			# if no new column added, we have proof of optimality
+		# if no new column added, we have proof of optimality
 		else
 			rmp.termination_status = MOI.OPTIMAL
+			println(objective_value(rmp.model))
+			println(iteration)
 		end
-
 	end
 end

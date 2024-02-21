@@ -192,7 +192,7 @@ function single_DCG_node(test_features, data)
 
         plans_chosen = [i for i in eachindex(pb["plan"]) if value(pb["plan"][i]) > 0.5]
 
-        pb_allotment = convert.(Int16, zeros(size(col_gen_data.suppression_plans.crews_present[:, 1, :])))
+        pb_allotment = convert.(Int64, zeros(size(col_gen_data.suppression_plans.crews_present[:, 1, :])))
         for plan in plans_chosen
             pb_allotment[plan[1], :] = col_gen_data.suppression_plans.crews_present[plan[1], plan[2], :]
         end
@@ -209,7 +209,7 @@ function single_DCG_node(test_features, data)
 
         if has_values(m)
             best_sols["explicit_int"] = objective_value(m)
-            allotments["explicit_int"] = convert.(Int16, ceil.(value.(l) / LINE_PER_CREW .- 0.001))
+            allotments["explicit_int"] = convert.(Int64, ceil.(value.(l) / LINE_PER_CREW .- 0.001))
         else
             best_sols["explicit_int"] = false
         end

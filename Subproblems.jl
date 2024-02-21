@@ -18,13 +18,22 @@ function get_adjusted_crew_arc_costs(
 		-linking_duals[long_arcs[i, CM.LOC_TO], long_arcs[i, CM.TIME_TO]] : 0
 		for i in 1:n_arcs
 	]
-	prohibited = Int64[]
 
-	for rule in branching_rules
-		error("Not implemented")
+	# get disallowed arcs due to branching rules
+	# TODO refactor to track this info in B-and-B tree, check each rule just once
+	prohibited_arcs = Int64[]
+	for rule ∈ branching_rules
+		for arc ∈ 1:size(long_arcs)[1]
+			if (long_arcs[arc, CM.TIME_TO] == rule.time_ix) & (long_arcs[i, CM.TO_TYPE] == CM.FIRE_CODE) & (long_arcs[i, CM.LOC_TO] == rule.fire_ix)
+				if ~satisfies_branching_rule(rule, true)
+					push!(prohibited_arcs, arc)
+				end
+			end
+		end
+		unique!(prohibited_arcs)
 	end
 
-	return costs, prohibited
+	return costs, prohibited_arcs
 
 end
 
@@ -201,10 +210,19 @@ function get_adjusted_fire_arc_costs(
 
 	# + 1 is because we appended the 0
 	rel_costs = duals[long_arcs[:, TIME_FROM_].+1] .* long_arcs[:, CREWS_PRESENT_]
-	prohibited_arcs = Int64[]
 
-	for rule in branching_rules
-		error("not implemented, see DCG.jl#1825")
+	# get disallowed arcs due to branching rules
+	# TODO refactor to track this info in B-and-B tree, check each rule just once
+	prohibited_arcs = Int64[]
+	for rule ∈ branching_rules
+		for arc ∈ 1:size(long_arcs)[1]
+			if long_arcs[arc, TIME_FROM_] == rule.time_ix
+				if ~satisfies_branching_rule(rule, long_arcs[arc, CREWS_PRESENT_])
+					push!(prohibited_arcs, arc)
+				end
+			end
+		end
+		unique!(prohibited_arcs)
 	end
 
 	return rel_costs, prohibited_arcs

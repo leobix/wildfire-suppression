@@ -1,7 +1,8 @@
 include("BranchAndPrice.jl")
 include("DoubleColumnGeneration.jl")
 
-using JuMP, Gurobi, Profile
+using JuMP, Gurobi, Profile, ArgParse, Logging
+
 const GRB_ENV = Gurobi.Env()
 
 function initialize_data_structures(
@@ -24,18 +25,31 @@ function initialize_data_structures(
 	)
 
 
-	crew_routes = CrewRouteData(10000, num_fires, num_crews, num_time_periods)
-	fire_plans = FirePlanData(10000, num_fires, num_time_periods)
+	crew_routes = CrewRouteData(100000, num_fires, num_crews, num_time_periods)
+	fire_plans = FirePlanData(100000, num_fires, num_time_periods)
 
 	return crew_routes, fire_plans, crew_models, fire_models
 end
 
+# TODO if this is a bottleneck, can cache lower bounds
+# in a new field in branch and bound node
+function find_lower_bound(node::BranchAndBoundNode)
 
+    # child.l_bound = -Inf if unexplored
+    child_lbs = [find_lower_bound(child) for child in node.children]
+
+    if length(child_lbs) > 0
+        return max(minimum(child_lbs), node.l_bound)
+    else
+        return node.l_bound
+    end
+    
+end
 function branch_and_price(num_fires::Int, num_crews::Int, num_time_periods::Int)
 
     # initialize input data
 	crew_routes, fire_plans, crew_models, fire_models =
-		initialize_data_structures(3, 10, 14)
+		initialize_data_structures(num_fires, num_crews, num_time_periods)
 
     # initialize nodes list with the root node
 	nodes = BranchAndBoundNode[]
@@ -77,45 +91,42 @@ function branch_and_price(num_fires::Int, num_crews::Int, num_time_periods::Int)
 
         # calculate the best current lower bound by considering all nodes with
         # fully explored children 
-        lb = Inf
-
-        # for each node
-        for node in nodes
-
-            # if it is an integer solution or has children
-            if (node.integer == true) | (size(node.children)[1] > 0)
-
-                # a vaild lower bound is the max of the bound found at this node and 
-                # at its children (using the initialization of l_bound to Inf)
-                node_lb = node.l_bound
-                for child in node.children
-                    node_lb = max(node_lb, child.l_bound)
-                end
-
-                # if this is less than the best lower found so far, update it
-                if node_lb < lb
-                    lb = node_lb
-                end
-            end
-        end
+        lb = find_lower_bound(nodes[1])
             
         # print progress
-        println("_____")
-        println(node_ix)
-        println(lb)
-        println(ub)
-        println("_____")
+
+        @info "current bounds" node_ix lb ub
 
         # go to the next node
         node_ix += 1 
-        println(length(nodes))
-        println("_____")    
-        if node_ix > 100
-            println("yay.")
-            return
+        @info "number of nodes" node_ix length(nodes)
+        @info "columns" crew_routes.routes_per_crew fire_plans.plans_per_fire
+   
+        if node_ix > 1
+            println("halted early.")
+            return nodes[1]
         end
 	end
 
 end
 
-branch_and_price(3, 10, 14)
+function get_command_line_args()
+    arg_parse_settings = ArgParseSettings()
+    @add_arg_table arg_parse_settings begin
+        "--debug"
+            help = "run in debug mode, exposing all logging that uses @debug macro"
+            action = :store_true
+    end
+    return parse_args(arg_parse_settings) 
+end
+
+# args = get_command_line_args()
+# io = open("logs.txt", "w")
+# if args["debug"] == true
+#     global_logger(ConsoleLogger(io, Logging.Debug, show_limited=false))
+# else
+#     global_logger(ConsoleLogger(io, Logging.Info, show_limited=false))
+# end
+
+# branch_and_price(6, 20, 14)
+# close(io)

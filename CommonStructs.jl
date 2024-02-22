@@ -153,15 +153,40 @@ mutable struct RestrictedMasterProblem # TODO can make some JuMP things const?
 
 end
 
-@kwdef mutable struct BranchAndBoundNode
+mutable struct BranchAndBoundNode
 
 	const ix::Int64
 	const parent::Union{Nothing, BranchAndBoundNode}
-	const new_crew_branching_rules::Vector{CrewSupplyBranchingRule} = []
-	const new_fire_branching_rules::Vector{FireDemandBranchingRule} = []
-	children::Vector{BranchAndBoundNode} = []
-	l_bound::Float64 = -Inf
-	master_problem::Union{Nothing, RestrictedMasterProblem} = nothing
-	feasible::Union{Nothing, Bool} = nothing
-	integer::Union{Nothing, Bool} = nothing
+	const new_crew_branching_rules::Vector{CrewSupplyBranchingRule}
+	const new_fire_branching_rules::Vector{FireDemandBranchingRule}
+	children::Vector{BranchAndBoundNode}
+	l_bound::Float64
+	master_problem::Union{Nothing, RestrictedMasterProblem}
+	feasible::Union{Nothing, Bool}
+	integer::Union{Nothing, Bool}
+end
+
+function BranchAndBoundNode(
+	;
+	ix::Int64,
+	parent::Union{Nothing, BranchAndBoundNode},
+	new_crew_branching_rules::Vector{CrewSupplyBranchingRule} = CrewSupplyBranchingRule[],
+	new_fire_branching_rules::Vector{FireDemandBranchingRule} = FireDemandBranchingRule[],
+	children::Vector{BranchAndBoundNode} = BranchAndBoundNode[],
+	l_bound::Float64 = -Inf,
+	master_problem::Union{Nothing, RestrictedMasterProblem} = nothing,
+	feasible::Union{Nothing, Bool} = nothing,
+	integer::Union{Nothing, Bool} = nothing)
+
+	return BranchAndBoundNode(
+		ix,
+		parent,
+		new_crew_branching_rules,
+		new_fire_branching_rules,
+		children,
+		l_bound,
+		master_problem,
+		feasible,
+		integer,
+	)
 end

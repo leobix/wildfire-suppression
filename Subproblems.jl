@@ -22,6 +22,7 @@ function get_adjusted_crew_arc_costs(
 	# get disallowed arcs due to branching rules
 	# TODO refactor to track this info in B-and-B tree, check each rule just once
 	prohibited_arcs = Int64[]
+	@debug "crew branching rules" branching_rules
 	for rule ∈ branching_rules
 		for arc ∈ 1:size(long_arcs)[1]
 			if (long_arcs[arc, CM.TIME_TO] == rule.time_ix) & (long_arcs[i, CM.TO_TYPE] == CM.FIRE_CODE) & (long_arcs[i, CM.LOC_TO] == rule.fire_ix)
@@ -31,6 +32,7 @@ function get_adjusted_crew_arc_costs(
 			end
 		end
 		unique!(prohibited_arcs)
+		@debug "crew prohibited_arcs" prohibited_arcs
 	end
 
 	return costs, prohibited_arcs
@@ -202,6 +204,7 @@ function get_adjusted_fire_arc_costs(
 	linking_duals,
 	branching_rules,
 )
+	@debug "fire branching rules" branching_rules
 	TIME_FROM_ = 3
 	CREWS_PRESENT_ = 6
 
@@ -223,6 +226,7 @@ function get_adjusted_fire_arc_costs(
 			end
 		end
 		unique!(prohibited_arcs)
+		@debug "fire prohibited_arcs" prohibited_arcs
 	end
 
 	return rel_costs, prohibited_arcs

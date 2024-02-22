@@ -230,7 +230,7 @@ function add_column_to_master_problem!(
 	)
 end
 
-function get_fire_allotments(rmp::RestrictedMasterProblem, plans::FirePlanData)
+function fire_allotments(rmp::RestrictedMasterProblem, plans::FirePlanData)
 
 	mp_allotment = zeros(size(plans.crews_present[:, 1, :]))
 
@@ -264,7 +264,7 @@ function double_column_generation!(
 	new_column_found::Bool = true
 	iteration = 0
 
-	while (new_column_found & (iteration < 200))
+	while (new_column_found)
 
 		iteration += 1
 		new_column_found = false
@@ -279,11 +279,14 @@ function double_column_generation!(
 		subproblem = crew_subproblems[1]
 
 		# generate the local costs of the arcs
+		# TODO NEEDS refactor on prohibited_arcs
 		rel_costs, prohibited_arcs = get_adjusted_crew_arc_costs(
 			subproblem.long_arcs,
 			linking_duals,
 			crew_branching_rules,
 		)
+		# @info "crew prohibited_arcs" length(subproblem.long_arcs[prohibited_arcs, :])
+		@debug "crew prohibited_arcs" subproblem.long_arcs[prohibited_arcs, :]
 		arc_costs = rel_costs .+ subproblem.arc_costs
 		
 		# for each crew
@@ -292,9 +295,8 @@ function double_column_generation!(
 			# extract the subproblem
 			subproblem = crew_subproblems[crew]
 
-			# grab the prohibited arcs belonging to this crew only 
-			# TODO unhardcode this
-			crew_prohibited_arcs = Int64[]
+			# TODO grab the prohibited arcs belonging to this crew only 
+			crew_prohibited_arcs = prohibited_arcs
 
 			# solve the subproblem
 			objective, arcs_used = crew_dp_subproblem(
@@ -306,10 +308,7 @@ function double_column_generation!(
 
 			# if there is an improving route
 			if objective < crew_duals[crew] - improving_column_abs_tolerance
-				# println(crew)
-				# println("crew found")
-				# println(objective)
-				# println()
+		
 				# get the real cost, unadjusted for duals
 				cost = sum(subproblem.arc_costs[arcs_used])
 
@@ -319,6 +318,8 @@ function double_column_generation!(
 					arcs_used,
 					(num_fires, num_time_periods),
 				)
+
+				@debug "crew_found" crew objective cost fires_fought
 
 				# add the route to the routes
 				new_route_ix =
@@ -341,8 +342,11 @@ function double_column_generation!(
 			rel_costs, prohibited_arcs = get_adjusted_fire_arc_costs(
 				subproblem.long_arcs,
 				linking_duals[fire, :],
-				fire_branching_rules,
+				[rule for rule ∈ fire_branching_rules if rule.fire_ix == fire],
 			)
+
+			# @info "fire prohibited_arcs" length(subproblem.long_arcs[prohibited_arcs, :])
+			@debug "fire prohibited_arcs" subproblem.long_arcs[prohibited_arcs, :]
 			arc_costs = rel_costs .+ subproblem.arc_costs
 
 			# solve the subproblem
@@ -356,11 +360,6 @@ function double_column_generation!(
 			# if there is an improving plan
 			if objective < fire_duals[fire] - improving_column_abs_tolerance
 
-				# println(fire)
-				# println("fire found")
-				# println(objective)
-				# println()
-
 				# get the real cost, unadjusted for duals
 				cost = sum(subproblem.arc_costs[arcs_used])
 
@@ -370,6 +369,8 @@ function double_column_generation!(
 					arcs_used,
 					num_time_periods,
 				)
+
+				@debug "fire_found" fire objective cost crew_demands
 
 				# add the plan to the plans
 				new_plan_ix =
@@ -393,12 +394,12 @@ function double_column_generation!(
 			   (termination_status(rmp.model) == MOI.INFEASIBLE_OR_UNBOUNDED)
 
 				@assert iteration == 1
-				println("RMP solution infeasible, surprising to catch this here")
+				@info "RMP solution infeasible before running master problem"
 				rmp.termination_status = MOI.INFEASIBLE
 
 				return rmp
 			else
-
+				# @info "termination status" termination_status(rmp.model)
 				# store new dual values
 				fire_duals = dual.(rmp.plan_per_fire)
 				crew_duals = dual.(rmp.route_per_crew)
@@ -410,8 +411,7 @@ function double_column_generation!(
 		# if no new column added, we have proof of optimality
 		else
 			rmp.termination_status = MOI.OPTIMAL
-			println(objective_value(rmp.model))
-			println(iteration)
+			@info "RMP stats at optimality" objective_value(rmp.model) iteration
 		end
 	end
 end

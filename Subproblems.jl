@@ -1,6 +1,34 @@
 include("CommonStructs.jl")
 include("TSNetworkGeneration.jl")
 
+function cut_adjust_arc_costs(orig_costs, cut_arc_lookup, cut_duals)
+	
+	# copy the costs
+	adj_costs = copy(orig_costs)
+
+	# for each cut
+	for ix in eachindex(cut_duals)
+
+		# if the dual cost is strictly positive
+		if cut_duals[ix] > 0
+
+			# grab the sparse representation of the dual adjustment
+			adjustment_dict = cut_arc_lookup[ix]
+
+			# for each arc to be adjusted
+			for cost_ix in adjustment_dict
+
+				# add the dual cost 
+				arc_ix = cost_ix[1]
+				coeff = cost_ix[2]
+				adj_costs[arc_ix] += cut_duals[ix] * coeff 
+			end
+		end
+	end
+
+end
+
+
 function get_adjusted_crew_arc_costs(
 	long_arcs::Matrix{Int64},
 	linking_duals::Matrix{Float64},

@@ -23,8 +23,8 @@ function max_variance_natural_variable(
 			route_values[ix] * crew_routes.fires_fought[crew, route, :, :]
 	end
 	crew_variances = crew_means .* (1 .- crew_means)
-	@info "Means" crew_means # crew_means
-	@info "Variances" crew_variances # crew_variances
+	@debug "Means" crew_means # crew_means
+	@debug "Variances" crew_variances # crew_variances
 	# calculate variance of B_{gt}, demand at fire g at time t
 	fire_means = zeros(Float64, (num_fires, num_time_periods))
 	fire_sq_means = zeros(Float64, (num_fires, num_time_periods))
@@ -36,12 +36,12 @@ function max_variance_natural_variable(
 		fire_sq_means[fire, :] +=
 			plan_values[ix] * (fire_plans.crews_present[fire, plan, :] .^ 2)
 		if plan_values[ix] > 0.0001
-			@info "used plan" ix plan_values[ix] fire_plans.crews_present[fire, plan, :]
+			@debug "used plan" ix plan_values[ix] fire_plans.crews_present[fire, plan, :]
 		end
 	end
 	fire_variances = fire_sq_means - (fire_means .^ 2)
-	@info "Means" fire_means # crew_means
-	@info "Variances" fire_variances # crew_variances
+	@debug "Means" fire_means # crew_means
+	@debug "Variances" fire_variances # crew_variances
 	# get the max variance for each natural variable type
 	crew_max_var, crew_max_ix = findmax(crew_variances)
 	fire_max_var, fire_max_ix = findmax(fire_variances)
@@ -158,7 +158,7 @@ function explore_node!!(
 		cur_node = cur_node.parent
 
 	end
-	@info "all branching rules found to pass to DCG" crew_rules fire_rules
+	@debug "all branching rules found to pass to DCG" crew_rules fire_rules
 
 	# run DCG, adding columns as needed
 	double_column_generation!(
@@ -260,7 +260,7 @@ function explore_node!!(
 			branch_and_bound_node.children = [left_child, right_child]
 
 		end
-		@info "branching rules" left_branching_rule right_branching_rule
+		@debug "branching rules" left_branching_rule right_branching_rule
 	end
 end
 

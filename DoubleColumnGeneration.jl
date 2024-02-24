@@ -255,10 +255,17 @@ function double_column_generation!(
 	# gather global information
 	num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)
 
-	# initialize with an (infeasible) dual solution that will suppress minimally
-	fire_duals = zeros(num_fires) .+ Inf
-	crew_duals = zeros(num_crews)
-	linking_duals = zeros(num_fires, num_time_periods) .+ 1e30
+	if rmp.termination_status == MOI.OPTIMIZE_NOT_CALLED
+		# initialize with an (infeasible) dual solution that will suppress minimally
+		fire_duals = zeros(num_fires) .+ Inf
+		crew_duals = zeros(num_crews)
+		linking_duals = zeros(num_fires, num_time_periods) .+ 1e30
+	else
+		fire_duals = dual.(rmp.plan_per_fire)
+		crew_duals = dual.(rmp.route_per_crew)
+		linking_duals = dual.(rmp.supply_demand_linking)
+	end
+
 
 	# initialize column generation loop
 	new_column_found::Bool = true
@@ -397,7 +404,7 @@ function double_column_generation!(
 				@info "RMP solution infeasible before running master problem"
 				rmp.termination_status = MOI.INFEASIBLE
 
-				return rmp
+				return
 			else
 				# @info "termination status" termination_status(rmp.model)
 				# store new dual values

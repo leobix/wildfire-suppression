@@ -55,15 +55,6 @@ function FirePlanData(
 	)
 end
 
-struct FireTriageAndRouteInstance
-
-	num_crews::Int64
-	num_fires::Int64
-	num_time_periods::Int64
-
-end
-
-
 struct CrewSupplyBranchingRule
 
 	crew_ix::Int64

@@ -50,6 +50,9 @@ function define_restricted_master_problem(
 	@constraint(m, plan_per_fire[g = 1:num_fires],
 		sum(plan[g, p] for p ∈ fire_avail_ixs[g]) >= 1)
 
+	# empty container for GUB cover cuts
+	@constraint(m, gub_cover_cuts[t = 1:num_time_periods, u = 1:1; false], 0 >= 0)
+
 	# linking constraint
 	if isnothing(dual_warm_start)
 
@@ -129,6 +132,7 @@ function define_restricted_master_problem(
 		route_per_crew,
 		plan_per_fire,
 		linking,
+		gub_cover_cuts,
 		MOI.OPTIMIZE_NOT_CALLED,
 	)
 

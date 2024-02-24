@@ -23,27 +23,48 @@ function GUBCoverCut(
 	)
 end
 
-struct GUBCutsWithSubproblemInfo
+struct GUBCoverCutData
 
-    cuts::JuMP.Containers.SparseAxisArray
-    cut_objects::Dict{Any, Any}
-    cuts_per_time::Vector{Int64}
-    fire_cut_sp_lookup::Dict{Int64, Dict{Tuple{Int64, Int64}, Dict{Int64, Int8}}}
-    crew_cut_sp_lookup::Dict{Int64, Dict{Tuple{Int64, Int64}, Dict{Int64, Int8}}}
-
+	cut_dict::Dict{Any, GUBCoverCut}
+	cuts_per_time::Vector{Int64}
+	fire_sp_lookup::Dict{Int64, Dict{Tuple{Int64, Int64}, Dict{Int64, Int8}}}
+	crew_sp_lookup::Dict{Int64, Dict{Tuple{Int64, Int64}, Dict{Int64, Int8}}}
 end
 
-function get_gub_fire_relevant_suppression_data(f, t, fire_plans, rmp, used_plans)
-	sample = fire_plans.crews_present[f, used_plans[f], :]
-	values = [value(rmp.plans[f, i]) for i in used_plans[f]]
-	coeff_order = sortperm(sample[:, t])
+# constructor
+function GUBCoverCutData(num_crews::Int, num_fires::Int, num_time_periods::Int)
+
+	cut_objects = Dict{Any, GUBCoverCut}()
+	cuts_per_time = [0 for t ∈ 1:num_time_periods]
+	fire_cut_sp_lookup = Dict{Int64, Dict{Tuple{Int64, Int64}, Dict{Int64, Int8}}}()
+	crew_cut_sp_lookup = Dict{Int64, Dict{Tuple{Int64, Int64}, Dict{Int64, Int8}}}()
+	for fire ∈ 1:num_fires
+		fire_cut_sp_lookup[fire] = Dict{Tuple{Int64, Int64}, Dict{Int64, Int8}}()
+	end
+	for crew ∈ 1:num_crews
+		crew_cut_sp_lookup[crew] = Dict{Tuple{Int64, Int64}, Dict{Int64, Int8}}()
+	end
+
+	return GUBCoverCutData(
+		cut_objects,
+		cuts_per_time,
+		fire_cut_sp_lookup,
+		crew_cut_sp_lookup,
+	)
+end
+
+
+function get_gub_fire_relevant_suppression_data(fire, time, fire_plans, rmp, used_plans)
+	sample = fire_plans.crews_present[fire, used_plans[fire], :]
+	values = [value(rmp.plans[fire, i]) for i in used_plans[fire]]
+	coeff_order = sortperm(sample[:, time])
 	allot = 0
 	weight = 0
 	pairs = Tuple[]
 	for coeff in coeff_order
-		if sample[coeff, t] > allot
-			push!(pairs, (sample[coeff, t], weight))
-			allot = sample[coeff, t]
+		if sample[coeff, time] > allot
+			push!(pairs, (sample[coeff, time], weight))
+			allot = sample[coeff, time]
 			# weight = 0
 		end
 		weight += values[coeff]
@@ -187,7 +208,7 @@ function adjust_cut_fire_allotment(
 	return adjusted_allotment
 end
 
-function generate_knapsack_cuts(crew_routes, fire_plans, rmp)
+function find_knapsack_cuts(crew_routes::CrewRouteData, fire_plans::FirePlanData, rmp::RestrictedMasterProblem)
 
 	# get problem dimensions
 	num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)
@@ -218,12 +239,12 @@ function generate_knapsack_cuts(crew_routes, fire_plans, rmp)
 	# get the current fire suppression relaxed solution
 	fire_alloc, _ =
 		get_fire_and_crew_incumbent_weighted_average(rmp, crew_routes, fire_plans)
+	@debug fire_alloc
 
 	# intitialize output 
 	knapsack_gub_cuts = []
 
 	# for each time period
-	@debug fire_alloc
 	for t in 1:num_time_periods
 
 		# process these routes and plans into GUB-relevant allotments (needed for dominated cuts due to GUB constraints)
@@ -335,13 +356,20 @@ function incorporate_gub_cover_cuts_into_crew_subproblem!(
 	end
 end
 
-function push_cut_to_rmp!!!(cuts_per_time, cuts, cut_objects, cut, rmp)
+function push_cut_to_rmp!!(
+	rmp,
+	cut_data::GUBCoverCutData,
+	cut,
+	crew_routes,
+	fire_plans,
+)
+
 	cut_time = cut.time_ix
 	cut_fire_allots = cut.fire_lower_bounds
 	cut_crew_allots = cut.inactive_crews
 	cut_rhs = cut.rhs
 
-	ix = cuts_per_time[cut_time] + 1
+	ix = cut_data.cuts_per_time[cut_time] + 1
 
 	lhs = []
 	for f in keys(cut_fire_allots)
@@ -364,12 +392,14 @@ function push_cut_to_rmp!!!(cuts_per_time, cuts, cut_objects, cut, rmp)
 		end
 	end
 
-	cuts[cut_time, ix] = @constraint(rmp.model, -sum(lhs) >= -cut_rhs)
-	cut_objects[(cut_time, ix)] = cut
-	cuts_per_time[cut_time] = ix
+	rmp.gub_cover_cuts[cut_time, ix] = @constraint(rmp.model, -sum(lhs) >= -cut_rhs)
+	cut_data.cut_dict[(cut_time, ix)] = cut
+	cut_data.cuts_per_time[cut_time] = ix
 end
 
-function generate_and_add_knapsack_cuts_to_rmp!(
+function find_and_incorporate_knapsack_gub_cuts!!(
+	
+	gub_cut_data::GUBCoverCutData,
 	rmp::RestrictedMasterProblem,
 	crew_routes,
 	fire_plans,
@@ -377,15 +407,11 @@ function generate_and_add_knapsack_cuts_to_rmp!(
 	fire_models,
 )
 
-	num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)
-
-	@constraint(rmp.model, cuts[t = 1:14, u = 1:14; false], 0 >= 0)
-	cut_objects = Dict()
-	cuts_per_time = [0 for t ∈ 1:14]
+	num_crews, _, num_fires, _ = size(crew_routes.fires_fought)
 
 	keep_iterating = true
 	while keep_iterating
-		knapsack_cuts = generate_knapsack_cuts(crew_routes, fire_plans, rmp)
+		knapsack_cuts = find_knapsack_cuts(crew_routes, fire_plans, rmp)
 
 		## lots of choices for how many times to introduce cuts and re-optimize
 		## can look for more after reoptimizing to cut off new solution
@@ -393,35 +419,41 @@ function generate_and_add_knapsack_cuts_to_rmp!(
 		## for now let's do one round of minimal cuts but could do all of them or tune based on change in objective
 
 		keep_iterating = false
-		@info length(knapsack_cuts)
+		@info "Adding knapsack cuts" length(knapsack_cuts)
 
 		# if length(knapsack_cuts) == 0
 		#     keep_iterating = false
 		# end
 
 		for cut in knapsack_cuts
-			push_cut_to_rmp!!!(cuts_per_time, cuts, cut_objects, cut, rmp)
+			push_cut_to_rmp!!(
+				rmp,
+				gub_cut_data,
+				cut,
+				crew_routes,
+				fire_plans,
+			)
 		end
 
 		optimize!(rmp.model)
-		@info objective_value(rmp.model)
+		@info "New objective after adding cuts" objective_value(rmp.model)
 	end
 
-	fire_cut_sp_lookup = Dict{Int64, Dict{Tuple{Int64, Int64}, Dict{Int64, Int8}}}()
 	for fire ∈ 1:num_fires
-		mdl = fire_models[fire]
-		d = Dict{Tuple{Int64, Int64}, Dict{Int64, Int8}}()
-		incorporate_gub_cover_cuts_into_fire_subproblem!(d, cut_objects, fire, mdl)
-		fire_cut_sp_lookup[fire] = deepcopy(d)
+		incorporate_gub_cover_cuts_into_fire_subproblem!(
+			gub_cut_data.fire_sp_lookup[fire],
+			gub_cut_data.cut_dict,
+			fire,
+			fire_models[fire],
+		)
 	end
 
-	crew_cut_sp_lookup = Dict{Int64, Dict{Tuple{Int64, Int64}, Dict{Int64, Int8}}}()
 	for crew ∈ 1:num_crews
-		mdl2 = crew_models[crew]
-		e = Dict{Tuple{Int64, Int64}, Dict{Int64, Int8}}()
-		incorporate_gub_cover_cuts_into_crew_subproblem!(e, cut_objects, crew, mdl2)
-		crew_cut_sp_lookup[crew] = deepcopy(e)
+		incorporate_gub_cover_cuts_into_crew_subproblem!(
+			gub_cut_data.crew_sp_lookup[crew],
+			gub_cut_data.cut_dict,
+			crew,
+			crew_models[crew],
+		)
 	end
-
-	return cuts, cut_objects, cuts_per_time, fire_cut_sp_lookup, crew_cut_sp_lookup
 end

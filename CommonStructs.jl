@@ -137,6 +137,7 @@ mutable struct RestrictedMasterProblem # TODO can make some JuMP things const?
 	route_per_crew::Vector{ConstraintRef}
 	plan_per_fire::Vector{ConstraintRef}
 	supply_demand_linking::Matrix{ConstraintRef}
+	gub_cover_cuts::JuMP.Containers.SparseAxisArray
 	# linking_perturbation::Matrix{ConstraintRef}
 
 	# termination status

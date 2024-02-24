@@ -77,6 +77,7 @@ function branch_and_price(num_fires::Int, num_crews::Int, num_time_periods::Int)
 			fire_plans,
 			crew_models,
 			fire_models,
+            cut_data,
 			nothing,
 			GRB_ENV,
 		)
@@ -108,7 +109,7 @@ function branch_and_price(num_fires::Int, num_crews::Int, num_time_periods::Int)
 			println("halted early.")
             find_and_incorporate_knapsack_gub_cuts!!(cut_data, nodes[1].master_problem, crew_routes, fire_plans, crew_models, fire_models)
             optimize!(nodes[1].master_problem.model)
-            @info "new objective" objective_value(nodes[1].master_problem.model)
+            @info "new objective" objective_value(nodes[1].master_problem.model) cut_data
             return
 		end
 	end

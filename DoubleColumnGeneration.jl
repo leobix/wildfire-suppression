@@ -182,6 +182,7 @@ end
 function add_column_to_master_problem!(
 	rmp::RestrictedMasterProblem,
 	crew_routes::CrewRouteData,
+	cut_dict::Dict{Any, GUBCoverCut},
 	crew::Int64,
 	ix::Int64,
 )
@@ -197,19 +198,46 @@ function add_column_to_master_problem!(
 		crew_routes.route_costs[crew, ix],
 	)
 
-	# update coefficient in constraints
+	## update coefficient in constraints
+
+	# route per crew
 	set_normalized_coefficient(rmp.route_per_crew[crew], rmp.routes[crew, ix], 1)
+	
+	# supply demand linking
 	set_normalized_coefficient.(
 		rmp.supply_demand_linking,
 		rmp.routes[crew, ix],
 		crew_routes.fires_fought[crew, ix, :, :],
 	)
 
+	# cuts
+
+	# for each cut in the cut data
+	for (cut_ix, cut) ∈ cut_dict
+
+		# if this crew is involved in the cut
+		if crew ∈ cut.inactive_crews
+
+			# get the fires not suppressed at the given time in order to enter cut
+			fires = [i for i in keys(cut.fire_lower_bounds)]
+
+			# if these fires are not suppressed at the given time
+			if maximum(crew_routes.fires_fought[crew, ix, fires, cut.time_ix]) == 0
+				
+				# set the coefficient of this route in this cut to -1 (negated because >=)
+				set_normalized_coefficient(rmp.gub_cover_cuts[cut_ix], rmp.routes[crew, ix], -1)
+			
+			end
+		
+		end
+	end
+
 end
 
 function add_column_to_master_problem!(
 	rmp::RestrictedMasterProblem,
 	fire_plans::FirePlanData,
+	cut_dict::Dict{Any, GUBCoverCut},
 	fire::Int64,
 	ix::Int64,
 )
@@ -226,12 +254,34 @@ function add_column_to_master_problem!(
 	)
 
 	# update coefficient in constraints
+
+	# plan per fire
 	set_normalized_coefficient(rmp.plan_per_fire[fire], rmp.plans[fire, ix], 1)
+
+	# supply demand linking
 	set_normalized_coefficient.(
 		rmp.supply_demand_linking[fire, :],
 		rmp.plans[fire, ix],
 		-fire_plans.crews_present[fire, ix, :],
 	)
+
+	# cuts
+
+	# for each cut in the cut data
+	for (cut_ix, cut) ∈ cut_dict
+
+		# if this fire is involved in the cut
+		if fire ∈ keys(cut.fire_allots)
+
+			# if this fire is suppressed at least the allotment of the cut
+			if fire_plans.crews_present[fire, ix, cut.time_ix] >= cut.fire_allots[fire][1]
+				
+				# set the coefficient of this route in this cut to the coefficient of the cut (negated because >=)
+				set_normalized_coefficient(rmp.gub_cover_cuts[cut_ix], rmp.plans[fire, ix], - cut.fire_allots[fire][2])
+			
+			end
+		end
+	end
 end
 
 function fire_allotments(rmp::RestrictedMasterProblem, plans::FirePlanData)
@@ -254,6 +304,7 @@ function double_column_generation!(
 	fire_branching_rules::Vector{FireDemandBranchingRule},
 	crew_routes::CrewRouteData,
 	fire_plans::FirePlanData,
+	cut_data::GUBCoverCutData,
 	improving_column_abs_tolerance::Float64 = 1e-4)
 
 	# gather global information
@@ -337,7 +388,7 @@ function double_column_generation!(
 					add_column_to_route_data!(crew_routes, crew, cost, fires_fought)
 
 				# update the master problem
-				add_column_to_master_problem!(rmp, crew_routes, crew, new_route_ix)
+				add_column_to_master_problem!(rmp, crew_routes, cut_data.cut_dict, crew, new_route_ix)
 
 				new_column_found = true
 			end
@@ -388,7 +439,7 @@ function double_column_generation!(
 					add_column_to_plan_data!(fire_plans, fire, cost, crew_demands)
 
 				# update the master problem
-				add_column_to_master_problem!(rmp, fire_plans, fire, new_plan_ix)
+				add_column_to_master_problem!(rmp, fire_plans, cut_data.cut_dict, fire, new_plan_ix)
 
 				new_column_found = true
 			end
@@ -421,8 +472,8 @@ function double_column_generation!(
 
 		# if no new column added, we have proof of optimality
 		else
-			rmp.termination_status = MOI.OPTIMAL
-			@info "RMP stats at optimality" objective_value(rmp.model) iteration
+			rmp.termination_status = MOI.LOCALLY_SOLVED
+			@info "RMP stats with no more columns found" objective_value(rmp.model) iteration
 		end
 	end
 end

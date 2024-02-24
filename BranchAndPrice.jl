@@ -106,6 +106,7 @@ function explore_node!!(
 	fire_plans::FirePlanData,
 	crew_subproblems::Vector{TimeSpaceNetwork},
 	fire_subproblems::Vector{TimeSpaceNetwork},
+	cut_data::GUBCoverCutData,
 	warm_start_strategy::Union{String, Nothing},
 	gurobi_env)
 
@@ -138,6 +139,9 @@ function explore_node!!(
 	end
 
 	# define the restricted master problem
+	## TODO how do we handle existing cuts
+	## I think it is fine because generated plans 
+	## get coeffs incorporated into cuts
 	rmp = define_restricted_master_problem(
 		gurobi_env,
 		crew_routes,
@@ -169,6 +173,7 @@ function explore_node!!(
 		fire_rules,
 		crew_routes,
 		fire_plans,
+		cut_data
 	)
 
 	# update the rmp fire_flow_duals

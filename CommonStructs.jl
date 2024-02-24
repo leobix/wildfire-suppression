@@ -55,6 +55,59 @@ function FirePlanData(
 	)
 end
 
+struct GUBCoverCut
+	time_ix::Int64
+	fire_lower_bounds::Dict{Int64, Tuple{Int64, Int8}} # fire : (allotment : coeff)
+	inactive_crews::Vector{Int64}
+	rhs::Int64
+end
+
+
+function GUBCoverCut(
+	time_ix::Int64,
+	fire_lower_bounds::Dict{Int64, Int64},
+	inactive_crews::Vector{Int64},
+	rhs::Int64,
+)
+
+	return GUBCoverCut(
+		time_ix,
+		Dict(key => (fire_lower_bounds[key], 1) for key in keys(fire_lower_bounds)),
+		inactive_crews,
+		rhs,
+	)
+end
+
+struct GUBCoverCutData
+
+	cut_dict::Dict{Any, GUBCoverCut}
+	cuts_per_time::Vector{Int64}
+	fire_sp_lookup::Dict{Int64, Dict{Tuple{Int64, Int64}, Dict{Int64, Int8}}}
+	crew_sp_lookup::Dict{Int64, Dict{Tuple{Int64, Int64}, Dict{Int64, Int8}}}
+end
+
+# constructor
+function GUBCoverCutData(num_crews::Int, num_fires::Int, num_time_periods::Int)
+
+	cut_objects = Dict{Any, GUBCoverCut}()
+	cuts_per_time = [0 for t ∈ 1:num_time_periods]
+	fire_cut_sp_lookup = Dict{Int64, Dict{Tuple{Int64, Int64}, Dict{Int64, Int8}}}()
+	crew_cut_sp_lookup = Dict{Int64, Dict{Tuple{Int64, Int64}, Dict{Int64, Int8}}}()
+	for fire ∈ 1:num_fires
+		fire_cut_sp_lookup[fire] = Dict{Tuple{Int64, Int64}, Dict{Int64, Int8}}()
+	end
+	for crew ∈ 1:num_crews
+		crew_cut_sp_lookup[crew] = Dict{Tuple{Int64, Int64}, Dict{Int64, Int8}}()
+	end
+
+	return GUBCoverCutData(
+		cut_objects,
+		cuts_per_time,
+		fire_cut_sp_lookup,
+		crew_cut_sp_lookup,
+	)
+end
+
 struct CrewSupplyBranchingRule
 
 	crew_ix::Int64

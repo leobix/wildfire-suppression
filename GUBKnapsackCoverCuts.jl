@@ -357,11 +357,11 @@ function incorporate_gub_cover_cuts_into_crew_subproblem!(
 end
 
 function push_cut_to_rmp!!(
-	rmp,
+	rmp::RestrictedMasterProblem,
 	cut_data::GUBCoverCutData,
-	cut,
-	crew_routes,
-	fire_plans,
+	cut::GUBCoverCut,
+	crew_routes::CrewRouteData,
+	fire_plans::FirePlanData,
 )
 
 	cut_time = cut.time_ix
@@ -401,8 +401,8 @@ function find_and_incorporate_knapsack_gub_cuts!!(
 	
 	gub_cut_data::GUBCoverCutData,
 	rmp::RestrictedMasterProblem,
-	crew_routes,
-	fire_plans,
+	crew_routes::CrewRouteData,
+	fire_plans::FirePlanData,
 	crew_models,
 	fire_models,
 )

@@ -13,9 +13,9 @@ struct TimeSpaceNetwork # TODO always make time the first index
 
 end
 
-mutable struct CrewRouteData
+struct CrewRouteData
 
-	const n_crews::Int64
+	n_crews::Int64
 	routes_per_crew::Vector{Int64}
 	route_costs::Matrix{Float64}
 	fires_fought::BitArray{4}
@@ -34,9 +34,9 @@ function CrewRouteData(
 		BitArray(undef, num_crews, max_routes, num_fires, num_time_periods) .> 2)
 end
 
-mutable struct FirePlanData
+struct FirePlanData
 
-	const n_fires::Int64
+	n_fires::Int64
 	plans_per_fire::Vector{Int64}
 	plan_costs::Matrix{Float64}
 	crews_present::Array{Int64, 3}
@@ -180,17 +180,17 @@ end
 mutable struct RestrictedMasterProblem # TODO can make some JuMP things const?
 
 	# model
-	model::JuMP.Model
+	const model::JuMP.Model
 
 	# vars
-	routes::JuMP.Containers.SparseAxisArray # could speed up?
-	plans::JuMP.Containers.SparseAxisArray # could speed up?
+	const routes::JuMP.Containers.SparseAxisArray # could speed up?
+	const plans::JuMP.Containers.SparseAxisArray # could speed up?
 
 	# constraints
-	route_per_crew::Vector{ConstraintRef}
-	plan_per_fire::Vector{ConstraintRef}
-	supply_demand_linking::Matrix{ConstraintRef}
-	gub_cover_cuts::JuMP.Containers.SparseAxisArray
+	const route_per_crew::Vector{ConstraintRef}
+	const plan_per_fire::Vector{ConstraintRef}
+	const supply_demand_linking::Matrix{ConstraintRef}
+	const gub_cover_cuts::JuMP.Containers.SparseAxisArray
 	# linking_perturbation::Matrix{ConstraintRef}
 
 	# termination status

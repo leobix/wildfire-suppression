@@ -202,7 +202,7 @@ function add_column_to_master_problem!(
 
 	# route per crew
 	set_normalized_coefficient(rmp.route_per_crew[crew], rmp.routes[crew, ix], 1)
-	
+
 	# supply demand linking
 	set_normalized_coefficient.(
 		rmp.supply_demand_linking,
@@ -223,12 +223,16 @@ function add_column_to_master_problem!(
 
 			# if these fires are not suppressed at the given time
 			if maximum(crew_routes.fires_fought[crew, ix, fires, cut.time_ix]) == 0
-				
+
 				# set the coefficient of this route in this cut to -1 (negated because >=)
-				set_normalized_coefficient(rmp.gub_cover_cuts[cut_ix], rmp.routes[crew, ix], -1)
-			
+				set_normalized_coefficient(
+					rmp.gub_cover_cuts[cut_ix],
+					rmp.routes[crew, ix],
+					-1,
+				)
+
 			end
-		
+
 		end
 	end
 
@@ -271,14 +275,19 @@ function add_column_to_master_problem!(
 	for (cut_ix, cut) ∈ cut_dict
 
 		# if this fire is involved in the cut
-		if fire ∈ keys(cut.fire_allots)
+		if fire ∈ keys(cut.fire_lower_bounds)
 
 			# if this fire is suppressed at least the allotment of the cut
-			if fire_plans.crews_present[fire, ix, cut.time_ix] >= cut.fire_allots[fire][1]
-				
+			if fire_plans.crews_present[fire, ix, cut.time_ix] >=
+			   cut.fire_lower_bounds[fire][1]
+
 				# set the coefficient of this route in this cut to the coefficient of the cut (negated because >=)
-				set_normalized_coefficient(rmp.gub_cover_cuts[cut_ix], rmp.plans[fire, ix], - cut.fire_allots[fire][2])
-			
+				set_normalized_coefficient(
+					rmp.gub_cover_cuts[cut_ix],
+					rmp.plans[fire, ix],
+					-cut.fire_lower_bounds[fire][2],
+				)
+
 			end
 		end
 	end
@@ -315,10 +324,12 @@ function double_column_generation!(
 		fire_duals = zeros(num_fires) .+ Inf
 		crew_duals = zeros(num_crews)
 		linking_duals = zeros(num_fires, num_time_periods) .+ 1e30
+		cut_duals = []
 	else
 		fire_duals = dual.(rmp.plan_per_fire)
 		crew_duals = dual.(rmp.route_per_crew)
 		linking_duals = dual.(rmp.supply_demand_linking)
+		cut_duals = dual.(rmp.gub_cover_cuts)
 	end
 
 
@@ -326,7 +337,8 @@ function double_column_generation!(
 	new_column_found::Bool = true
 	iteration = 0
 
-	while (new_column_found)
+	while (new_column_found & (iteration < 100))
+		@debug "iter" iteration
 
 		iteration += 1
 		new_column_found = false
@@ -337,7 +349,7 @@ function double_column_generation!(
 		# costs happens once only. In contrast, in the fire subproblems
 		# this happens inside the loop for each fire. 
 		# (TODO: see which is faster in Julia)
-		
+
 		subproblem = crew_subproblems[1]
 
 		# generate the local costs of the arcs
@@ -348,11 +360,18 @@ function double_column_generation!(
 			crew_branching_rules,
 		)
 		# @info "crew prohibited_arcs" length(subproblem.long_arcs[prohibited_arcs, :])
-		@debug "crew prohibited_arcs" subproblem.long_arcs[prohibited_arcs, :]
+		# @debug "crew prohibited_arcs" subproblem.long_arcs[prohibited_arcs, :]
 		arc_costs = rel_costs .+ subproblem.arc_costs
-		
+
 		# for each crew
 		for crew in 1:num_crews
+
+			# adjust the arc costs for the cuts
+			cut_adjusted_arc_costs = cut_adjust_arc_costs(
+				arc_costs,
+				cut_data.crew_sp_lookup[crew],
+				cut_duals,
+			)
 
 			# extract the subproblem
 			subproblem = crew_subproblems[crew]
@@ -363,14 +382,21 @@ function double_column_generation!(
 			# solve the subproblem
 			objective, arcs_used = crew_dp_subproblem(
 				subproblem.wide_arcs,
-				arc_costs,
+				cut_adjusted_arc_costs,
 				crew_prohibited_arcs,
 				subproblem.state_in_arcs,
 			)
 
+			# adjust the objective for the cuts (we gave -1 if allotment not broken, give +1 here)
+			for (ix, cut) in cut_data.cut_dict
+				if crew ∈ cut.inactive_crews
+					objective += cut_duals[ix]
+				end
+			end
+
 			# if there is an improving route
 			if objective < crew_duals[crew] - improving_column_abs_tolerance
-		
+
 				# get the real cost, unadjusted for duals
 				cost = sum(subproblem.arc_costs[arcs_used])
 
@@ -388,7 +414,13 @@ function double_column_generation!(
 					add_column_to_route_data!(crew_routes, crew, cost, fires_fought)
 
 				# update the master problem
-				add_column_to_master_problem!(rmp, crew_routes, cut_data.cut_dict, crew, new_route_ix)
+				add_column_to_master_problem!(
+					rmp,
+					crew_routes,
+					cut_data.cut_dict,
+					crew,
+					new_route_ix,
+				)
 
 				new_column_found = true
 			end
@@ -408,13 +440,20 @@ function double_column_generation!(
 			)
 
 			# @info "fire prohibited_arcs" length(subproblem.long_arcs[prohibited_arcs, :])
-			@debug "fire prohibited_arcs" subproblem.long_arcs[prohibited_arcs, :]
+			# @debug "fire prohibited_arcs" subproblem.long_arcs[prohibited_arcs, :]
 			arc_costs = rel_costs .+ subproblem.arc_costs
+
+			# adjust the arc costs for the cuts
+			cut_adjusted_arc_costs = cut_adjust_arc_costs(
+				arc_costs,
+				cut_data.fire_sp_lookup[fire],
+				cut_duals,
+			)
 
 			# solve the subproblem
 			objective, arcs_used = fire_dp_subproblem(
 				subproblem.wide_arcs,
-				arc_costs,
+				cut_adjusted_arc_costs,
 				prohibited_arcs,
 				subproblem.state_in_arcs,
 			)
@@ -439,7 +478,13 @@ function double_column_generation!(
 					add_column_to_plan_data!(fire_plans, fire, cost, crew_demands)
 
 				# update the master problem
-				add_column_to_master_problem!(rmp, fire_plans, cut_data.cut_dict, fire, new_plan_ix)
+				add_column_to_master_problem!(
+					rmp,
+					fire_plans,
+					cut_data.cut_dict,
+					fire,
+					new_plan_ix,
+				)
 
 				new_column_found = true
 			end
@@ -450,6 +495,7 @@ function double_column_generation!(
 
 			# TODO dual warm start passed in here
 			optimize!(rmp.model)
+			@debug "after iteration" objective_value(rmp.model) length(cut_data.cut_dict)
 
 			# if the master problem is infeasible (this can only happen on iteration 1, return infeasible)
 			if (termination_status(rmp.model) == MOI.INFEASIBLE) |
@@ -466,14 +512,22 @@ function double_column_generation!(
 				fire_duals = dual.(rmp.plan_per_fire)
 				crew_duals = dual.(rmp.route_per_crew)
 				linking_duals = dual.(rmp.supply_demand_linking)
-
+				cut_duals = dual.(rmp.gub_cover_cuts)
 			end
 
 
-		# if no new column added, we have proof of optimality
+			# if no new column added, we have proof of optimality
 		else
 			rmp.termination_status = MOI.LOCALLY_SOLVED
 			@info "RMP stats with no more columns found" objective_value(rmp.model) iteration
+			fire_allots, crew_allots = get_fire_and_crew_incumbent_weighted_average(
+				rmp,
+				crew_routes,
+				fire_plans,
+			)
+			@debug "used fire plans" [(ix, value(rmp.plans[ix]), fire_plans.crews_present[ix..., :]) for ix in eachindex(rmp.plans) if value(rmp.plans[ix]) > 0]
+			@debug "used crew routes" [(ix, value(rmp.routes[ix])) for ix in eachindex(rmp.routes) if value(rmp.routes[ix]) > 0]
+			@debug "weighted allots" fire_allots
 		end
 	end
 end

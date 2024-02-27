@@ -463,7 +463,7 @@ function build_crew_models(
 		num_crews,
 		num_time_periods,
 		crew_status.rest_by,
-		1e10,
+		1e25,
 		positive,
 	)
 	ALPHA = 200

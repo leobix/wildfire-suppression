@@ -14,7 +14,7 @@ function preprocess(in_path, agg_prec, passive_states)
     rotation_order = get_rotation_orders(r_data.crew_regions)
     A = generate_arcs(g_data, r_data, crew_status)
 
-    rest_pen = get_rest_penalties(crew_status.rest_by, 1e10, positive)
+    rest_pen = get_rest_penalties(crew_status.rest_by, 1e25, positive)
     cost_params = Dict("cost_per_mile" => 1, "rest_violation" => rest_pen, "fight_fire" => ALPHA)
     crew_arc_costs = get_static_crew_arc_costs(g_data, A, cost_params)
 

@@ -221,7 +221,7 @@ function test_crew_factory()
 	@assert all.(fc[2].wide_arcs[:, 10] == [10, 1, 1, 1, 1, 1, 2, 0, 0])
 	@assert all.(
 		fc[1].arc_costs[400:420] == [
-			1.0000000325233711e10,
+			1.0000000325233711e25,
 			200.0,
 			200.0,
 			200.0,

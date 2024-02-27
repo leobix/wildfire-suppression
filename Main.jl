@@ -28,7 +28,7 @@ function initialize_data_structures(
 
 	crew_routes = CrewRouteData(100000, num_fires, num_crews, num_time_periods)
 	fire_plans = FirePlanData(100000, num_fires, num_time_periods)
-    cut_data = GUBCoverCutData(num_crews, num_fires, num_time_periods)
+	cut_data = GUBCoverCutData(num_crews, num_fires, num_time_periods)
 
 	return crew_routes, fire_plans, crew_models, fire_models, cut_data
 end
@@ -77,7 +77,7 @@ function branch_and_price(num_fires::Int, num_crews::Int, num_time_periods::Int)
 			fire_plans,
 			crew_models,
 			fire_models,
-            cut_data,
+			cut_data,
 			nothing,
 			GRB_ENV,
 		)
@@ -85,7 +85,7 @@ function branch_and_price(num_fires::Int, num_crews::Int, num_time_periods::Int)
 		# if this node has an integer solution, check if we have found 
 		# a better solution than the incumbent
 		if nodes[node_ix].integer == true
-			node_ub = objective_value(nodes[nodes_ix].master_problem.model)
+			node_ub = objective_value(nodes[node_ix].master_problem.model)
 			if node_ub < ub
 				ub = node_ub
 				ub_ix = ix
@@ -107,10 +107,7 @@ function branch_and_price(num_fires::Int, num_crews::Int, num_time_periods::Int)
 
 		if node_ix > 1
 			println("halted early.")
-            find_and_incorporate_knapsack_gub_cuts!!(cut_data, nodes[1].master_problem, crew_routes, fire_plans, crew_models, fire_models)
-            optimize!(nodes[1].master_problem.model)
-            @info "new objective" objective_value(nodes[1].master_problem.model) cut_data
-            return
+			return
 		end
 	end
 

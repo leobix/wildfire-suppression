@@ -1,7 +1,13 @@
 using IterTools
 
 
-function get_gub_fire_relevant_suppression_data(fire, time, fire_plans, rmp, used_plans)
+function get_gub_fire_relevant_suppression_data(
+	fire::Int64,
+	time::Int64,
+	fire_plans::FirePlanData,
+	rmp::RestrictedMasterProblem,
+	used_plans,
+)
 	sample = fire_plans.crews_present[fire, used_plans[fire], :]
 	values = [value(rmp.plans[fire, i]) for i in used_plans[fire]]
 	coeff_order = sortperm(sample[:, time])
@@ -19,7 +25,13 @@ function get_gub_fire_relevant_suppression_data(fire, time, fire_plans, rmp, use
 	return pairs
 end
 
-function get_gub_crew_relevant_routing_data(c, t, crew_routes, used_routes, rmp)
+function get_gub_crew_relevant_routing_data(
+	c::Int64,
+	t::Int64,
+	crew_routes::CrewRouteData,
+	used_routes,
+	rmp::RestrictedMasterProblem,
+)
 	sample =
 		.~dropdims(
 			maximum(crew_routes.fires_fought[c, used_routes[c], :, :], dims = 2),
@@ -109,7 +121,7 @@ function enumerate_minimal_cuts(crew_allots, fire_allots)
 	return all_cuts
 end
 
-function get_fire_and_crew_incumbent_weighted_average(rmp, crew_routes, fire_plans)
+function get_fire_and_crew_incumbent_weighted_average(rmp::RestrictedMasterProblem, crew_routes::CrewRouteData, fire_plans::FirePlanData)
 
 	# get problem dimensions
 	num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)
@@ -155,7 +167,11 @@ function adjust_cut_fire_allotment(
 	return adjusted_allotment
 end
 
-function find_knapsack_cuts(crew_routes::CrewRouteData, fire_plans::FirePlanData, rmp::RestrictedMasterProblem)
+function find_knapsack_cuts(
+	crew_routes::CrewRouteData,
+	fire_plans::FirePlanData,
+	rmp::RestrictedMasterProblem,
+)
 
 	# get problem dimensions
 	num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)
@@ -235,8 +251,8 @@ function find_knapsack_cuts(crew_routes::CrewRouteData, fire_plans::FirePlanData
 			)
 			push!(knapsack_gub_cuts, gub_cut)
 		end
-
 	end
+	@debug "usage info" all_fire_allots all_crew_allots
 
 	return knapsack_gub_cuts
 end
@@ -344,9 +360,7 @@ function push_cut_to_rmp!!(
 	cut_data.cuts_per_time[cut_time] = ix
 end
 
-function find_and_incorporate_knapsack_gub_cuts!!(
-	
-	gub_cut_data::GUBCoverCutData,
+function find_and_incorporate_knapsack_gub_cuts!!(gub_cut_data::GUBCoverCutData,
 	rmp::RestrictedMasterProblem,
 	crew_routes::CrewRouteData,
 	fire_plans::FirePlanData,

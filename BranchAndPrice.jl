@@ -36,12 +36,16 @@ function max_variance_natural_variable(
 		fire_sq_means[fire, :] +=
 			plan_values[ix] * (fire_plans.crews_present[fire, plan, :] .^ 2)
 		if plan_values[ix] > 0.0001
-			@debug "used plan" ix plan_values[ix] fire_plans.crews_present[fire, plan, :]
+			@debug "used plan" ix plan_values[ix] fire_plans.crews_present[
+				fire,
+				plan,
+				:,
+			]
 		end
 	end
 	fire_variances = fire_sq_means - (fire_means .^ 2)
 	@debug "Means" fire_means # crew_means
-	@debug "Variances" fire_variances # crew_variances
+	@info "Variances" fire_variances # crew_variances
 	# get the max variance for each natural variable type
 	crew_max_var, crew_max_ix = findmax(crew_variances)
 	fire_max_var, fire_max_ix = findmax(fire_variances)
@@ -164,7 +168,30 @@ function explore_node!!(
 	end
 	@debug "all branching rules found to pass to DCG" crew_rules fire_rules
 
-	# run DCG, adding columns as needed
+	for i = 1:8
+		# run DCG, adding columns as needed
+		double_column_generation!(
+			rmp,
+			crew_subproblems,
+			fire_subproblems,
+			crew_rules,
+			fire_rules,
+			crew_routes,
+			fire_plans,
+			cut_data,
+		)
+		@info "objective after cg" objective_value(rmp.model)
+		# add cuts
+		find_and_incorporate_knapsack_gub_cuts!!(
+			cut_data,
+			rmp,
+			crew_routes,
+			fire_plans,
+			crew_subproblems,
+			fire_subproblems,
+		)
+		@info "objective after cuts" objective_value(rmp.model)
+	end
 	double_column_generation!(
 		rmp,
 		crew_subproblems,
@@ -173,10 +200,12 @@ function explore_node!!(
 		fire_rules,
 		crew_routes,
 		fire_plans,
-		cut_data
+		cut_data,
 	)
 
-	# update the rmp fire_flow_duals
+	@info "final rmp objective" objective_value(rmp.model)
+
+	# update the rmp 
 	branch_and_bound_node.master_problem = rmp
 
 	# update the branch-and-bound node to be feasible or not
@@ -198,6 +227,13 @@ function explore_node!!(
 			all((route_values .< tolerance) .| (route_values .> 1 - tolerance))
 		branch_and_bound_node.integer = integer
 	end
+
+	set_binary.(rmp.routes)
+	set_binary.(rmp.plans)
+	optimize!(rmp.model)
+	@info "after restoring integrality" objective_value(rmp.model)
+	@info "used fire plans" [(ix, value(rmp.plans[ix]), fire_plans.crews_present[ix..., :]) for ix in eachindex(rmp.plans) if value(rmp.plans[ix]) > 0]
+	@info "used crew routes" [(ix, value(rmp.routes[ix])) for ix in eachindex(rmp.routes) if value(rmp.routes[ix]) > 0]
 
 	# if we cannot prune
 	if ~branch_and_bound_node.integer & branch_and_bound_node.feasible &
@@ -265,7 +301,7 @@ function explore_node!!(
 			branch_and_bound_node.children = [left_child, right_child]
 
 		end
-		@debug "branching rules" left_branching_rule right_branching_rule
+		@info "branching rules" left_branching_rule right_branching_rule
 	end
 end
 

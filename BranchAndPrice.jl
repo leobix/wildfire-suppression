@@ -230,8 +230,9 @@ function explore_node!!(
 
 	set_binary.(rmp.routes)
 	set_binary.(rmp.plans)
-	optimize!(rmp.model)
-	@info "after restoring integrality" objective_value(rmp.model)
+	set_optimizer_attribute(rmp.model, "TimeLimit", 60)
+	t = @elapsed optimize!(rmp.model)
+	@info "after restoring integrality" t objective_value(rmp.model) objective_bound(rmp.model)
 	@info "used fire plans" [(ix, value(rmp.plans[ix]), fire_plans.crews_present[ix..., :]) for ix in eachindex(rmp.plans) if value(rmp.plans[ix]) > 0]
 	@info "used crew routes" [(ix, value(rmp.routes[ix])) for ix in eachindex(rmp.routes) if value(rmp.routes[ix]) > 0]
 

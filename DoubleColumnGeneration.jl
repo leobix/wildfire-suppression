@@ -495,6 +495,7 @@ function double_column_generation!(
 
 			# TODO dual warm start passed in here
 			optimize!(rmp.model)
+			rmp.termination_status = MOI.ITERATION_LIMIT
 			@debug "after iteration" objective_value(rmp.model) length(cut_data.cut_dict)
 
 			# if the master problem is infeasible (this can only happen on iteration 1, return infeasible)
@@ -519,7 +520,7 @@ function double_column_generation!(
 			# if no new column added, we have proof of optimality
 		else
 			rmp.termination_status = MOI.LOCALLY_SOLVED
-			@info "RMP stats with no more columns found" objective_value(rmp.model) iteration
+			@info "RMP stats with no more columns found" objective_value(rmp.model)
 			fire_allots, crew_allots = get_fire_and_crew_incumbent_weighted_average(
 				rmp,
 				crew_routes,
@@ -530,4 +531,6 @@ function double_column_generation!(
 			@debug "weighted allots" fire_allots
 		end
 	end
+	@info "DCG end status:" rmp.termination_status iteration
+
 end

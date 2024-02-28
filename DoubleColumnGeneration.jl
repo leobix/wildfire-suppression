@@ -66,6 +66,12 @@ function define_restricted_master_problem(
 	)
 
 	@debug "cut mp lookups" cut_data.fire_mp_lookup cut_data.crew_mp_lookup gub_cover_cuts
+
+	# set cut RHS (negating because of >= convention)
+	for ix in keys(cut_data.cut_dict)
+		set_normalized_rhs(gub_cover_cuts[ix], -cut_data.cut_dict[ix].rhs)
+	end
+
 	# get proper coefficients of columns in gub_cover_cuts
 	fire_lookup = cut_data.fire_mp_lookup
 	for cut_ix in eachindex(fire_lookup)
@@ -74,7 +80,7 @@ function define_restricted_master_problem(
 				set_normalized_coefficient(
 					gub_cover_cuts[cut_ix],
 					plan[fire_ix],
-					coeff,
+					-coeff,
 				)
 			end
 		end
@@ -86,7 +92,7 @@ function define_restricted_master_problem(
 				set_normalized_coefficient(
 					gub_cover_cuts[cut_ix],
 					route[crew_ix],
-					coeff,
+					-coeff,
 				)
 			end
 		end
@@ -355,68 +361,37 @@ function double_column_generation!(
 	crew_routes::CrewRouteData,
 	fire_plans::FirePlanData,
 	cut_data::GUBCoverCutData,
-	upper_bound::Float64 = 1e10,
+	upper_bound::Float64 = 1e20,
 	improving_column_abs_tolerance::Float64 = 1e-4)
 
 	# gather global information
 	num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)
 
+	if rmp.termination_status == MOI.OPTIMIZE_NOT_CALLED
+		# initialize with an (infeasible) dual solution that will suppress minimally
+		fire_duals = zeros(num_fires) .+ Inf
+		crew_duals = zeros(num_crews)
+		linking_duals = zeros(num_fires, num_time_periods) .+ 1e30
+		cut_duals = normalized_rhs.(rmp.gub_cover_cuts) .* 0
+	else
+		fire_duals = dual.(rmp.plan_per_fire)
+		crew_duals = dual.(rmp.route_per_crew)
+		linking_duals = dual.(rmp.supply_demand_linking)
+		cut_duals = dual.(rmp.gub_cover_cuts)
+	end
+
+	@debug "initial dual values DCG" fire_duals crew_duals linking_duals cut_duals
+
+
 	# initialize column generation loop
 	new_column_found::Bool = true
-	iteration::Int64 = 0
+	iteration = 0
 
 	while (new_column_found & (iteration < 100))
 		@debug "iter" iteration
 
 		iteration += 1
 		new_column_found = false
-
-		# TODO dual warm start passed in here
-		optimize!(rmp.model)
-		rmp.termination_status = MOI.ITERATION_LIMIT
-		@debug "after iteration" objective_value(rmp.model) length(
-			cut_data.cut_dict,
-		)
-
-		# grab dual values (or farkas vector if infeasible)
-		fire_duals = dual.(rmp.plan_per_fire)
-		crew_duals = dual.(rmp.route_per_crew)
-		linking_duals = dual.(rmp.supply_demand_linking)
-		cut_duals = dual.(rmp.gub_cover_cuts)
-
-		# if the master problem is infeasible
-		if (termination_status(rmp.model) == MOI.INFEASIBLE) |
-		   (termination_status(rmp.model) == MOI.INFEASIBLE_OR_UNBOUNDED)
-
-			# log this
-			@info "RMP is infeasible, using dual certificate to get dual values" iteration dual_status(rmp.model)
-
-			# set status
-			rmp.termination_status = MOI.INFEASIBLE
-
-			# scale dual values to a feasible dual solution with cost "upper_bound"
-			# (linking_duals ommited because 0 RHS)
-			dual_costs = 0
-			for ix in eachindex(fire_duals)
-				dual_costs += (normalized_rhs(rmp.plan_per_fire[ix]) * fire_duals[ix])
-			end
-
-			for ix in eachindex(crew_duals)
-				dual_costs += (normalized_rhs(rmp.route_per_crew[ix]) * crew_duals[ix])
-			end
-
-			for ix in eachindex(cut_duals)
-				dual_costs += (normalized_rhs(rmp.gub_cover_cuts[ix]) * cut_duals[ix])
-			end
-
-			scale = upper_bound / dual_costs
-			fire_duals = fire_duals .* scale
-			crew_duals = crew_duals .* scale
-			linking_duals = linking_duals .* scale
-			cut_duals = cut_duals .* scale
-		end
-
-		@info "dual values" iteration fire_duals crew_duals linking_duals cut_duals
 
 		# Not for any good reason, the crew subproblems all access the 
 		# same set of arcs in matrix form, and each runs its subproblem 
@@ -565,11 +540,66 @@ function double_column_generation!(
 			end
 		end
 
-		# if no new column added, we have proof of optimality
-		if ~new_column_found 
+		# if we added at least one column, or we have not yet grabbed dual values 
+		# from the restricted master problem, solve the RMP
+		if new_column_found | (iteration == 1)
 
+			# TODO dual warm start passed in here
+			optimize!(rmp.model)
+
+			## TODO FIX THIS LOGIC AND INFEASIBLE LOGIC
+			rmp.termination_status = MOI.ITERATION_LIMIT
+			@debug "after iteration" objective_value(rmp.model) length(
+				cut_data.cut_dict,
+			)
+
+			# grab dual values (or farkas vector if infeasible)
+			fire_duals = dual.(rmp.plan_per_fire)
+			crew_duals = dual.(rmp.route_per_crew)
+			linking_duals = dual.(rmp.supply_demand_linking)
+			cut_duals = dual.(rmp.gub_cover_cuts)
+
+			# if the master problem is infeasible
+			if (termination_status(rmp.model) == MOI.INFEASIBLE) |
+			(termination_status(rmp.model) == MOI.INFEASIBLE_OR_UNBOUNDED)
+
+				# log this
+				@info "RMP is infeasible, using dual certificate to get dual values" iteration fire_duals crew_duals linking_duals cut_duals dual_status(rmp.model)
+
+				# set status
+				rmp.termination_status = MOI.INFEASIBLE
+
+				# scale dual values to a feasible dual solution with cost "upper_bound"
+				# (linking_duals omitted because 0 RHS)
+				dual_costs = 0
+				for ix in eachindex(fire_duals)
+					dual_costs += (normalized_rhs(rmp.plan_per_fire[ix]) * fire_duals[ix])
+				end
+				@debug "dual costs" dual_costs
+				for ix in eachindex(crew_duals)
+					dual_costs += (normalized_rhs(rmp.route_per_crew[ix]) * crew_duals[ix])
+				end
+				@debug "dual costs" dual_costs
+				for ix in eachindex(cut_duals)
+					dual_costs += (normalized_rhs(rmp.gub_cover_cuts[ix]) * cut_duals[ix])
+				end
+				@debug "dual costs" dual_costs
+
+				scale = upper_bound / dual_costs
+				@debug "scale" scale
+				fire_duals = fire_duals .* scale
+				crew_duals = crew_duals .* scale
+				linking_duals = linking_duals .* scale
+				cut_duals = cut_duals .* scale
+			end
+
+			@debug "dual values" iteration fire_duals crew_duals linking_duals cut_duals
+
+		# if no new column added, we have proof of optimality
+		else
 			rmp.termination_status = MOI.LOCALLY_SOLVED
-			@info "RMP stats with no more columns found" objective_value(rmp.model)
+			@info "RMP stats with no more columns found" iteration objective_value(rmp.model) 
+			@debug "final dual values" fire_duals crew_duals linking_duals cut_duals
 			fire_allots, crew_allots = get_fire_and_crew_incumbent_weighted_average(
 				rmp,
 				crew_routes,
@@ -585,23 +615,7 @@ function double_column_generation!(
 			]
 			@debug "weighted allots" fire_allots
 		end
-
-		# if rmp.termination_status == MOI.OPTIMIZE_NOT_CALLED
-		# 	# initialize with an (infeasible) dual solution that will suppress minimally
-		# 	fire_duals = zeros(num_fires) .+ Inf
-		# 	crew_duals = zeros(num_crews)
-		# 	linking_duals = zeros(num_fires, num_time_periods) .+ 1e30
-		# 	cut_duals = normalized_rhs.(rmp.gub_cover_cuts) .* 0
-		# else
-		# 	fire_duals = dual.(rmp.plan_per_fire)
-		# 	crew_duals = dual.(rmp.route_per_crew)
-		# 	linking_duals = dual.(rmp.supply_demand_linking)
-		# 	cut_duals = dual.(rmp.gub_cover_cuts)
-		# end
-
-		# @debug "initial dual values DCG" fire_duals crew_duals linking_duals cut_duals
-
 	end
-	@info "DCG end status:" rmp.termination_status iteration
+	@debug "DCG end status:" rmp.termination_status iteration
 
 end

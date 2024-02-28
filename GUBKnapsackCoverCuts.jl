@@ -121,7 +121,11 @@ function enumerate_minimal_cuts(crew_allots, fire_allots)
 	return all_cuts
 end
 
-function get_fire_and_crew_incumbent_weighted_average(rmp::RestrictedMasterProblem, crew_routes::CrewRouteData, fire_plans::FirePlanData)
+function get_fire_and_crew_incumbent_weighted_average(
+	rmp::RestrictedMasterProblem,
+	crew_routes::CrewRouteData,
+	fire_plans::FirePlanData,
+)
 
 	# get problem dimensions
 	num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)
@@ -334,30 +338,43 @@ function push_cut_to_rmp!!(
 
 	ix = cut_data.cuts_per_time[cut_time] + 1
 
-	lhs = []
+	cut_fire_mp_lookup = Dict{Tuple{Int64, Int64}, Int8}()
 	for f in keys(cut_fire_allots)
 		for i in eachindex(rmp.plans[f, :])
 			if fire_plans.crews_present[f, i..., cut_time] >= cut_fire_allots[f][1]
-				push!(lhs, cut_fire_allots[f][2] * rmp.plans[f, i...])
+				cut_fire_mp_lookup[(f, i...)] = cut_fire_allots[f][2]
 			end
 		end
 	end
 
 	# TODO allow coeffs for this cut too
+	cut_crew_mp_lookup = Dict{Tuple{Int64, Int64}, Int8}()
 	for c in cut_crew_allots
 		for i in eachindex(rmp.routes[c, :])
 
 			# crew has to suppress one of the fires in the cut to avoid entering this cut
 			fires = [i for i in keys(cut_fire_allots)]
 			if maximum(crew_routes.fires_fought[c, i..., fires, cut_time]) == 0
-				push!(lhs, rmp.routes[c, i...])
+				cut_crew_mp_lookup[(c, i...)] = 1
 			end
 		end
 	end
 
+	lhs = []
+	for ix in eachindex(cut_fire_mp_lookup)
+		push!(lhs, cut_fire_mp_lookup[ix] * rmp.plans[ix])
+	end
+
+	for ix in eachindex(cut_crew_mp_lookup)
+		push!(lhs, cut_crew_mp_lookup[ix] * rmp.routes[ix])
+	end
+
+	# update data structures
 	rmp.gub_cover_cuts[cut_time, ix] = @constraint(rmp.model, -sum(lhs) >= -cut_rhs)
 	cut_data.cut_dict[(cut_time, ix)] = cut
 	cut_data.cuts_per_time[cut_time] = ix
+	cut_data.crew_mp_lookup[(cut_time, ix)] = cut_crew_mp_lookup
+	cut_data.fire_mp_lookup[(cut_time, ix)] = cut_fire_mp_lookup
 end
 
 function find_and_incorporate_knapsack_gub_cuts!!(gub_cut_data::GUBCoverCutData,
@@ -369,10 +386,11 @@ function find_and_incorporate_knapsack_gub_cuts!!(gub_cut_data::GUBCoverCutData,
 )
 
 	num_crews, _, num_fires, _ = size(crew_routes.fires_fought)
-
+	num_cuts_found = 0
 	keep_iterating = true
 	while keep_iterating
 		knapsack_cuts = find_knapsack_cuts(crew_routes, fire_plans, rmp)
+		num_cuts_found += length(knapsack_cuts)
 
 		## lots of choices for how many times to introduce cuts and re-optimize
 		## can look for more after reoptimizing to cut off new solution
@@ -380,7 +398,7 @@ function find_and_incorporate_knapsack_gub_cuts!!(gub_cut_data::GUBCoverCutData,
 		## for now let's do one round of minimal cuts but could do all of them or tune based on change in objective
 
 		keep_iterating = false
-		@info "Adding knapsack cuts" length(knapsack_cuts)
+		@debug "Adding knapsack cuts" length(knapsack_cuts)
 
 		# if length(knapsack_cuts) == 0
 		#     keep_iterating = false
@@ -397,7 +415,9 @@ function find_and_incorporate_knapsack_gub_cuts!!(gub_cut_data::GUBCoverCutData,
 		end
 
 		optimize!(rmp.model)
-		@info "New objective after adding cuts" objective_value(rmp.model)
+		@debug "Objective directly after adding cuts and reoptimizing" objective_value(
+			rmp.model,
+		)
 	end
 
 	for fire ∈ 1:num_fires
@@ -417,4 +437,6 @@ function find_and_incorporate_knapsack_gub_cuts!!(gub_cut_data::GUBCoverCutData,
 			crew_models[crew],
 		)
 	end
+
+	return num_cuts_found
 end

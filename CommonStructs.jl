@@ -84,6 +84,8 @@ struct GUBCoverCutData
 	cuts_per_time::Vector{Int64}
 	fire_sp_lookup::Dict{Int64, Dict{Tuple{Int64, Int64}, Dict{Int64, Int8}}}
 	crew_sp_lookup::Dict{Int64, Dict{Tuple{Int64, Int64}, Dict{Int64, Int8}}}
+	fire_mp_lookup::Dict{Tuple{Int64, Int64}, Dict{Tuple{Int64, Int64}, Int8}}
+	crew_mp_lookup::Dict{Tuple{Int64, Int64}, Dict{Tuple{Int64, Int64}, Int8}}
 end
 
 # constructor
@@ -105,6 +107,8 @@ function GUBCoverCutData(num_crews::Int, num_fires::Int, num_time_periods::Int)
 		cuts_per_time,
 		fire_cut_sp_lookup,
 		crew_cut_sp_lookup,
+		Dict{Tuple{Int64, Int64}, Dict{Tuple{Int64, Int64}, Int64}}(),
+		Dict{Tuple{Int64, Int64}, Dict{Tuple{Int64, Int64}, Int64}}()
 	)
 end
 
@@ -206,9 +210,9 @@ mutable struct BranchAndBoundNode
 	const new_fire_branching_rules::Vector{FireDemandBranchingRule}
 	children::Vector{BranchAndBoundNode}
 	l_bound::Float64
+	u_bound::Float64
 	master_problem::Union{Nothing, RestrictedMasterProblem}
 	feasible::Union{Nothing, Bool}
-	integer::Union{Nothing, Bool}
 end
 
 function BranchAndBoundNode(
@@ -219,9 +223,9 @@ function BranchAndBoundNode(
 	new_fire_branching_rules::Vector{FireDemandBranchingRule} = FireDemandBranchingRule[],
 	children::Vector{BranchAndBoundNode} = BranchAndBoundNode[],
 	l_bound::Float64 = -Inf,
+	u_bound::Float64 = Inf,
 	master_problem::Union{Nothing, RestrictedMasterProblem} = nothing,
-	feasible::Union{Nothing, Bool} = nothing,
-	integer::Union{Nothing, Bool} = nothing)
+	feasible::Union{Nothing, Bool} = nothing)
 
 	return BranchAndBoundNode(
 		ix,
@@ -230,8 +234,8 @@ function BranchAndBoundNode(
 		new_fire_branching_rules,
 		children,
 		l_bound,
+		u_bound,
 		master_problem,
-		feasible,
-		integer,
+		feasible
 	)
 end

@@ -84,13 +84,10 @@ function branch_and_price(num_fires::Int, num_crews::Int, num_time_periods::Int)
 
 		# if this node has an integer solution, check if we have found 
 		# a better solution than the incumbent
-		if nodes[node_ix].integer == true
-			node_ub = objective_value(nodes[node_ix].master_problem.model)
-			if node_ub < ub
-				ub = node_ub
-				ub_ix = ix
-			end
-		end
+        if nodes[node_ix].u_bound < ub
+            ub = nodes[node_ix].u_bound
+            ub_ix = node_ix
+        end
 
 		# calculate the best current lower bound by considering all nodes with
 		# fully explored children 
@@ -105,7 +102,7 @@ function branch_and_price(num_fires::Int, num_crews::Int, num_time_periods::Int)
 		@info "number of nodes" node_ix length(nodes)
 		@info "columns" crew_routes.routes_per_crew fire_plans.plans_per_fire
 
-		if node_ix > 1
+		if node_ix > 20
 			println("halted early.")
 			return
 		end

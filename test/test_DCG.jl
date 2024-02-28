@@ -1,5 +1,6 @@
 include("../CommonStructs.jl")
 include("../DoubleColumnGeneration.jl")
+
 using JuMP, Gurobi, Profile
 const GRB_ENV = Gurobi.Env()
 
@@ -23,8 +24,9 @@ function initialize_data_structures(
 	)
 
 
-	crew_routes = CrewRouteData(10000, num_fires, num_crews, num_time_periods)
-	fire_plans = FirePlanData(10000, num_fires, num_time_periods)
+	crew_routes = CrewRouteData(100000, num_fires, num_crews, num_time_periods)
+	fire_plans = FirePlanData(100000, num_fires, num_time_periods)
+	cut_data = GUBCoverCutData(num_crews, num_fires, num_time_periods)
 
 	rmp = define_restricted_master_problem(
 		GRB_ENV,
@@ -32,13 +34,14 @@ function initialize_data_structures(
 		[Int64[] for i ∈ 1:num_crews],
 		fire_plans,
 		[Int64[] for i ∈ 1:num_fires],
+		cut_data
 	)
+	return crew_routes, fire_plans, crew_models, fire_models, rmp, cut_data
 
-	return crew_routes, fire_plans, crew_models, fire_models, rmp
 end
 
 
-s = @elapsed crew_routes, fire_plans, crew_models, fire_models, rmp =
+s = @elapsed crew_routes, fire_plans, crew_models, fire_models, rmp, cut_data =
     initialize_data_structures(3, 10, 14)
 
 
@@ -50,16 +53,17 @@ t = @elapsed double_column_generation!(
     FireDemandBranchingRule[],
     crew_routes,
     fire_plans,
+	cut_data
 )
 
 println(s)
 println(t)
 
-s = @elapsed crew_routes, fire_plans, crew_models, fire_models, rmp =
+s = @elapsed crew_routes, fire_plans, crew_models, fire_models, rmp, cut_data =
     initialize_data_structures(3, 10, 14)
 
 Profile.init()
-t = @elapsed @profile double_column_generation!(
+t = @profile @elapsed double_column_generation!(
     rmp,
     crew_models,
     fire_models,
@@ -67,10 +71,11 @@ t = @elapsed @profile double_column_generation!(
     FireDemandBranchingRule[],
     crew_routes,
     fire_plans,
+	cut_data
 )
 
 println(s)
 println(t)
-@assert objective_value(rmp.model) == 1.1388005347712322e6
+@assert abs(objective_value(rmp.model) - 1.1388005347712322e6) <= 1e-6
 println("Matched expected objective value")
 Profile.print()

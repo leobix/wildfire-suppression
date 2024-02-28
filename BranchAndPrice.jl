@@ -102,6 +102,58 @@ function apply_branching_rule(
 	return output
 
 end
+
+function price_and_cut!!(
+	rmp::RestrictedMasterProblem,
+	cut_data::GUBCoverCutData,
+	crew_subproblems::Vector{TimeSpaceNetwork},
+	fire_subproblems::Vector{TimeSpaceNetwork},
+	crew_rules::Vector{CrewSupplyBranchingRule},
+	fire_rules::Vector{FireDemandBranchingRule},
+	crew_routes::CrewRouteData,
+	fire_plans::FirePlanData)
+
+	for loop_ix ∈ 1:8
+		# run DCG, adding columns as needed
+		double_column_generation!(
+			rmp,
+			crew_subproblems,
+			fire_subproblems,
+			crew_rules,
+			fire_rules,
+			crew_routes,
+			fire_plans,
+			cut_data,
+		)
+		@debug "objective after cg" objective_value(rmp.model)
+		# add cuts
+		num_cuts = find_and_incorporate_knapsack_gub_cuts!!(
+			cut_data,
+			rmp,
+			crew_routes,
+			fire_plans,
+			crew_subproblems,
+			fire_subproblems,
+		)
+		@debug "objective after cuts" objective_value(rmp.model)
+		if num_cuts == 0
+			@info "No cuts found, breaking" loop_ix
+			break
+		end
+		
+	end
+	double_column_generation!(
+		rmp,
+		crew_subproblems,
+		fire_subproblems,
+		crew_rules,
+		fire_rules,
+		crew_routes,
+		fire_plans,
+		cut_data,
+	)
+
+end
 function explore_node!!(
 	branch_and_bound_node::BranchAndBoundNode,
 	all_nodes::Vector{BranchAndBoundNode},
@@ -144,14 +196,14 @@ function explore_node!!(
 
 	# define the restricted master problem
 	## TODO how do we handle existing cuts
-	## I think it is fine because generated plans 
-	## get coeffs incorporated into cuts
+	## currently carrying them all
 	rmp = define_restricted_master_problem(
 		gurobi_env,
 		crew_routes,
 		crew_ixs,
 		fire_plans,
 		fire_ixs,
+		cut_data,
 	)
 
 	# get the branching rules
@@ -167,42 +219,16 @@ function explore_node!!(
 
 	end
 	@debug "all branching rules found to pass to DCG" crew_rules fire_rules
-
-	for i = 1:8
-		# run DCG, adding columns as needed
-		double_column_generation!(
-			rmp,
-			crew_subproblems,
-			fire_subproblems,
-			crew_rules,
-			fire_rules,
-			crew_routes,
-			fire_plans,
-			cut_data,
-		)
-		@info "objective after cg" objective_value(rmp.model)
-		# add cuts
-		find_and_incorporate_knapsack_gub_cuts!!(
-			cut_data,
-			rmp,
-			crew_routes,
-			fire_plans,
-			crew_subproblems,
-			fire_subproblems,
-		)
-		@info "objective after cuts" objective_value(rmp.model)
-	end
-	double_column_generation!(
+	
+	price_and_cut!!(
 		rmp,
+		cut_data,
 		crew_subproblems,
 		fire_subproblems,
 		crew_rules,
 		fire_rules,
 		crew_routes,
-		fire_plans,
-		cut_data,
-	)
-
+		fire_plans)
 	@info "final rmp objective" objective_value(rmp.model)
 
 	# update the rmp 
@@ -211,33 +237,44 @@ function explore_node!!(
 	# update the branch-and-bound node to be feasible or not
 	if rmp.termination_status == MOI.INFEASIBLE
 		branch_and_bound_node.feasible = false
-		branch_and_bound_node.integer = false
 		branch_and_bound_node.l_bound = Inf
-		println("infeasible here")
+		@info "infeasible node" node_ix
 	else
 		branch_and_bound_node.feasible = true
 		branch_and_bound_node.l_bound = objective_value(rmp.model)
 
-		# update the branch-and-bound node to be integer or not
-		tolerance = 1e-4
 		plan_values = value.(rmp.plans)
 		route_values = value.(rmp.routes)
-		integer =
-			all((plan_values .< tolerance) .| (plan_values .> 1 - tolerance)) &
-			all((route_values .< tolerance) .| (route_values .> 1 - tolerance))
-		branch_and_bound_node.integer = integer
+		# # update the branch-and-bound node to be integer or not
+		# tolerance = 1e-4
+		# integer =
+		# 	all((plan_values .< tolerance) .| (plan_values .> 1 - tolerance)) &
+		# 	all((route_values .< tolerance) .| (route_values .> 1 - tolerance))
+		# branch_and_bound_node.integer = integer
+
+		set_binary.(rmp.routes)
+		set_binary.(rmp.plans)
+		set_optimizer_attribute(rmp.model, "TimeLimit", 2)
+		t = @elapsed optimize!(rmp.model)
+		branch_and_bound_node.u_bound = objective_value(rmp.model)
 	end
 
-	set_binary.(rmp.routes)
-	set_binary.(rmp.plans)
-	set_optimizer_attribute(rmp.model, "TimeLimit", 60)
-	t = @elapsed optimize!(rmp.model)
-	@info "after restoring integrality" t objective_value(rmp.model) objective_bound(rmp.model)
-	@info "used fire plans" [(ix, value(rmp.plans[ix]), fire_plans.crews_present[ix..., :]) for ix in eachindex(rmp.plans) if value(rmp.plans[ix]) > 0]
-	@info "used crew routes" [(ix, value(rmp.routes[ix])) for ix in eachindex(rmp.routes) if value(rmp.routes[ix]) > 0]
+	@info "after restoring integrality" t objective_value(rmp.model) objective_bound(
+		rmp.model,
+	)
+	@info "used fire plans" [
+		(ix, value(rmp.plans[ix]), fire_plans.crews_present[ix..., :]) for
+		ix in eachindex(rmp.plans) if value(rmp.plans[ix]) > 0
+	]
+	@info "used crew routes" [
+		(ix, value(rmp.routes[ix])) for
+		ix in eachindex(rmp.routes) if value(rmp.routes[ix]) > 0
+	]
+	
 
 	# if we cannot prune
-	if ~branch_and_bound_node.integer & branch_and_bound_node.feasible &
+	if (branch_and_bound_node.u_bound - branch_and_bound_node.l_bound > 1e-5) &
+	   branch_and_bound_node.feasible &
 	   (branch_and_bound_node.l_bound < current_global_upper_bound)
 
 		# decide the next branching rules

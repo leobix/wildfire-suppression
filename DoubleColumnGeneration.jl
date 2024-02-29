@@ -585,6 +585,26 @@ function double_column_generation!(
 				cut_duals,
 			)
 
+			# for each branching rule
+			for ix in eachindex(global_fire_allotment_branching_rules)
+
+				rule = global_fire_allotment_branching_rules[ix]
+
+				# if this is a <= 0 rule, we have more prohibited arcs
+				if ~rule.geq_flag
+					prohibited_arcs =
+						unique(vcat(prohibited_arcs, rule.fire_sp_arc_lookup[fire]))
+				end
+
+				# we need to do a proper dual adjustment
+				cut_adjusted_arc_costs = adjust_fire_sp_arc_costs(
+					rule,
+					fire,
+					cut_adjusted_arc_costs,
+					global_fire_allot_duals[ix],
+				)
+			end
+
 			# solve the subproblem
 			objective, arcs_used = fire_dp_subproblem(
 				subproblem.wide_arcs,

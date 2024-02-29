@@ -275,12 +275,12 @@ function explore_node!!(
 		for rule in branch_and_bound_node.new_global_fire_allotment_branching_rules
 			if ~rule.geq_flag
 				for fire in 1:num_fires
-					@debug "fire_ixs" length(fire_ixs[fire])
+					@info "fire_ixs" length(fire_ixs[fire])
 					fire_ixs[fire] = filter!(
 						x -> (fire, x) ∉ keys(rule.mp_lookup),
 						fire_ixs[fire],
 					)
-					@debug "fire_ixs" length(fire_ixs[fire])
+					@info "fire_ixs" length(fire_ixs[fire])
 				end
 			end
 		end
@@ -391,7 +391,7 @@ function explore_node!!(
 			fire_plans,
 		)
 		@info fire_alloc
-		left_branching_rule = GlobalFireAllotmentBranchingRule(Int.(ceil.(fire_alloc) .+ 3),
+		left_branching_rule = GlobalFireAllotmentBranchingRule(Int.(ceil.(fire_alloc) .+ 1),
 			false,
 			fire_plans,
 			fire_subproblems,

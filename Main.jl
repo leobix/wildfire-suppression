@@ -103,21 +103,22 @@ function branch_and_price(num_fires::Int, num_crews::Int, num_time_periods::Int)
 
 		if node_ix > 3
 			println("halted early.")
-            for g in 1:num_fires
-                num_plans = fire_plans.plans_per_fire[g]
-                plans = eachrow(fire_plans.crews_present[g, 1:num_plans, :])
-                plans = [i for i in plans if sum(i) > 0]
-                @info plans
-                @assert allunique(plans)
-            end
+            # for g in 1:num_fires
+            #     num_plans = fire_plans.plans_per_fire[g]
+            #     plans = eachrow(fire_plans.crews_present[g, 1:num_plans, :])
+            #     plans = [i for i in plans if sum(i) > 0]
+            #     @info plans
+            #     @assert allunique(plans)
+            # end
 
-            for c in 1:num_crews
-                num_routes = crew_routes.routes_per_crew[c]
-                routes = [crew_routes.fires_fought[c, i] for i in 1:num_routes]
-                routes = [i for i in routes if sum(i) > 0]
-                @info routes
-                @assert allunique(routes)
-            end
+            # for c in 1:num_crews
+            #     num_routes = crew_routes.routes_per_crew[c]
+            #     routes = [crew_routes.fires_fought[c, i] for i in 1:num_routes]
+            #     routes = [i for i in routes if sum(i) > 0]
+            #     @info routes
+            #     @assert allunique(routes)
+            # end
+            return
 		end
 	end
 
@@ -141,6 +142,6 @@ else
 	global_logger(ConsoleLogger(io, Logging.Info, show_limited = false))
 end
 
-branch_and_price(3, 10, 14)
+branch_and_price(6, 20, 14)
 # branch_and_price(9, 30, 14)
 close(io)

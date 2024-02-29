@@ -1,9 +1,55 @@
 include("CommonStructs.jl")
+include("BranchingRules.jl")
 
 using Gurobi, Statistics
-# const GRB_ENV = Gurobi.Env()
 
 
+mutable struct BranchAndBoundNode
+
+	const ix::Int64
+	const parent::Union{Nothing, BranchAndBoundNode}
+	const new_crew_branching_rules::Vector{CrewSupplyBranchingRule}
+	const new_fire_branching_rules::Vector{FireDemandBranchingRule}
+	const new_global_fire_allotment_branching_rules::Vector{
+		GlobalFireAllotmentBranchingRule,
+	}
+	children::Vector{BranchAndBoundNode}
+	l_bound::Float64
+	u_bound::Float64
+	master_problem::Union{Nothing, RestrictedMasterProblem}
+	feasible::Union{Nothing, Bool}
+end
+
+function BranchAndBoundNode(
+	;
+	ix::Int64,
+	parent::Union{Nothing, BranchAndBoundNode},
+	new_crew_branching_rules::Vector{CrewSupplyBranchingRule} = CrewSupplyBranchingRule[],
+	new_fire_branching_rules::Vector{FireDemandBranchingRule} = FireDemandBranchingRule[],
+	new_global_fire_allotment_branching_rules::Vector{
+		GlobalFireAllotmentBranchingRule,
+	} = GlobalFireAllotmentBranchingRule[],
+	children::Vector{BranchAndBoundNode} = BranchAndBoundNode[],
+	l_bound::Float64 = -Inf,
+	u_bound::Float64 = Inf,
+	master_problem::Union{Nothing, RestrictedMasterProblem} = nothing,
+	feasible::Union{Nothing, Bool} = nothing)
+
+	return BranchAndBoundNode(
+		ix,
+		parent,
+		new_crew_branching_rules,
+		new_fire_branching_rules,
+		new_global_fire_allotment_branching_rules,
+		children,
+		l_bound,
+		u_bound,
+		master_problem,
+		feasible,
+	)
+end
+
+###############
 
 function max_variance_natural_variable(
 	crew_routes::CrewRouteData,
@@ -77,6 +123,16 @@ function apply_branching_rule(
 			]
 		end
 		output[crew] = ixs
+		ixs = copy(crew_avail_ixs[crew])
+		if branching_rule.crew_ix == crew
+			ixs = [
+				i for i in ixs if satisfies_branching_rule(
+					branching_rule,
+					crew_routes.fires_fought[branching_rule.crew_ix, i, :, :],
+				)
+			]
+		end
+		output[crew] = ixs
 	end
 
 	return output
@@ -90,6 +146,16 @@ function apply_branching_rule(
 
 	output = [Int64[] for fire in 1:size(fire_avail_ixs)[1]]
 	for fire in 1:size(fire_avail_ixs)[1]
+		ixs = copy(fire_avail_ixs[fire])
+		if branching_rule.fire_ix == fire
+			ixs = [
+				i for i in ixs if satisfies_branching_rule(
+					branching_rule,
+					fire_plans.crews_present[branching_rule.fire_ix, i, :],
+				)
+			]
+		end
+		output[fire] = ixs
 		ixs = copy(fire_avail_ixs[fire])
 		if branching_rule.fire_ix == fire
 			ixs = [
@@ -114,6 +180,7 @@ function price_and_cut!!(
 	fire_subproblems::Vector{TimeSpaceNetwork},
 	crew_rules::Vector{CrewSupplyBranchingRule},
 	fire_rules::Vector{FireDemandBranchingRule},
+	global_fire_allotment_rules::Vector{GlobalFireAllotmentBranchingRule},
 	crew_routes::CrewRouteData,
 	fire_plans::FirePlanData)
 
@@ -127,11 +194,12 @@ function price_and_cut!!(
 			fire_subproblems,
 			crew_rules,
 			fire_rules,
+			global_fire_allotment_rules,
 			crew_routes,
 			fire_plans,
 			cut_data,
 		)
-		@debug "objective after cg" objective_value(rmp.model)
+		@info "objective after cg" objective_value(rmp.model)
 		# add cuts
 		num_cuts = find_and_incorporate_knapsack_gub_cuts!!(
 			cut_data,
@@ -141,12 +209,12 @@ function price_and_cut!!(
 			crew_subproblems,
 			fire_subproblems,
 		)
-		@debug "objective after cuts" objective_value(rmp.model)
+		@info "objective after cuts" objective_value(rmp.model)
 		if num_cuts == 0
 			@info "No cuts found, breaking" loop_ix
 			break
 		end
-		
+
 	end
 	double_column_generation!(
 		rmp,
@@ -154,10 +222,13 @@ function price_and_cut!!(
 		fire_subproblems,
 		crew_rules,
 		fire_rules,
+		global_fire_allotment_rules,
 		crew_routes,
 		fire_plans,
 		cut_data,
 	)
+
+	@info "rmp stats end" dual.(rmp.gub_cover_cuts) dual.(rmp.fire_allotment_branches) rmp.fire_allotment_branches
 
 end
 function explore_node!!(
@@ -192,6 +263,7 @@ function explore_node!!(
 			[[i[1] for i in eachindex(parent_rmp.routes[j, :])] for j ∈ 1:num_crews]
 		fire_ixs =
 			[[i[1] for i in eachindex(parent_rmp.plans[j, :])] for j ∈ 1:num_fires]
+		@debug "avaliable columns before cull" crew_ixs fire_ixs
 		for rule in branch_and_bound_node.new_crew_branching_rules
 			crew_ixs = apply_branching_rule(crew_ixs, crew_routes, rule)
 		end
@@ -242,22 +314,9 @@ function explore_node!!(
 		fire_plans,
 		fire_ixs,
 		cut_data,
+		global_rules,
 	)
 
-	# get the branching rules
-	crew_rules = CrewSupplyBranchingRule[]
-	fire_rules = FireDemandBranchingRule[]
-
-	cur_node = branch_and_bound_node
-	while ~isnothing(cur_node)
-
-		crew_rules = vcat(cur_node.new_crew_branching_rules, crew_rules)
-		fire_rules = vcat(cur_node.new_fire_branching_rules, fire_rules)
-		cur_node = cur_node.parent
-
-	end
-	@debug "all branching rules found to pass to DCG" crew_rules fire_rules
-	
 	price_and_cut!!(
 		rmp,
 		cut_data,
@@ -265,9 +324,10 @@ function explore_node!!(
 		fire_subproblems,
 		crew_rules,
 		fire_rules,
+		global_rules,
 		crew_routes,
 		fire_plans)
-	@info "final rmp objective" objective_value(rmp.model)
+	@info "after price and cut" objective_value(rmp.model) crew_routes.routes_per_crew fire_plans.plans_per_fire
 
 	# update the rmp 
 	branch_and_bound_node.master_problem = rmp
@@ -309,15 +369,15 @@ function explore_node!!(
 	@info "after restoring integrality" t objective_value(rmp.model) objective_bound(
 		rmp.model,
 	)
-	@info "used fire plans" [
+	@debug "used fire plans" [
 		(ix, value(rmp.plans[ix]), fire_plans.crews_present[ix..., :]) for
 		ix in eachindex(rmp.plans) if value(rmp.plans[ix]) > 0
 	]
-	@info "used crew routes" [
+	@debug "used crew routes" [
 		(ix, value(rmp.routes[ix])) for
 		ix in eachindex(rmp.routes) if value(rmp.routes[ix]) > 0
 	]
-	
+
 
 	# if we cannot prune
 	if (branch_and_bound_node.u_bound - branch_and_bound_node.l_bound > 1e-5) &
@@ -331,30 +391,24 @@ function explore_node!!(
 			fire_plans,
 		)
 		@info fire_alloc
-		left_branching_rule =
-			GlobalFireAllotmentBranchingRule(Int.(ceil.(fire_alloc) .+ 3),
-				false,
-				fire_plans,
-				fire_subproblems,
-			)
-		# TODO examine side effects of shared reference
-		right_branching_rule = GlobalFireAllotmentBranchingRule(
-			left_branching_rule.allotment_matrix,
-			true,
-			left_branching_rule.fire_sp_arc_lookup,
-			left_branching_rule.mp_lookup,
+		left_branching_rule = GlobalFireAllotmentBranchingRule(Int.(ceil.(fire_alloc) .+ 3),
+			false,
+			fire_plans,
+			fire_subproblems,
 		)
+		# TODO examine side effects of shared reference
+		right_branching_rule = GlobalFireAllotmentBranchingRule(left_branching_rule.allotment_matrix, true, left_branching_rule.fire_sp_arc_lookup, left_branching_rule.mp_lookup)
 
 
 		left_child = BranchAndBoundNode(
 			ix = size(all_nodes)[1] + 1,
 			parent = branch_and_bound_node,
-			new_global_fire_allotment_branching_rules = [left_branching_rule],
+			new_global_fire_allotment_branching_rules = [left_branching_rule]
 		)
 		right_child = BranchAndBoundNode(
 			ix = size(all_nodes)[1] + 2,
 			parent = branch_and_bound_node,
-			new_global_fire_allotment_branching_rules = [right_branching_rule],
+			new_global_fire_allotment_branching_rules = [right_branching_rule]
 		)
 
 		# # decide the next branching rules
@@ -414,12 +468,12 @@ function explore_node!!(
 		# 		parent = branch_and_bound_node,
 		# 		new_crew_branching_rules = [right_branching_rule],
 		# 	)
-		push!(all_nodes, left_child)
-		push!(all_nodes, right_child)
-		branch_and_bound_node.children = [left_child, right_child]
+			push!(all_nodes, left_child)
+			push!(all_nodes, right_child)
+			branch_and_bound_node.children = [left_child, right_child]
 
-		end
-		@info "branching rules" left_branching_rule right_branching_rule
+		# end
+		@info "branching rules" left_branching_rule.allotment_matrix left_branching_rule.geq_flag right_branching_rule.allotment_matrix right_branching_rule.geq_flag
 	end
 end
 

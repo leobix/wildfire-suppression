@@ -198,8 +198,40 @@ function explore_node!!(
 		for rule in branch_and_bound_node.new_fire_branching_rules
 			fire_ixs = apply_branching_rule(fire_ixs, fire_plans, rule)
 		end
+
+		# remove plans excluded by left branching rules
+		for rule in branch_and_bound_node.new_global_fire_allotment_branching_rules
+			if ~rule.geq_flag
+				for fire in 1:num_fires
+					@debug "fire_ixs" length(fire_ixs[fire])
+					fire_ixs[fire] = filter!(
+						x -> (fire, x) ∉ keys(rule.mp_lookup),
+						fire_ixs[fire],
+					)
+					@debug "fire_ixs" length(fire_ixs[fire])
+				end
+			end
+		end
 	end
-	@debug "inputs for rmp" crew_ixs fire_ixs cut_data.cut_dict
+
+
+	# get the branching rules
+	crew_rules = CrewSupplyBranchingRule[]
+	fire_rules = FireDemandBranchingRule[]
+	global_rules = GlobalFireAllotmentBranchingRule[]
+
+	cur_node = branch_and_bound_node
+	while ~isnothing(cur_node)
+
+		crew_rules = vcat(cur_node.new_crew_branching_rules, crew_rules)
+		fire_rules = vcat(cur_node.new_fire_branching_rules, fire_rules)
+		global_rules =
+			vcat(cur_node.new_global_fire_allotment_branching_rules, global_rules)
+		cur_node = cur_node.parent
+
+	end
+	@debug "all branching rules found to pass to DCG" crew_rules fire_rules global_fire_allotment_branching_rules
+
 	# define the restricted master problem
 	## TODO how do we handle existing cuts
 	## currently carrying them all
@@ -239,6 +271,15 @@ function explore_node!!(
 
 	# update the rmp 
 	branch_and_bound_node.master_problem = rmp
+
+	@info "used fire plans" [
+		(ix, value(rmp.plans[ix]), fire_plans.crews_present[ix..., :], fire_plans.plan_costs[ix...]) for
+		ix in eachindex(rmp.plans) if value(rmp.plans[ix]) > 0
+	]
+	@info "used crew routes" [
+		(ix, value(rmp.routes[ix]), crew_routes.route_costs[ix...]) for
+		ix in eachindex(rmp.routes) if value(rmp.routes[ix]) > 0
+	]
 
 	# update the branch-and-bound node to be feasible or not
 	if rmp.termination_status == MOI.INFEASIBLE
@@ -283,66 +324,99 @@ function explore_node!!(
 	   branch_and_bound_node.feasible &
 	   (branch_and_bound_node.l_bound < current_global_upper_bound)
 
-		# decide the next branching rules
-		branch_type, branch_ix, var_variance, var_mean =
-			max_variance_natural_variable(
-				crew_routes,
-				fire_plans,
-				route_values,
-				plan_values,
-			)
-
-		@assert var_variance > 0 "Cannot branch on variable with no variance, should already be integral"
-
-		# create two new nodes with branching rules
-		if branch_type == "fire"
-			left_branching_rule = FireDemandBranchingRule(
-				Tuple(branch_ix)...,
-				Int(floor(var_mean)),
-				"less_than_or_equal",
-			)
-			right_branching_rule = FireDemandBranchingRule(
-				Tuple(branch_ix)...,
-				Int(floor(var_mean)) + 1,
-				"greater_than_or_equal",
-			)
-			left_child = BranchAndBoundNode(
-				ix = size(all_nodes)[1] + 1,
-				parent = branch_and_bound_node,
-				new_fire_branching_rules = [left_branching_rule],
-			)
-			right_child = BranchAndBoundNode(
-				ix = size(all_nodes)[1] + 2,
-				parent = branch_and_bound_node,
-				new_fire_branching_rules = [right_branching_rule],
-			)
-			push!(all_nodes, left_child)
-			push!(all_nodes, right_child)
-			branch_and_bound_node.children = [left_child, right_child]
-
-
-		else
-			left_branching_rule = CrewSupplyBranchingRule(
-				Tuple(branch_ix)...,
+		# TODO think about branching rules
+		fire_alloc, _ = get_fire_and_crew_incumbent_weighted_average(
+			rmp,
+			crew_routes,
+			fire_plans,
+		)
+		@info fire_alloc
+		left_branching_rule =
+			GlobalFireAllotmentBranchingRule(Int.(ceil.(fire_alloc) .+ 3),
 				false,
+				fire_plans,
+				fire_subproblems,
 			)
-			right_branching_rule = CrewSupplyBranchingRule(
-				Tuple(branch_ix)...,
-				true,
-			)
-			left_child = BranchAndBoundNode(
-				ix = size(all_nodes)[1] + 1,
-				parent = branch_and_bound_node,
-				new_crew_branching_rules = [left_branching_rule],
-			)
-			right_child = BranchAndBoundNode(
-				ix = size(all_nodes)[1] + 2,
-				parent = branch_and_bound_node,
-				new_crew_branching_rules = [right_branching_rule],
-			)
-			push!(all_nodes, left_child)
-			push!(all_nodes, right_child)
-			branch_and_bound_node.children = [left_child, right_child]
+		# TODO examine side effects of shared reference
+		right_branching_rule = GlobalFireAllotmentBranchingRule(
+			left_branching_rule.allotment_matrix,
+			true,
+			left_branching_rule.fire_sp_arc_lookup,
+			left_branching_rule.mp_lookup,
+		)
+
+
+		left_child = BranchAndBoundNode(
+			ix = size(all_nodes)[1] + 1,
+			parent = branch_and_bound_node,
+			new_global_fire_allotment_branching_rules = [left_branching_rule],
+		)
+		right_child = BranchAndBoundNode(
+			ix = size(all_nodes)[1] + 2,
+			parent = branch_and_bound_node,
+			new_global_fire_allotment_branching_rules = [right_branching_rule],
+		)
+
+		# # decide the next branching rules
+		# branch_type, branch_ix, var_variance, var_mean =
+		# 	max_variance_natural_variable(
+		# 		crew_routes,
+		# 		fire_plans,
+		# 		route_values,
+		# 		plan_values,
+		# 	)
+
+		# @assert var_variance > 0 "Cannot branch on variable with no variance, should already be integral"
+
+		# # create two new nodes with branching rules
+		# if branch_type == "fire"
+		# 	left_branching_rule = FireDemandBranchingRule(
+		# 		Tuple(branch_ix)...,
+		# 		Int(floor(var_mean)),
+		# 		"less_than_or_equal",
+		# 	)
+		# 	right_branching_rule = FireDemandBranchingRule(
+		# 		Tuple(branch_ix)...,
+		# 		Int(floor(var_mean)) + 1,
+		# 		"greater_than_or_equal",
+		# 	)
+		# 	left_child = BranchAndBoundNode(
+		# 		ix = size(all_nodes)[1] + 1,
+		# 		parent = branch_and_bound_node,
+		# 		new_fire_branching_rules = [left_branching_rule],
+		# 	)
+		# 	right_child = BranchAndBoundNode(
+		# 		ix = size(all_nodes)[1] + 2,
+		# 		parent = branch_and_bound_node,
+		# 		new_fire_branching_rules = [right_branching_rule],
+		# 	)
+		# 	push!(all_nodes, left_child)
+		# 	push!(all_nodes, right_child)
+		# 	branch_and_bound_node.children = [left_child, right_child]
+
+
+		# else
+		# 	left_branching_rule = CrewSupplyBranchingRule(
+		# 		Tuple(branch_ix)...,
+		# 		false,
+		# 	)
+		# 	right_branching_rule = CrewSupplyBranchingRule(
+		# 		Tuple(branch_ix)...,
+		# 		true,
+		# 	)
+		# 	left_child = BranchAndBoundNode(
+		# 		ix = size(all_nodes)[1] + 1,
+		# 		parent = branch_and_bound_node,
+		# 		new_crew_branching_rules = [left_branching_rule],
+		# 	)
+		# 	right_child = BranchAndBoundNode(
+		# 		ix = size(all_nodes)[1] + 2,
+		# 		parent = branch_and_bound_node,
+		# 		new_crew_branching_rules = [right_branching_rule],
+		# 	)
+		push!(all_nodes, left_child)
+		push!(all_nodes, right_child)
+		branch_and_bound_node.children = [left_child, right_child]
 
 		end
 		@info "branching rules" left_branching_rule right_branching_rule

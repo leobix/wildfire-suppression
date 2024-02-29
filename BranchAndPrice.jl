@@ -164,7 +164,9 @@ function price_and_cut!!(
 	crew_routes::CrewRouteData,
 	fire_plans::FirePlanData)
 
-	@info "rmp stats" length(eachindex(rmp.gub_cover_cuts)) eachindex(rmp.fire_allotment_branches)
+	@info "rmp stats" length(eachindex(rmp.gub_cover_cuts)) eachindex(
+		rmp.fire_allotment_branches,
+	)
 
 
 	for loop_ix ∈ 1:8
@@ -209,7 +211,9 @@ function price_and_cut!!(
 		cut_data,
 	)
 
-	@info "rmp stats end" dual.(rmp.gub_cover_cuts) dual.(rmp.fire_allotment_branches) rmp.fire_allotment_branches
+	@info "rmp stats end" dual.(rmp.gub_cover_cuts) dual.(
+		rmp.fire_allotment_branches
+	) rmp.fire_allotment_branches
 
 end
 function explore_node!!(
@@ -244,14 +248,26 @@ function explore_node!!(
 			[[i[1] for i in eachindex(parent_rmp.routes[j, :])] for j ∈ 1:num_crews]
 		fire_ixs =
 			[[i[1] for i in eachindex(parent_rmp.plans[j, :])] for j ∈ 1:num_fires]
-		@debug "avaliable columns before cull" crew_ixs fire_ixs
 		for rule in branch_and_bound_node.new_crew_branching_rules
 			crew_ixs = apply_branching_rule(crew_ixs, crew_routes, rule)
 		end
 		for rule in branch_and_bound_node.new_fire_branching_rules
 			fire_ixs = apply_branching_rule(fire_ixs, fire_plans, rule)
 		end
-		@debug "avaliable columns" crew_ixs fire_ixs
+
+		# remove plans excluded by left branching rules
+		for rule in branch_and_bound_node.new_global_fire_allotment_branching_rules
+			if ~rule.geq_flag
+				for fire in 1:num_fires
+					@debug "fire_ixs" length(fire_ixs[fire])
+					fire_ixs[fire] = filter!(
+						x -> (fire, x) ∉ keys(rule.mp_lookup),
+						fire_ixs[fire],
+					)
+					@debug "fire_ixs" length(fire_ixs[fire])
+				end
+			end
+		end
 	end
 
 
@@ -295,10 +311,20 @@ function explore_node!!(
 		global_rules,
 		crew_routes,
 		fire_plans)
-	@info "after price and cut" objective_value(rmp.model) crew_routes.routes_per_crew fire_plans.plans_per_fire
+	@info "after price and cut" rmp.plans rmp.routes rmp.plan_per_fire rmp.route_per_crew rmp.supply_demand_linking rmp.gub_cover_cuts rmp.fire_allotment_branches
+	@info "after price and cut lite" objective_value(rmp.model) crew_routes.routes_per_crew fire_plans.plans_per_fire
 
 	# update the rmp 
 	branch_and_bound_node.master_problem = rmp
+
+	@info "used fire plans" [
+		(ix, value(rmp.plans[ix]), fire_plans.crews_present[ix..., :], fire_plans.plan_costs[ix...]) for
+		ix in eachindex(rmp.plans) if value(rmp.plans[ix]) > 0
+	]
+	@info "used crew routes" [
+		(ix, value(rmp.routes[ix]), crew_routes.route_costs[ix...]) for
+		ix in eachindex(rmp.routes) if value(rmp.routes[ix]) > 0
+	]
 
 	# update the branch-and-bound node to be feasible or not
 	if rmp.termination_status == MOI.INFEASIBLE
@@ -328,12 +354,12 @@ function explore_node!!(
 	@info "after restoring integrality" t objective_value(rmp.model) objective_bound(
 		rmp.model,
 	)
-	@debug "used fire plans" [
-		(ix, value(rmp.plans[ix]), fire_plans.crews_present[ix..., :]) for
+	@info "used fire plans" [
+		(ix, value(rmp.plans[ix]), fire_plans.crews_present[ix..., :], fire_plans.plan_costs[ix...]) for
 		ix in eachindex(rmp.plans) if value(rmp.plans[ix]) > 0
 	]
-	@debug "used crew routes" [
-		(ix, value(rmp.routes[ix])) for
+	@info "used crew routes" [
+		(ix, value(rmp.routes[ix]), crew_routes.route_costs[ix...]) for
 		ix in eachindex(rmp.routes) if value(rmp.routes[ix]) > 0
 	]
 
@@ -350,24 +376,30 @@ function explore_node!!(
 			fire_plans,
 		)
 		@info fire_alloc
-		left_branching_rule = GlobalFireAllotmentBranchingRule(Int.(ceil.(fire_alloc) .+ 3),
-			false,
-			fire_plans,
-			fire_subproblems,
-		)
+		left_branching_rule =
+			GlobalFireAllotmentBranchingRule(Int.(ceil.(fire_alloc) .+ 3),
+				false,
+				fire_plans,
+				fire_subproblems,
+			)
 		# TODO examine side effects of shared reference
-		right_branching_rule = GlobalFireAllotmentBranchingRule(left_branching_rule.allotment_matrix, true, left_branching_rule.fire_sp_arc_lookup, left_branching_rule.mp_lookup)
+		right_branching_rule = GlobalFireAllotmentBranchingRule(
+			left_branching_rule.allotment_matrix,
+			true,
+			left_branching_rule.fire_sp_arc_lookup,
+			left_branching_rule.mp_lookup,
+		)
 
 
 		left_child = BranchAndBoundNode(
 			ix = size(all_nodes)[1] + 1,
 			parent = branch_and_bound_node,
-			new_global_fire_allotment_branching_rules = [left_branching_rule]
+			new_global_fire_allotment_branching_rules = [left_branching_rule],
 		)
 		right_child = BranchAndBoundNode(
 			ix = size(all_nodes)[1] + 2,
 			parent = branch_and_bound_node,
-			new_global_fire_allotment_branching_rules = [right_branching_rule]
+			new_global_fire_allotment_branching_rules = [right_branching_rule],
 		)
 
 		# # decide the next branching rules
@@ -427,9 +459,9 @@ function explore_node!!(
 		# 		parent = branch_and_bound_node,
 		# 		new_crew_branching_rules = [right_branching_rule],
 		# 	)
-			push!(all_nodes, left_child)
-			push!(all_nodes, right_child)
-			branch_and_bound_node.children = [left_child, right_child]
+		push!(all_nodes, left_child)
+		push!(all_nodes, right_child)
+		branch_and_bound_node.children = [left_child, right_child]
 
 		# end
 		@info "branching rules" left_branching_rule.allotment_matrix left_branching_rule.geq_flag right_branching_rule.allotment_matrix right_branching_rule.geq_flag

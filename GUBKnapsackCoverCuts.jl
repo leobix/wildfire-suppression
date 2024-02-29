@@ -369,6 +369,7 @@ function push_cut_to_rmp!!(
 		push!(lhs, cut_crew_mp_lookup[ix] * rmp.routes[ix])
 	end
 
+	@debug "pushing cut info" cut cut_crew_mp_lookup cut_fire_mp_lookup
 	# update data structures
 	rmp.gub_cover_cuts[cut_time, ix] = @constraint(rmp.model, -sum(lhs) >= -cut_rhs)
 	cut_data.cut_dict[(cut_time, ix)] = cut

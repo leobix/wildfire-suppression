@@ -226,10 +226,10 @@ function add_column_to_route_data!(
 
 end
 
-function add_column_to_master_problem!(
+function add_column_to_master_problem!!(
 	rmp::RestrictedMasterProblem,
+	cut_data::GUBCoverCutData,
 	crew_routes::CrewRouteData,
-	cut_dict::Dict{Any, GUBCoverCut},
 	crew::Int64,
 	ix::Int64,
 )
@@ -260,7 +260,7 @@ function add_column_to_master_problem!(
 	# cuts
 
 	# for each cut in the cut data
-	for (cut_ix, cut) ∈ cut_dict
+	for (cut_ix, cut) ∈ cut_data.cut_dict
 
 		# if this crew is involved in the cut
 		if crew ∈ cut.inactive_crews
@@ -278,6 +278,9 @@ function add_column_to_master_problem!(
 					-1,
 				)
 
+				# add the plan to the cut mp lookup
+				cut_data.crew_mp_lookup[cut_ix][(crew, ix)] = 1
+
 			end
 
 		end
@@ -285,10 +288,10 @@ function add_column_to_master_problem!(
 
 end
 
-function add_column_to_master_problem!(
+function add_column_to_master_problem!!(
 	rmp::RestrictedMasterProblem,
+	cut_data::GUBCoverCutData,
 	fire_plans::FirePlanData,
-	cut_dict::Dict{Any, GUBCoverCut},
 	fire::Int64,
 	ix::Int64,
 )
@@ -319,7 +322,7 @@ function add_column_to_master_problem!(
 	# cuts
 
 	# for each cut in the cut data
-	for (cut_ix, cut) ∈ cut_dict
+	for (cut_ix, cut) ∈ cut_data.cut_dict
 
 		# if this fire is involved in the cut
 		if fire ∈ keys(cut.fire_lower_bounds)
@@ -334,6 +337,9 @@ function add_column_to_master_problem!(
 					rmp.plans[fire, ix],
 					-cut.fire_lower_bounds[fire][2],
 				)
+
+				# add the plan to the cut mp lookup
+				cut_data.fire_mp_lookup[cut_ix][(fire, ix)] = cut.fire_lower_bounds[fire][2]
 
 			end
 		end
@@ -464,10 +470,10 @@ function double_column_generation!(
 					add_column_to_route_data!(crew_routes, crew, cost, fires_fought)
 
 				# update the master problem
-				add_column_to_master_problem!(
+				add_column_to_master_problem!!(
 					rmp,
+					cut_data,
 					crew_routes,
-					cut_data.cut_dict,
 					crew,
 					new_route_ix,
 				)
@@ -528,10 +534,10 @@ function double_column_generation!(
 					add_column_to_plan_data!(fire_plans, fire, cost, crew_demands)
 
 				# update the master problem
-				add_column_to_master_problem!(
+				add_column_to_master_problem!!(
 					rmp,
+					cut_data,
 					fire_plans,
-					cut_data.cut_dict,
 					fire,
 					new_plan_ix,
 				)

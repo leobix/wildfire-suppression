@@ -67,14 +67,16 @@ function apply_branching_rule(
 
 	output = [Int64[] for fire in 1:size(crew_avail_ixs)[1]]
 	for crew in 1:size(crew_avail_ixs)[1]
-		old_avail_ixs = crew_avail_ixs[crew]
-		satisfy_ixs = [
-			i for i in old_avail_ixs if satisfies_branching_rule(
-				branching_rule,
-				crew_routes.fires_fought[branching_rule.crew_ix, i, :, :],
-			)
-		]
-		push!(output, satisfy_ixs)
+		ixs = copy(crew_avail_ixs[crew])
+		if branching_rule.crew_ix == crew
+			ixs = [
+				i for i in ixs if satisfies_branching_rule(
+					branching_rule,
+					crew_routes.fires_fought[branching_rule.crew_ix, i, :, :],
+				)
+			]
+		end
+		output[crew] = ixs
 	end
 
 	return output
@@ -88,14 +90,16 @@ function apply_branching_rule(
 
 	output = [Int64[] for fire in 1:size(fire_avail_ixs)[1]]
 	for fire in 1:size(fire_avail_ixs)[1]
-		old_avail_ixs = fire_avail_ixs[fire]
-		satisfy_ixs = [
-			i for i in old_avail_ixs if satisfies_branching_rule(
-				branching_rule,
-				fire_plans.crews_present[branching_rule.fire_ix, i, :],
-			)
-		]
-		push!(output, satisfy_ixs)
+		ixs = copy(fire_avail_ixs[fire])
+		if branching_rule.fire_ix == fire
+			ixs = [
+				i for i in ixs if satisfies_branching_rule(
+					branching_rule,
+					fire_plans.crews_present[branching_rule.fire_ix, i, :],
+				)
+			]
+		end
+		output[fire] = ixs
 	end
 
 
@@ -112,6 +116,8 @@ function price_and_cut!!(
 	fire_rules::Vector{FireDemandBranchingRule},
 	crew_routes::CrewRouteData,
 	fire_plans::FirePlanData)
+
+	@debug "at price and cut start" length(rmp.plans[1, :]) length(rmp.plans[2, :]) length(rmp.plans[3, :])
 
 	for loop_ix ∈ 1:8
 		# run DCG, adding columns as needed
@@ -193,7 +199,7 @@ function explore_node!!(
 			fire_ixs = apply_branching_rule(fire_ixs, fire_plans, rule)
 		end
 	end
-
+	@debug "inputs for rmp" crew_ixs fire_ixs cut_data.cut_dict
 	# define the restricted master problem
 	## TODO how do we handle existing cuts
 	## currently carrying them all

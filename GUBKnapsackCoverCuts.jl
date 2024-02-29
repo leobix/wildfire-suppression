@@ -230,7 +230,7 @@ function find_knapsack_cuts(
 			push!(knapsack_gub_cuts, gub_cut)
 		end
 	end
-	@debug "usage info" all_fire_allots all_crew_allots
+	@info "usage info" all_fire_allots all_crew_allots
 
 	return knapsack_gub_cuts
 end

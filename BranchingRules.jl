@@ -89,9 +89,7 @@ function add_fire_plan_to_mp_lookup!(
 		branching_rule.allotment_matrix[fire, :] .<
 		fire_plans.crews_present[fire, plan_ix, :],
 	)
-    if coeff > 0
-	    branching_rule.mp_lookup[(fire, plan_ix)] = coeff
-    end
+	branching_rule.mp_lookup[(fire, plan_ix)] = coeff
 
 end
 
@@ -134,9 +132,7 @@ function GlobalFireAllotmentBranchingRule(
 
 		for ix in 1:fire_plans.plans_per_fire[fire]
 			coeff = sum(fire_allots .< fire_plans.crews_present[fire, ix, :])
-            if coeff > 0
-			    mp_lookup[(fire, ix)] = coeff
-            end
+			mp_lookup[(fire, ix)] = coeff
 		end
 	end
 

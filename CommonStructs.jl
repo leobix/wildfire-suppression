@@ -62,6 +62,7 @@ struct GUBCoverCut
 	rhs::Int64
 end
 
+
 function GUBCoverCut(
 	time_ix::Int64,
 	fire_lower_bounds::Dict{Int64, Int64},
@@ -111,6 +112,74 @@ function GUBCoverCutData(num_crews::Int, num_fires::Int, num_time_periods::Int)
 	)
 end
 
+struct CrewSupplyBranchingRule
+
+	crew_ix::Int64
+	fire_ix::Int64
+	time_ix::Int64
+	visits::Bool
+end
+
+struct FireDemandBranchingRule
+
+	fire_ix::Int64
+	time_ix::Int64
+	allotment::Int64
+	branch_direction::String
+end
+
+function satisfies_branching_rule(
+	b_rule::CrewSupplyBranchingRule,
+	fires_fought::BitArray{2},
+)
+
+	return fires_fought[b_rule.fire_ix, b_rule.time_ix] ==
+		   b_rule.visits
+end
+
+function satisfies_branching_rule(
+	b_rule::CrewSupplyBranchingRule,
+	fire_fought::Bool,
+)
+
+	return fire_fought == b_rule.visits
+end
+
+function satisfies_branching_rule(
+	b_rule::FireDemandBranchingRule,
+	crews_present::Vector{Int64},
+)
+	satisfies::Bool = false
+	if b_rule.branch_direction == "less_than_or_equal"
+		satisfies = crews_present[b_rule.time_ix] <= b_rule.allotment
+	elseif b_rule.branch_direction == "equals"
+		satisfies = crews_present[b_rule.time_ix] == b_rule.allotment
+	elseif b_rule.branch_direction == "greater_than_or_equal"
+		satisfies = crews_present[b_rule.time_ix] >= b_rule.allotment
+	else
+		error("Branch direction not implemented")
+	end
+
+	return satisfies
+end
+
+function satisfies_branching_rule(
+	b_rule::FireDemandBranchingRule,
+	crews_present::Int64,
+)
+	satisfies::Bool = false
+	if b_rule.branch_direction == "less_than_or_equal"
+		satisfies = crews_present <= b_rule.allotment
+	elseif b_rule.branch_direction == "equals"
+		satisfies = crews_present == b_rule.allotment
+	elseif b_rule.branch_direction == "greater_than_or_equal"
+		satisfies = crews_present >= b_rule.allotment
+	else
+		error("Branch direction not implemented")
+	end
+
+	return satisfies
+end
 
 mutable struct RestrictedMasterProblem # TODO can make some JuMP things const?
 
@@ -126,10 +195,47 @@ mutable struct RestrictedMasterProblem # TODO can make some JuMP things const?
 	const plan_per_fire::Vector{ConstraintRef}
 	const supply_demand_linking::Matrix{ConstraintRef}
 	const gub_cover_cuts::JuMP.Containers.SparseAxisArray
-	const fire_allotment_branches::Vector{ConstraintRef}
 	# linking_perturbation::Matrix{ConstraintRef}
 
 	# termination status
 	termination_status::MOI.TerminationStatusCode
 
+end
+
+mutable struct BranchAndBoundNode
+
+	const ix::Int64
+	const parent::Union{Nothing, BranchAndBoundNode}
+	const new_crew_branching_rules::Vector{CrewSupplyBranchingRule}
+	const new_fire_branching_rules::Vector{FireDemandBranchingRule}
+	children::Vector{BranchAndBoundNode}
+	l_bound::Float64
+	u_bound::Float64
+	master_problem::Union{Nothing, RestrictedMasterProblem}
+	feasible::Union{Nothing, Bool}
+end
+
+function BranchAndBoundNode(
+	;
+	ix::Int64,
+	parent::Union{Nothing, BranchAndBoundNode},
+	new_crew_branching_rules::Vector{CrewSupplyBranchingRule} = CrewSupplyBranchingRule[],
+	new_fire_branching_rules::Vector{FireDemandBranchingRule} = FireDemandBranchingRule[],
+	children::Vector{BranchAndBoundNode} = BranchAndBoundNode[],
+	l_bound::Float64 = -Inf,
+	u_bound::Float64 = Inf,
+	master_problem::Union{Nothing, RestrictedMasterProblem} = nothing,
+	feasible::Union{Nothing, Bool} = nothing)
+
+	return BranchAndBoundNode(
+		ix,
+		parent,
+		new_crew_branching_rules,
+		new_fire_branching_rules,
+		children,
+		l_bound,
+		u_bound,
+		master_problem,
+		feasible
+	)
 end

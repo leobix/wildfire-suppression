@@ -1,6 +1,5 @@
 include("CommonStructs.jl")
 include("TSNetworkGeneration.jl")
-include("BranchingRules.jl")
 
 function cut_adjust_arc_costs(orig_costs, cut_arc_lookup, cut_duals)
 	
@@ -25,25 +24,6 @@ function cut_adjust_arc_costs(orig_costs, cut_arc_lookup, cut_duals)
 				adj_costs[arc_ix] += cut_duals[ix] * coeff 
 			end
 		end
-	end
-
-	return adj_costs
-
-end
-
-function adjust_fire_sp_arc_costs(
-	branching_rule::GlobalFireAllotmentBranchingRule,
-	fire::Int64,
-	orig_costs::Vector{Float64},
-	rule_dual_value::Float64)
-
-	# copy the costs
-	adj_costs = copy(orig_costs)
-
-	# for each affected arc, add the dual value
-	# TODO verify that >= convention means we are adding dual value either way
-	for arc in branching_rule.fire_sp_arc_lookup[fire]
-		adj_costs[arc] += rule_dual_value
 	end
 
 	return adj_costs

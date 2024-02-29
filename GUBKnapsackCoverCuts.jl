@@ -1,7 +1,5 @@
-
-include("DoubleColumnGeneration.jl")
-
 using IterTools
+
 
 function get_gub_fire_relevant_suppression_data(
 	fire::Int64,
@@ -123,6 +121,34 @@ function enumerate_minimal_cuts(crew_allots, fire_allots)
 	return all_cuts
 end
 
+function get_fire_and_crew_incumbent_weighted_average(
+	rmp::RestrictedMasterProblem,
+	crew_routes::CrewRouteData,
+	fire_plans::FirePlanData,
+)
+
+	# get problem dimensions
+	num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)
+
+	fire_allotment = zeros(num_fires, num_time_periods)
+	for ix in eachindex(rmp.plans)
+		if value(rmp.plans[ix]) > 0
+			fire_allotment[ix[1], :] +=
+				fire_plans.crews_present[ix..., :] * value(rmp.plans[ix])
+		end
+	end
+
+	crew_allotment = zeros(num_crews, num_fires, num_time_periods)
+	for ix in eachindex(rmp.routes)
+		if value(rmp.routes[ix]) > 0
+			crew_allotment[ix[1], :, :] +=
+				crew_routes.fires_fought[ix..., :, :] * value(rmp.routes[ix])
+		end
+	end
+
+	fire_allotment, crew_allotment
+end
+
 function adjust_cut_fire_allotment(
 	current_allotment,
 	incumbent_weighted_average,
@@ -230,7 +256,7 @@ function find_knapsack_cuts(
 			push!(knapsack_gub_cuts, gub_cut)
 		end
 	end
-	@info "usage info" all_fire_allots all_crew_allots
+	@debug "usage info" all_fire_allots all_crew_allots
 
 	return knapsack_gub_cuts
 end

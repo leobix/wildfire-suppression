@@ -1,4 +1,5 @@
 include("BranchAndPrice.jl")
+include("DoubleColumnGeneration.jl")
 include("GUBKnapsackCoverCuts.jl")
 
 using JuMP, Gurobi, Profile, ArgParse, Logging
@@ -98,7 +99,10 @@ function branch_and_price(num_fires::Int, num_crews::Int, num_time_periods::Int)
 
 		# go to the next node
 		node_ix += 1
-		if node_ix > 3
+		@info "number of nodes" node_ix length(nodes)
+		@info "columns" crew_routes.routes_per_crew fire_plans.plans_per_fire
+
+		if node_ix > 20
 			println("halted early.")
 			return
 		end

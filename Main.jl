@@ -102,23 +102,24 @@ function branch_and_price(num_fires::Int, num_crews::Int, num_time_periods::Int)
 		@info "number of nodes" node_ix length(nodes)
 		@info "columns" crew_routes.routes_per_crew fire_plans.plans_per_fire
 
-		if node_ix > 3
+		if node_ix > 5
 			println("halted early.")
-            for g in 1:num_fires
-                num_plans = fire_plans.plans_per_fire[g]
-                plans = eachrow(fire_plans.crews_present[g, 1:num_plans, :])
-                plans = [i for i in plans if sum(i) > 0]
-                @info plans
-                @assert allunique(plans)
-            end
+            # for g in 1:num_fires
+            #     num_plans = fire_plans.plans_per_fire[g]
+            #     plans = eachrow(fire_plans.crews_present[g, 1:num_plans, :])
+            #     plans = [i for i in plans if sum(i) > 0]
+            #     @info plans
+            #     @assert allunique(plans)
+            # end
 
-            for c in 1:num_crews
-                num_routes = crew_routes.routes_per_crew[c]
-                routes = [crew_routes.fires_fought[c, i] for i in 1:num_routes]
-                routes = [i for i in routes if sum(i) > 0]
-                @info routes
-                @assert allunique(routes)
-            end
+            # for c in 1:num_crews
+            #     num_routes = crew_routes.routes_per_crew[c]
+            #     routes = [crew_routes.fires_fought[c, i] for i in 1:num_routes]
+            #     routes = [i for i in routes if sum(i) > 0]
+            #     @info routes
+            #     @assert allunique(routes)
+            # end
+            return
 		end
 	end
 
@@ -136,12 +137,17 @@ end
 
 args = get_command_line_args()
 io = open("logs.txt", "w")
+io2 = open("prof.txt", "w")
 if args["debug"] == true
 	global_logger(ConsoleLogger(io, Logging.Debug, show_limited = false))
 else
 	global_logger(ConsoleLogger(io, Logging.Info, show_limited = false))
 end
 
-branch_and_price(3, 10, 14)
+branch_and_price(6, 20, 14)
+# Profile.init()
+# @profile branch_and_price(6, 20, 14)
+# Profile.print(io2)
 # branch_and_price(9, 30, 14)
 close(io)
+close(io2)

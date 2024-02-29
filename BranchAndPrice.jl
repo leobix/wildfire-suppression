@@ -260,7 +260,7 @@ function explore_node!!(
 
 		set_binary.(rmp.routes)
 		set_binary.(rmp.plans)
-		set_optimizer_attribute(rmp.model, "TimeLimit", 2)
+		set_optimizer_attribute(rmp.model, "TimeLimit", 10)
 		t = @elapsed optimize!(rmp.model)
 		branch_and_bound_node.u_bound = objective_value(rmp.model)
 	end

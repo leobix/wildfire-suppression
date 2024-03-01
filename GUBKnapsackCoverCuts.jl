@@ -145,6 +145,67 @@ function adjust_cut_fire_allotment(
 	return adjusted_allotment
 end
 
+function extract_usages(
+	crew_routes::CrewRouteData,
+	fire_plans::FirePlanData,
+	rmp::RestrictedMasterProblem,
+)
+## TODO refactor with copied code below ##
+
+	# get problem dimensions
+	num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)
+
+	all_fire_allots = Array{Vector{Tuple}, 2}(undef, num_fires, num_time_periods)
+	all_crew_allots = Array{Vector{Tuple}, 2}(undef, num_crews, num_time_periods)
+
+	# get the plans that are used in the current RMP solution
+	used_plans = []
+	for g in 1:num_fires
+		plans = [
+			i[1] for
+			i in eachindex(rmp.plans[g, :]) if value(rmp.plans[g, i...]) > 1e-4
+		]
+		push!(used_plans, plans)
+	end
+
+	# get the routes that are used in the current RMP solution
+	used_routes = []
+	for c in 1:num_crews
+		routes = [
+			i[1] for
+			i in eachindex(rmp.routes[c, :]) if value(rmp.routes[c, i...]) > 1e-4
+		]
+		push!(used_routes, routes)
+	end
+
+	# for each time period
+	for t in 1:num_time_periods
+
+		# process these routes and plans into GUB-relevant allotments (needed for dominated cuts due to GUB constraints)
+		for f ∈ 1:num_fires
+			all_fire_allots[f, t] = get_gub_fire_relevant_suppression_data(
+				f,
+				t,
+				fire_plans,
+				rmp,
+				used_plans,
+			)
+		end
+		for c ∈ 1:num_crews
+			all_crew_allots[c, t] = get_gub_crew_relevant_routing_data(
+				c,
+				t,
+				crew_routes,
+				used_routes,
+				rmp,
+			)
+		end
+
+	end
+
+	return all_fire_allots, all_crew_allots
+end
+
 function find_knapsack_cuts(
 	crew_routes::CrewRouteData,
 	fire_plans::FirePlanData,
@@ -230,7 +291,7 @@ function find_knapsack_cuts(
 			push!(knapsack_gub_cuts, gub_cut)
 		end
 	end
-	@info "usage info" all_fire_allots all_crew_allots
+	@debug "usage info" all_fire_allots all_crew_allots
 
 	return knapsack_gub_cuts
 end

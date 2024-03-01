@@ -107,8 +107,30 @@ function GUBCoverCutData(num_crews::Int, num_fires::Int, num_time_periods::Int)
 		fire_cut_sp_lookup,
 		crew_cut_sp_lookup,
 		Dict{Tuple{Int64, Int64}, Dict{Tuple{Int64, Int64}, Int64}}(),
-		Dict{Tuple{Int64, Int64}, Dict{Tuple{Int64, Int64}, Int64}}()
+		Dict{Tuple{Int64, Int64}, Dict{Tuple{Int64, Int64}, Int64}}(),
 	)
+end
+
+function restrict_GUBCoverCutData(orig::GUBCoverCutData, ixs)
+	cut_objects = Dict(a => b for (a, b) in orig.cut_objects if a in ixs)
+	cuts_per_time = orig.cuts_per_time
+	fire_sp_lookup = Dict(
+		a => Dict(b => c for (b, c) in orig.fire_sp_lookup[a] if b ∈ ixs) for
+		a ∈ keys(orig.fire_sp_lookup)
+	)
+	crew_sp_lookup = Dict(
+		a => Dict(b => c for (b, c) in orig.crew_sp_lookup[a] if b ∈ ixs) for
+		a ∈ keys(orig.crew_sp_lookup)
+	)
+	fire_mp_lookup = Dict(a => b for (a, b) in orig.fire_mp_lookup if a ∈ ixs)
+	crew_mp_lookup = Dict(a => b for (a, b) in orig.crew_mp_lookup if a ∈ ixs)
+	return GUBCoverCutData(
+		cut_objects,
+		cuts_per_time,
+		fire_cut_sp_lookup,
+		crew_cut_sp_lookup,
+		fire_mp_lookup,
+		crew_mp_lookup)
 end
 
 

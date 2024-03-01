@@ -1,5 +1,4 @@
 include("BranchAndPrice.jl")
-include("GUBKnapsackCoverCuts.jl")
 
 using JuMP, Gurobi, Profile, ArgParse, Logging
 

@@ -1,5 +1,6 @@
 include("CommonStructs.jl")
 include("BranchingRules.jl")
+include("GUBKnapsackCoverCuts.jl")
 
 using Gurobi, Statistics
 
@@ -229,6 +230,7 @@ function price_and_cut!!(
 	)
 
 	@info "rmp stats end" dual.(rmp.gub_cover_cuts) dual.(rmp.fire_allotment_branches) rmp.fire_allotment_branches
+	@info "reduced_costs" reduced_cost.(rmp.plans) reduced_cost.(rmp.routes)
 
 end
 function explore_node!!(
@@ -328,18 +330,24 @@ function explore_node!!(
 		crew_routes,
 		fire_plans)
 	@info "after price and cut" objective_value(rmp.model) crew_routes.routes_per_crew fire_plans.plans_per_fire
-
 	# update the rmp 
 	branch_and_bound_node.master_problem = rmp
 
-	@info "used fire plans" [
+	@debug "used fire plans" [
 		(ix, value(rmp.plans[ix]), fire_plans.crews_present[ix..., :], fire_plans.plan_costs[ix...]) for
 		ix in eachindex(rmp.plans) if value(rmp.plans[ix]) > 0
 	]
-	@info "used crew routes" [
+	@debug "used crew routes" [
 		(ix, value(rmp.routes[ix]), crew_routes.route_costs[ix...]) for
 		ix in eachindex(rmp.routes) if value(rmp.routes[ix]) > 0
 	]
+
+	all_fire_allots, all_crew_allots = extract_usages(crew_routes, fire_plans, rmp)
+	fire_alloc, _ = get_fire_and_crew_incumbent_weighted_average(
+		rmp,
+		crew_routes,
+		fire_plans,
+	)
 
 	# update the branch-and-bound node to be feasible or not
 	if rmp.termination_status == MOI.INFEASIBLE
@@ -385,19 +393,31 @@ function explore_node!!(
 	   (branch_and_bound_node.l_bound < current_global_upper_bound)
 
 		# TODO think about branching rules
-		fire_alloc, _ = get_fire_and_crew_incumbent_weighted_average(
-			rmp,
-			crew_routes,
-			fire_plans,
-		)
+		@info "fire_allots" all_fire_allots
 		@info fire_alloc
-		left_branching_rule = GlobalFireAllotmentBranchingRule(Int.(ceil.(fire_alloc) .+ 1),
+		cap = zeros(Int, num_fires, num_time_periods)
+		for g ∈ 1:num_fires
+			for t ∈ 1:num_time_periods
+				l = length(all_fire_allots[g, t])
+				if l > 0
+					if all_fire_allots[g, t][l][2] > 0
+						cap[g, t] = all_fire_allots[g, t][l][1] - 1
+					else
+						cap[g, t] = num_crews
+					end
+				else
+					cap[g, t] = num_crews
+				end
+			end
+		end
+
+		left_branching_rule = GlobalFireAllotmentBranchingRule(Int.(ceil.(fire_alloc) .+ 2),
 			false,
 			fire_plans,
 			fire_subproblems,
 		)
 		# TODO examine side effects of shared reference
-		right_branching_rule = GlobalFireAllotmentBranchingRule(left_branching_rule.allotment_matrix, true, left_branching_rule.fire_sp_arc_lookup, left_branching_rule.mp_lookup)
+		right_branching_rule = GlobalFireAllotmentBranchingRule(left_branching_rule.allotment_matrix, true, deepcopy(left_branching_rule.fire_sp_arc_lookup), deepcopy(left_branching_rule.mp_lookup))
 
 
 		left_child = BranchAndBoundNode(

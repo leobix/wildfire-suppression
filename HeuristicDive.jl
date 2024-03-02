@@ -49,10 +49,18 @@ end
 
 args = get_command_line_args()
 io = open("logs.txt", "w")
+io2 = open("prof.txt", "w")
 if args["debug"] == true
 	global_logger(ConsoleLogger(io, Logging.Debug, show_limited = false))
 else
 	global_logger(ConsoleLogger(io, Logging.Info, show_limited = false))
 end
 
-find_heuristic_upper_bound(9, 30, 14)
+find_heuristic_upper_bound(3, 10, 14)
+
+Profile.init()
+@profile find_heuristic_upper_bound(6, 20, 14)
+Profile.print(io2)
+
+close(io)
+close(io2)

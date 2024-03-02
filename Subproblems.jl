@@ -71,17 +71,16 @@ function get_adjusted_crew_arc_costs(
 
 	# get disallowed arcs due to branching rules
 	# TODO refactor to track this info in B-and-B tree, check each rule just once
-	prohibited_arcs = Int64[]
+	prohibited_arcs = falses(size(long_arcs)[1])
 	# @debug "crew branching rules" branching_rules
 	for rule ∈ branching_rules
 		for arc ∈ 1:size(long_arcs)[1]
 			if (long_arcs[arc, CM.TIME_TO] == rule.time_ix) & (long_arcs[i, CM.TO_TYPE] == CM.FIRE_CODE) & (long_arcs[i, CM.LOC_TO] == rule.fire_ix)
 				if ~satisfies_branching_rule(rule, true)
-					push!(prohibited_arcs, arc)
+					prohibited_arcs[arc] = true
 				end
 			end
 		end
-		unique!(prohibited_arcs)
 		# @debug "crew prohibited_arcs" prohibited_arcs
 	end
 
@@ -137,7 +136,7 @@ end
 function crew_dp_subproblem(
 	arcs::Matrix{Int64},
 	arc_costs::Vector{Float64},
-	prohibited_arcs::Vector{Int64},
+	prohibited_arcs::BitVector,
 	state_in_arcs::Array{Vector{Int64}, 3},
 )
 	""" Probably this could be refactored so the matrix is state * time
@@ -161,7 +160,7 @@ function crew_dp_subproblem(
 
 				# for each arc entering this state
 				for arc_ix ∈ state_in_arcs[l, t, r]
-					if arc_ix ∉ prohibited_arcs
+					if ~prohibited_arcs[arc_ix]
 
 						arc = @view arcs[:, arc_ix]
 						this_arc_cost = arc_costs[arc_ix]
@@ -266,16 +265,15 @@ function get_adjusted_fire_arc_costs(
 
 	# get disallowed arcs due to branching rules
 	# TODO refactor to track this info in B-and-B tree, check each rule just once
-	prohibited_arcs = Int64[]
+	prohibited_arcs = falses(size(long_arcs)[1])
 	for rule ∈ branching_rules
 		for arc ∈ 1:size(long_arcs)[1]
 			if long_arcs[arc, TIME_FROM_] == rule.time_ix
 				if ~satisfies_branching_rule(rule, long_arcs[arc, CREWS_PRESENT_])
-					push!(prohibited_arcs, arc)
+					prohibited_arcs[arc] = true
 				end
 			end
 		end
-		unique!(prohibited_arcs)
 		# @debug "fire prohibited_arcs" prohibited_arcs
 	end
 
@@ -324,7 +322,7 @@ end
 
 function fire_dp_subproblem(arcs::Matrix{Int64},
 	arc_costs::Vector{Float64},
-	prohibited_arcs::Vector{Int64},
+	prohibited_arcs::BitVector,
 	state_in_arcs::Matrix{Vector{Int64}})
 
 	TIME_FROM_ = 3
@@ -342,7 +340,7 @@ function fire_dp_subproblem(arcs::Matrix{Int64},
 
 			# for each arc entering this state
 			for arc_ix in state_in_arcs[s, t]
-				if arc_ix ∉ prohibited_arcs
+				if ~prohibited_arcs[arc_ix]
 					arc = @view arcs[:, arc_ix]
 					this_arc_cost = arc_costs[arc_ix]
 					min_cost, min_index = fire_dp_inner_loop(

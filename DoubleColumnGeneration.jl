@@ -592,8 +592,9 @@ function double_column_generation!(
 
 				# if this is a <= 0 rule, we have more prohibited arcs
 				if ~rule.geq_flag
-					prohibited_arcs =
-						unique(vcat(prohibited_arcs, rule.fire_sp_arc_lookup[fire]))
+					for arc_ix ∈ rule.fire_sp_arc_lookup[fire]
+						prohibited_arcs[arc_ix] = true
+					end
 				end
 
 				# we need to do a proper dual adjustment

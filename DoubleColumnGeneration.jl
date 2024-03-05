@@ -464,7 +464,9 @@ function double_column_generation!(
 	iteration = 0
 
 	while (new_column_found & (iteration < 100))
-		@debug "iter" iteration
+		if iteration == 99
+			@info "iteration limit hit" iteration
+		end
 
 		iteration += 1
 		new_column_found = false
@@ -666,6 +668,7 @@ function double_column_generation!(
 
 			# TODO dual warm start passed in here
 			optimize!(rmp.model)
+			@debug "rho_gt" iteration dual.(rmp.supply_demand_linking)
 
 			## TODO FIX THIS LOGIC AND INFEASIBLE LOGIC
 			rmp.termination_status = MOI.ITERATION_LIMIT
@@ -728,7 +731,7 @@ function double_column_generation!(
 
 			@debug "dual values" iteration fire_duals crew_duals linking_duals cut_duals global_fire_allot_duals
 
-			# if no new column added, we have proof of optimality
+		# if no new column added, we have proof of optimality
 		else
 			rmp.termination_status = MOI.LOCALLY_SOLVED
 			@info "RMP stats with no more columns found" iteration objective_value(

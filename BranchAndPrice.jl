@@ -231,7 +231,11 @@ function price_and_cut!!(
 		cut_data,
 	)
 
-	@debug "rmp stats end" dual.(rmp.gub_cover_cuts) dual.(
+	@info "rmp stats end" objective_value(rmp.model) length(eachindex(rmp.routes)) length(
+		eachindex(rmp.plans),
+	) length([i for i in eachindex(rmp.plans) if reduced_cost(rmp.plans[i]) < 1e-2]) length([
+		i for i in eachindex(rmp.routes) if reduced_cost(rmp.routes[i]) < 1e-2
+	]) dual.(rmp.supply_demand_linking) dual.(rmp.gub_cover_cuts) dual.(
 		rmp.fire_allotment_branches
 	) rmp.fire_allotment_branches
 	@debug "reduced_costs" reduced_cost.(rmp.plans) reduced_cost.(rmp.routes)
@@ -240,6 +244,7 @@ end
 
 function find_integer_solution(
 	solved_rmp::RestrictedMasterProblem,
+	upper_bound::Float64,
 	fire_column_limit::Int64,
 	crew_column_limit::Int64,
 	time_limit::Float64,
@@ -247,6 +252,9 @@ function find_integer_solution(
 	# get reduced costs
 	rc_plans = reduced_cost.(solved_rmp.plans)
 	rc_routes = reduced_cost.(solved_rmp.routes)
+
+	# get relaxed objective value
+	lp_objective = objective_value(solved_rmp.model)
 
 	if fire_column_limit > length(rc_plans)
 		@info "fewer fire plans than limit" length(rc_plans) fire_column_limit
@@ -259,28 +267,69 @@ function find_integer_solution(
 	end
 
 
-	# find variables we will be allowed to use
+	## find variables we will be allowed to use
+
+	# get keys in vector form
 	plan_keys = [i for i in eachindex(rc_plans)]
+
+	# get teduced costs in vector form
 	plan_values = [rc_plans[ix] for ix in plan_keys]
+
+	# get the indices of the first "fire_column_limit" indices of plan_values
 	sorted_plan_ixs = Int.(plan_values .* 0)
-	used_plan_values =
-		partialsortperm!(sorted_plan_ixs, plan_values, 1:fire_column_limit)
-	used_plan_keys = plan_keys[used_plan_values]
-	unused_plan_keys = [i for i in plan_keys if i ∉ used_plan_keys]
+	used_plan_ixs =
+		[i for i in partialsortperm!(sorted_plan_ixs, plan_values, 1:fire_column_limit)]
+
+	# get the max reduced cost selected
 	max_plan_rc = plan_values[sorted_plan_ixs[fire_column_limit]]
+
+	# if this reduced cost is too high for the upper bound
+	if lp_objective + max_plan_rc > upper_bound
+
+		# delete elements of used_plan_ixs
+		to_delete = Int64[]
+		for (i, ix) in enumerate(used_plan_ixs)
+			if lp_objective + plan_values[ix] > upper_bound
+				push!(to_delete, i)
+			end
+		end
+		@info "removing fire plans due to reduced-cost bound" length(to_delete)
+		deleteat!(used_plan_ixs, to_delete)
+	end
+
+	# get the keys corresponding to these indices
+	used_plan_keys = plan_keys[used_plan_ixs]
+	unused_plan_keys = [i for i in plan_keys if i ∉ used_plan_keys]
+	
 
 	route_keys = [i for i in eachindex(rc_routes)]
 	route_values = [rc_routes[ix] for ix in route_keys]
 	sorted_route_ixs = Int.(route_values .* 0)
-	used_route_values =
-		partialsortperm!(sorted_route_ixs, route_values, 1:crew_column_limit)
-	used_route_keys = route_keys[used_route_values]
-	unused_route_keys = [i for i in route_keys if i ∉ used_route_keys]
+	used_route_ixs =
+		[i for i in partialsortperm!(sorted_route_ixs, route_values, 1:crew_column_limit)]
 	max_route_rc = route_values[sorted_route_ixs[crew_column_limit]]
+
+	# if this reduced cost is too high for the upper bound
+	if lp_objective + max_plan_rc > upper_bound
+
+		# delete elements of used_plan_ixs
+		to_delete = Int64[]
+		for (i, ix) in enumerate(used_route_ixs)
+			if lp_objective + route_values[ix] > upper_bound
+				push!(to_delete, i)
+			end
+		end
+		@info "removing crew routes due to reduced-cost bound" length(to_delete)
+
+		deleteat!(used_route_ixs, to_delete)
+	end
+
+	used_route_keys = route_keys[used_route_ixs]
+	unused_route_keys = [i for i in route_keys if i ∉ used_route_keys]
 
 	@info "allowed columns for restore_integrality" length(used_plan_keys) length(
 		used_route_keys,
-	) max_plan_rc max_route_rc
+	) maximum(plan_values[used_plan_ixs]) maximum(route_values[used_route_ixs])
 
 
 	# fix unused variables to 0, set binary variables
@@ -320,11 +369,11 @@ function find_integer_solution(
 end
 
 function heuristic_upper_bound!!(
-	crew_routes,
-	fire_plans,
-	num_iters, 
-	crew_subproblems,
-	fire_subproblems,
+	crew_routes::CrewRouteData,
+	fire_plans::FirePlanData,
+	num_iters::Int,
+	crew_subproblems::Vector{TimeSpaceNetwork},
+	fire_subproblems::Vector{TimeSpaceNetwork},
 	gurobi_env,
 )
 
@@ -388,9 +437,25 @@ function heuristic_upper_bound!!(
 			)
 		global_rules = [branching_rule]
 
-		@info "entering heuristic round" branching_rule.allotment_matrix length(
-			cut_data.cut_dict,
-		)
+		# TODO maybe we only keep active columns, though cut addition not so bad
+		crew_ixs =
+			[[i[1] for i in eachindex(rmp.routes[j, :])] for j ∈ 1:num_crews]
+		fire_ixs =
+			[[i[1] for i in eachindex(rmp.plans[j, :])] for j ∈ 1:num_fires]
+
+		for fire ∈ 1:num_fires
+			to_delete = Int64[]
+			for ix ∈ eachindex(fire_ixs[fire])
+				plan_ix = fire_ixs[fire][ix]
+				if (fire, plan_ix) ∈ keys(branching_rule.mp_lookup)
+					push!(to_delete, ix)
+				end
+			end
+			deleteat!(fire_ixs[fire], to_delete)
+		end
+
+
+		@info "entering heuristic round" branching_rule.allotment_matrix crew_ixs fire_ixs
 		rmp = define_restricted_master_problem(
 			gurobi_env,
 			crew_routes,
@@ -416,28 +481,29 @@ function heuristic_upper_bound!!(
 		lb_node =
 			rmp.termination_status == MOI.OPTIMAL ? objective_value(rmp.model) : Inf
 
-		obj, obj_bound, routes, plans = find_integer_solution(rmp, 300, 1000, 5.0)
+		t = @elapsed obj, obj_bound, routes, plans = find_integer_solution(rmp, ub, 1200, 4000, 20.0)
 		if obj < ub
 			ub = obj
 		end
-		@info "solution bounds" lb_node obj obj_bound
 
-		fractional_weighted_average_solution, _ =
+		fire_allots, _ =
 			get_fire_and_crew_incumbent_weighted_average(rmp,
 				crew_routes,
 				fire_plans,
 			)
 
-		binding_non_zero_allotments =
-			(current_allotment .> 0) .& (
-				current_allotment .==
-				Int.(round.(fractional_weighted_average_solution))
-			)
+		@info "solution bounds" t lb_node ub obj obj_bound fire_allots
+
 		binding_non_zero_allotments =
 			(
 				current_allotment .==
-				Int.(round.(fractional_weighted_average_solution))
+				Int.(round.(fire_allots))
 			)
+
+		if ~any(binding_non_zero_allotments)
+			@info "No upper bounds are binding on the allotment, breaking loop" i
+			break
+		end
 
 		current_allotment = current_allotment .+ binding_non_zero_allotments
 	end
@@ -571,8 +637,12 @@ function explore_node!!(
 		branch_and_bound_node.l_bound = Inf
 		@info "infeasible node" node_ix
 	else
+		if rmp.termination_status != MOI.LOCALLY_SOLVED
+			@info "Node not feasible or optimal, CG did not terminate?" 
+		else
+			branch_and_bound_node.l_bound = objective_value(rmp.model)
+		end
 		branch_and_bound_node.feasible = true
-		branch_and_bound_node.l_bound = objective_value(rmp.model)
 
 		plan_values = value.(rmp.plans)
 		route_values = value.(rmp.routes)
@@ -597,7 +667,7 @@ function explore_node!!(
 		# @info "linear time" t
 
 		t = @elapsed obj, obj_bound, routes, plans =
-			find_integer_solution(rmp, 300, 1000, 5.0)
+			find_integer_solution(rmp, current_global_upper_bound, 300, 1000, 0.5)
 		branch_and_bound_node.u_bound = obj
 	end
 
@@ -619,113 +689,112 @@ function explore_node!!(
 	   (branch_and_bound_node.l_bound < current_global_upper_bound)
 
 		# TODO think about branching rules
-		@info "fire_allots" all_fire_allots
-		@info fire_alloc
-		cap = zeros(Int, num_fires, num_time_periods)
-		for g ∈ 1:num_fires
-			for t ∈ 1:num_time_periods
-				l = length(all_fire_allots[g, t])
-				if l > 0
-					if all_fire_allots[g, t][l][2] > 0
-						cap[g, t] = all_fire_allots[g, t][l][1] - 1
-					else
-						cap[g, t] = num_crews
-					end
-				else
-					cap[g, t] = num_crews
-				end
-			end
-		end
+		@info "fire_allots" all_fire_allots fire_alloc
+		# cap = zeros(Int, num_fires, num_time_periods)
+		# for g ∈ 1:num_fires
+		# 	for t ∈ 1:num_time_periods
+		# 		l = length(all_fire_allots[g, t])
+		# 		if l > 0
+		# 			if all_fire_allots[g, t][l][2] > 0
+		# 				cap[g, t] = all_fire_allots[g, t][l][1] - 1
+		# 			else
+		# 				cap[g, t] = num_crews
+		# 			end
+		# 		else
+		# 			cap[g, t] = num_crews
+		# 		end
+		# 	end
+		# end
 
-		left_branching_rule =
-			GlobalFireAllotmentBranchingRule(Int.(ceil.(fire_alloc) .+ 2),
-				false,
-				fire_plans,
-				fire_subproblems,
-			)
-		# TODO examine side effects of shared reference
-		right_branching_rule = GlobalFireAllotmentBranchingRule(
-			left_branching_rule.allotment_matrix,
-			true,
-			deepcopy(left_branching_rule.fire_sp_arc_lookup),
-			deepcopy(left_branching_rule.mp_lookup),
-		)
-
-
-		left_child = BranchAndBoundNode(
-			ix = size(all_nodes)[1] + 1,
-			parent = branch_and_bound_node,
-			new_global_fire_allotment_branching_rules = [left_branching_rule],
-		)
-		right_child = BranchAndBoundNode(
-			ix = size(all_nodes)[1] + 2,
-			parent = branch_and_bound_node,
-			new_global_fire_allotment_branching_rules = [right_branching_rule],
-		)
-
-		# # decide the next branching rules
-		# branch_type, branch_ix, var_variance, var_mean =
-		# 	max_variance_natural_variable(
-		# 		crew_routes,
-		# 		fire_plans,
-		# 		route_values,
-		# 		plan_values,
-		# 	)
-
-		# @assert var_variance > 0 "Cannot branch on variable with no variance, should already be integral"
-
-		# # create two new nodes with branching rules
-		# if branch_type == "fire"
-		# 	left_branching_rule = FireDemandBranchingRule(
-		# 		Tuple(branch_ix)...,
-		# 		Int(floor(var_mean)),
-		# 		"less_than_or_equal",
-		# 	)
-		# 	right_branching_rule = FireDemandBranchingRule(
-		# 		Tuple(branch_ix)...,
-		# 		Int(floor(var_mean)) + 1,
-		# 		"greater_than_or_equal",
-		# 	)
-		# 	left_child = BranchAndBoundNode(
-		# 		ix = size(all_nodes)[1] + 1,
-		# 		parent = branch_and_bound_node,
-		# 		new_fire_branching_rules = [left_branching_rule],
-		# 	)
-		# 	right_child = BranchAndBoundNode(
-		# 		ix = size(all_nodes)[1] + 2,
-		# 		parent = branch_and_bound_node,
-		# 		new_fire_branching_rules = [right_branching_rule],
-		# 	)
-		# 	push!(all_nodes, left_child)
-		# 	push!(all_nodes, right_child)
-		# 	branch_and_bound_node.children = [left_child, right_child]
-
-
-		# else
-		# 	left_branching_rule = CrewSupplyBranchingRule(
-		# 		Tuple(branch_ix)...,
+		# left_branching_rule =
+		# 	GlobalFireAllotmentBranchingRule(Int.(ceil.(fire_alloc) .+ 2),
 		# 		false,
+		# 		fire_plans,
+		# 		fire_subproblems,
 		# 	)
-		# 	right_branching_rule = CrewSupplyBranchingRule(
-		# 		Tuple(branch_ix)...,
-		# 		true,
-		# 	)
-		# 	left_child = BranchAndBoundNode(
-		# 		ix = size(all_nodes)[1] + 1,
-		# 		parent = branch_and_bound_node,
-		# 		new_crew_branching_rules = [left_branching_rule],
-		# 	)
-		# 	right_child = BranchAndBoundNode(
-		# 		ix = size(all_nodes)[1] + 2,
-		# 		parent = branch_and_bound_node,
-		# 		new_crew_branching_rules = [right_branching_rule],
-		# 	)
+		# # TODO examine side effects of shared reference
+		# right_branching_rule = GlobalFireAllotmentBranchingRule(
+		# 	left_branching_rule.allotment_matrix,
+		# 	true,
+		# 	deepcopy(left_branching_rule.fire_sp_arc_lookup),
+		# 	deepcopy(left_branching_rule.mp_lookup),
+		# )
+
+
+		# left_child = BranchAndBoundNode(
+		# 	ix = size(all_nodes)[1] + 1,
+		# 	parent = branch_and_bound_node,
+		# 	new_global_fire_allotment_branching_rules = [left_branching_rule],
+		# )
+		# right_child = BranchAndBoundNode(
+		# 	ix = size(all_nodes)[1] + 2,
+		# 	parent = branch_and_bound_node,
+		# 	new_global_fire_allotment_branching_rules = [right_branching_rule],
+		# )
+
+		# decide the next branching rules
+		branch_type, branch_ix, var_variance, var_mean =
+			max_variance_natural_variable(
+				crew_routes,
+				fire_plans,
+				route_values,
+				plan_values,
+			)
+
+		@assert var_variance > 0 "Cannot branch on variable with no variance, should already be integral"
+
+		# create two new nodes with branching rules
+		if branch_type == "fire"
+			left_branching_rule = FireDemandBranchingRule(
+				Tuple(branch_ix)...,
+				Int(floor(var_mean)),
+				"less_than_or_equal",
+			)
+			right_branching_rule = FireDemandBranchingRule(
+				Tuple(branch_ix)...,
+				Int(floor(var_mean)) + 1,
+				"greater_than_or_equal",
+			)
+			left_child = BranchAndBoundNode(
+				ix = size(all_nodes)[1] + 1,
+				parent = branch_and_bound_node,
+				new_fire_branching_rules = [left_branching_rule],
+			)
+			right_child = BranchAndBoundNode(
+				ix = size(all_nodes)[1] + 2,
+				parent = branch_and_bound_node,
+				new_fire_branching_rules = [right_branching_rule],
+			)
+			push!(all_nodes, left_child)
+			push!(all_nodes, right_child)
+			branch_and_bound_node.children = [left_child, right_child]
+
+
+		else
+			left_branching_rule = CrewSupplyBranchingRule(
+				Tuple(branch_ix)...,
+				false,
+			)
+			right_branching_rule = CrewSupplyBranchingRule(
+				Tuple(branch_ix)...,
+				true,
+			)
+			left_child = BranchAndBoundNode(
+				ix = size(all_nodes)[1] + 1,
+				parent = branch_and_bound_node,
+				new_crew_branching_rules = [left_branching_rule],
+			)
+			right_child = BranchAndBoundNode(
+				ix = size(all_nodes)[1] + 2,
+				parent = branch_and_bound_node,
+				new_crew_branching_rules = [right_branching_rule],
+			)
 		push!(all_nodes, left_child)
 		push!(all_nodes, right_child)
 		branch_and_bound_node.children = [left_child, right_child]
 
-		# end
-		@info "branching rules" left_branching_rule.allotment_matrix left_branching_rule.geq_flag right_branching_rule.allotment_matrix right_branching_rule.geq_flag
+		end
+		@info "branching rules" left_branching_rule right_branching_rule
 	end
 end
 

@@ -340,7 +340,8 @@ function incorporate_gub_cover_cuts_into_crew_subproblem!(
 			cut = cuts[ix]
 			costs = Dict{Int64, Int8}()
 			if crew in cut.inactive_crews
-				for i in 1:length(submodel.arc_costs)
+				ixs = findall(submodel.long_arcs[:, CM.CREW_NUMBER] .== crew)
+				for i in ixs
 					# -1 for any that do suppress at the time
 					if (submodel.long_arcs[i, CM.TIME_TO] == cut.time_ix) &
 					   (submodel.long_arcs[i, CM.TO_TYPE] == CM.FIRE_CODE)

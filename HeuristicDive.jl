@@ -30,7 +30,7 @@ function find_heuristic_upper_bound(
     heuristic_upper_bound!!(
         crew_routes,
         fire_plans,
-        2,
+        6,
         crew_models,
         fire_models,
         GRB_ENV
@@ -58,9 +58,9 @@ end
 
 find_heuristic_upper_bound(3, 10, 14)
 
-Profile.init()
-@profile find_heuristic_upper_bound(6, 20, 14)
-Profile.print(io2)
+Profile.init(delay=0.05)
+@profile find_heuristic_upper_bound(12, 40, 14)
+# Profile.print(io2, mincount=5000, maxdepth=10)
 
 close(io)
 close(io2)

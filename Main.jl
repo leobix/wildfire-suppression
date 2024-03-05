@@ -100,7 +100,7 @@ function branch_and_price(num_fires::Int, num_crews::Int, num_time_periods::Int)
 		@info "number of nodes" node_ix length(nodes)
 		@info "columns" crew_routes.routes_per_crew fire_plans.plans_per_fire
 
-		if node_ix > 3
+		if node_ix > 7
 			println("halted early.")
             # for g in 1:num_fires
             #     num_plans = fire_plans.plans_per_fire[g]

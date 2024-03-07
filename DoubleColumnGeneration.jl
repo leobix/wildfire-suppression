@@ -374,7 +374,8 @@ function add_column_to_master_problem!!(
 				)
 
 				# add the plan to the cut mp lookup
-				cut_data.fire_mp_lookup[cut_ix][(fire, ix)] = cut.fire_lower_bounds[fire][2]
+				cut_data.fire_mp_lookup[cut_ix][(fire, ix)] =
+					cut.fire_lower_bounds[fire][2]
 
 			end
 		end
@@ -434,9 +435,10 @@ function double_column_generation!(
 	global_fire_allotment_branching_rules::Vector{GlobalFireAllotmentBranchingRule},
 	crew_routes::CrewRouteData,
 	fire_plans::FirePlanData,
-	cut_data::GUBCoverCutData,
+	cut_data::GUBCoverCutData;
 	upper_bound::Float64 = 1e20,
-	improving_column_abs_tolerance::Float64 = 1e-4)
+	improving_column_abs_tolerance::Float64 = 1e-4,
+	local_gap_rel_tolerance::Float64 = 1e-9)
 
 	# gather global information
 	num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)
@@ -456,20 +458,24 @@ function double_column_generation!(
 		global_fire_allot_duals = dual.(rmp.fire_allotment_branches)
 	end
 
+	ub = copy(upper_bound)
+
 	@debug "initial dual values DCG" fire_duals crew_duals linking_duals cut_duals global_fire_allot_duals
 
 
 	# initialize column generation loop
-	new_column_found::Bool = true
+	continue_iterating::Bool = true
+	new_column_found::Bool = false
 	iteration = 0
 
-	while (new_column_found & (iteration < 200))
+	while (continue_iterating & (iteration < 200))
 		if iteration == 199
 			@info "iteration limit hit" iteration
 		end
 
 		iteration += 1
 		new_column_found = false
+		reduced_cost_sum = 0
 
 		# Not for any good reason, the crew subproblems all access the 
 		# same set of arcs in matrix form, and each runs its subproblem 
@@ -524,6 +530,8 @@ function double_column_generation!(
 
 			# if there is an improving route
 			if objective < crew_duals[crew] - improving_column_abs_tolerance
+
+				reduced_cost_sum += (objective - crew_duals[crew])
 
 				# get the real cost, unadjusted for duals
 				cost = sum(subproblem.arc_costs[arcs_used])
@@ -619,6 +627,8 @@ function double_column_generation!(
 			# if there is an improving plan
 			if objective < fire_duals[fire] - improving_column_abs_tolerance
 
+				reduced_cost_sum += (objective - fire_duals[fire])
+
 				# get the real cost, unadjusted for duals
 				cost = sum(subproblem.arc_costs[arcs_used])
 
@@ -661,10 +671,9 @@ function double_column_generation!(
 
 		# if we added at least one column, or we have not yet grabbed dual values 
 		# from the restricted master problem, solve the RMP
-		if iteration == 1
-			new_column_found = true
-		end
-		if new_column_found 
+		continue_iterating =
+			(iteration == 1) || (-reduced_cost_sum / ub > local_gap_rel_tolerance)
+		if continue_iterating
 
 			# TODO dual warm start passed in here
 			optimize!(rmp.model)
@@ -727,17 +736,23 @@ function double_column_generation!(
 				crew_duals = crew_duals .* scale
 				linking_duals = linking_duals .* scale
 				cut_duals = cut_duals .* scale
+			else
+				ub = objective_value(rmp.model)
+				@debug "progress" ub iteration
 			end
 
 			@debug "dual values" iteration fire_duals crew_duals linking_duals cut_duals global_fire_allot_duals
 
-		# if no new column added, we have proof of optimality
+			# if no new column added, we have proof of optimality
 		else
+			# if we wait to add columns until we see if the rc bound is broken
+			# this optimize step is not needed
+			optimize!(rmp.model)
+
 			rmp.termination_status = MOI.LOCALLY_SOLVED
 			@info "RMP stats with no more columns found" iteration objective_value(
 				rmp.model,
 			)
-			@debug "final dual values" fire_duals crew_duals linking_duals cut_duals
 			fire_allots, crew_allots = get_fire_and_crew_incumbent_weighted_average(
 				rmp,
 				crew_routes,

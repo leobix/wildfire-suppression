@@ -14,7 +14,7 @@ function preprocess(in_path, agg_prec, passive_states)
     rotation_order = get_rotation_orders(r_data.crew_regions)
     A = generate_arcs(g_data, r_data, crew_status)
 
-    rest_pen = get_rest_penalties(crew_status.rest_by, 1e10, positive)
+    rest_pen = get_rest_penalties(crew_status.rest_by, 1e25, positive)
     cost_params = Dict("cost_per_mile" => 1, "rest_violation" => rest_pen, "fight_fire" => ALPHA)
     crew_arc_costs = get_static_crew_arc_costs(g_data, A, cost_params)
 
@@ -34,6 +34,7 @@ function preprocess(in_path, agg_prec, passive_states)
 
     end
 
+    
     return A, crew_arc_costs, r_data, c_data, g_data, rotation_order, fire_configs
 end
 
@@ -191,7 +192,7 @@ function single_DCG_node(test_features, data)
 
         plans_chosen = [i for i in eachindex(pb["plan"]) if value(pb["plan"][i]) > 0.5]
 
-        pb_allotment = convert.(Int8, zeros(size(col_gen_data.suppression_plans.crews_present[:, 1, :])))
+        pb_allotment = convert.(Int64, zeros(size(col_gen_data.suppression_plans.crews_present[:, 1, :])))
         for plan in plans_chosen
             pb_allotment[plan[1], :] = col_gen_data.suppression_plans.crews_present[plan[1], plan[2], :]
         end
@@ -208,7 +209,7 @@ function single_DCG_node(test_features, data)
 
         if has_values(m)
             best_sols["explicit_int"] = objective_value(m)
-            allotments["explicit_int"] = convert.(Int8, ceil.(value.(l) / LINE_PER_CREW .- 0.001))
+            allotments["explicit_int"] = convert.(Int64, ceil.(value.(l) / LINE_PER_CREW .- 0.001))
         else
             best_sols["explicit_int"] = false
         end

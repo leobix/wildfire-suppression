@@ -3,19 +3,19 @@ include("CGStructs.jl")
 using DataFrames, CSV, DelimitedFiles, JuMP, Gurobi
 
 
-NUM_CREWS = 10
-BREAK_LENGTH = 2       # how long at base to be considered "rested"
+NUM_CREWS::Int64 = 10
+BREAK_LENGTH::Int64 = 2       # how long at base to be considered "rested"
 
 # tradeoffs
-BETA = 100             # cost of one area unit burned / cost of mile traveled
-ALPHA = 200            # cost of crew-day of suppression / cost of mile traveled
-LINE_PER_CREW = 17     # how much perimeter prevented per crew per time period
+BETA::Int64 = 100             # cost of one area unit burned / cost of mile traveled
+ALPHA::Int64 = 200            # cost of crew-day of suppression / cost of mile traveled
+LINE_PER_CREW::Int64 = 17     # how much perimeter prevented per crew per time period
 
-FIRE_CODE = 1
-BASE_CODE = 2
+FIRE_CODE::Int64 = 1
+BASE_CODE::Int64 = 2
 
-AGG_PREC = 0
-PASSIVE_STATES = 0
+AGG_PREC::Int64 = 0
+PASSIVE_STATES::Int64 = 0
 
 function get_rotation_orders(crew_regions)
 
@@ -217,7 +217,7 @@ function get_fires_fought(wide_arcs, arcs_used, rho)
     time_periods = size(rho)[2]
 
     # initialize fires fought matrix
-    fires_fought = zeros(Int8, NUM_FIRES, NUM_TIME_PERIODS)
+    fires_fought = zeros(Int64, NUM_FIRES, NUM_TIME_PERIODS)
 
     # for each arc used
     for ix in arcs_used
@@ -523,7 +523,7 @@ function initialize_supp_plan_data(max_supp_plans)
 
     return SuppressionPlanData(zeros(NUM_FIRES),
         Matrix{Float64}(undef, NUM_FIRES, max_supp_plans),
-        zeros(Int8, (NUM_FIRES, max_supp_plans, NUM_TIME_PERIODS))
+        zeros(Int64, (NUM_FIRES, max_supp_plans, NUM_TIME_PERIODS))
     )
 end
 
@@ -1619,7 +1619,7 @@ function discretize_fire_model(config, agg_prec, passive_states)
 
     # get costs to enter each state
     state_costs = zeros(length(states), NUM_TIME_PERIODS + 1)
-    for i = 1:length(states)
+    for i = eachindex(states)
         for j = 1:NUM_TIME_PERIODS+1
             state_costs[i, j] = get_state_entrance_cost(states[i], j, config)
         end
@@ -1948,6 +1948,7 @@ function initialize_column_generation(arcs, crew_arc_costs, constraint_data, fir
         config["warm_start"] = false
         d = init_suppression_plan_subproblem(config)
         push!(plan_sps, d)
+
     end
     println("init fires")
     println(t)

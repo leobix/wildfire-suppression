@@ -201,7 +201,6 @@ function price_and_cut!!(
 			crew_routes,
 			fire_plans,
 			cut_data,
-			local_gap_rel_tolerance = 10 ^ Float64(-min(loop_ix, 9))
 		)
 		@debug "objective after cg" objective_value(rmp.model)
 		# add cuts

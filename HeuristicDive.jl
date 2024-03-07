@@ -30,7 +30,7 @@ function find_heuristic_upper_bound(
     heuristic_upper_bound!!(
         crew_routes,
         fire_plans,
-        6,
+        3,
         crew_models,
         fire_models,
         GRB_ENV
@@ -48,7 +48,7 @@ function get_command_line_args()
 end
 
 args = get_command_line_args()
-io = open("logs.txt", "w")
+io = open("logs_heuristic.txt", "w")
 io2 = open("prof.txt", "w")
 if args["debug"] == true
 	global_logger(ConsoleLogger(io, Logging.Debug, show_limited = false))
@@ -56,11 +56,11 @@ else
 	global_logger(ConsoleLogger(io, Logging.Info, show_limited = false))
 end
 
-find_heuristic_upper_bound(3, 10, 14)
+# find_heuristic_upper_bound(3, 10, 14)
 
 Profile.init(delay=0.05)
-@profile find_heuristic_upper_bound(12, 40, 14)
-# Profile.print(io2, mincount=5000, maxdepth=10)
+@profile find_heuristic_upper_bound(6, 20, 14)
+# Profile.print(io2, mincount=500, maxdepth=10)
 
 close(io)
 close(io2)

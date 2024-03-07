@@ -202,7 +202,7 @@ function price_and_cut!!(
 			fire_plans,
 			cut_data,
 		)
-		@info "objective after cg" objective_value(rmp.model)
+		@debug "objective after cg" objective_value(rmp.model)
 		# add cuts
 		num_cuts = find_and_incorporate_knapsack_gub_cuts!!(
 			cut_data,
@@ -212,7 +212,7 @@ function price_and_cut!!(
 			crew_subproblems,
 			fire_subproblems,
 		)
-		@info "objective after cuts" objective_value(rmp.model)
+		@info "after cuts" num_cuts objective_value(rmp.model)
 		if num_cuts == 0
 			@info "No cuts found, breaking" loop_ix
 			break
@@ -235,7 +235,7 @@ function price_and_cut!!(
 		eachindex(rmp.plans),
 	) length([i for i in eachindex(rmp.plans) if reduced_cost(rmp.plans[i]) < 1e-2]) length([
 		i for i in eachindex(rmp.routes) if reduced_cost(rmp.routes[i]) < 1e-2
-	]) dual.(rmp.supply_demand_linking) dual.(rmp.gub_cover_cuts) dual.(
+	]) dual.(rmp.supply_demand_linking) dual.(
 		rmp.fire_allotment_branches
 	) rmp.fire_allotment_branches
 	@debug "reduced_costs" reduced_cost.(rmp.plans) reduced_cost.(rmp.routes)
@@ -327,7 +327,7 @@ function find_integer_solution(
 	used_route_keys = route_keys[used_route_ixs]
 	unused_route_keys = [i for i in route_keys if i ∉ used_route_keys]
 
-	@info "allowed columns for restore_integrality" length(used_plan_keys) length(
+	@debug "allowed columns for restore_integrality" length(used_plan_keys) length(
 		used_route_keys,
 	) maximum(plan_values[used_plan_ixs]) maximum(route_values[used_route_ixs])
 
@@ -501,7 +501,7 @@ function heuristic_upper_bound!!(
 			)
 
 		if ~any(binding_non_zero_allotments)
-			@info "No upper bounds are binding on the allotment, breaking loop" i
+			@info "No upper bounds are binding on the allotment, breaking"
 			break
 		end
 
@@ -625,11 +625,12 @@ function explore_node!!(
 	]
 
 	all_fire_allots, all_crew_allots = extract_usages(crew_routes, fire_plans, rmp)
-	fire_alloc, _ = get_fire_and_crew_incumbent_weighted_average(
+	fire_alloc, crew_alloc = get_fire_and_crew_incumbent_weighted_average(
 		rmp,
 		crew_routes,
 		fire_plans,
 	)
+	@info "usages" all_fire_allots all_crew_allots fire_alloc crew_alloc
 
 	# update the branch-and-bound node to be feasible or not
 	if rmp.termination_status == MOI.INFEASIBLE

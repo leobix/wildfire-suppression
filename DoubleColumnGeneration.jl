@@ -463,8 +463,8 @@ function double_column_generation!(
 	new_column_found::Bool = true
 	iteration = 0
 
-	while (new_column_found & (iteration < 100))
-		if iteration == 99
+	while (new_column_found & (iteration < 200))
+		if iteration == 199
 			@info "iteration limit hit" iteration
 		end
 

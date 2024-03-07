@@ -189,7 +189,7 @@ function price_and_cut!!(
 		rmp.plans[3, :],
 	)
 
-	for loop_ix ∈ 1:8
+	for loop_ix ∈ 1:10
 		# run DCG, adding columns as needed
 		double_column_generation!(
 			rmp,
@@ -278,7 +278,10 @@ function find_integer_solution(
 	# get the indices of the first "fire_column_limit" indices of plan_values
 	sorted_plan_ixs = Int.(plan_values .* 0)
 	used_plan_ixs =
-		[i for i in partialsortperm!(sorted_plan_ixs, plan_values, 1:fire_column_limit)]
+		[
+			i for
+			i in partialsortperm!(sorted_plan_ixs, plan_values, 1:fire_column_limit)
+		]
 
 	# get the max reduced cost selected
 	max_plan_rc = plan_values[sorted_plan_ixs[fire_column_limit]]
@@ -300,13 +303,16 @@ function find_integer_solution(
 	# get the keys corresponding to these indices
 	used_plan_keys = plan_keys[used_plan_ixs]
 	unused_plan_keys = [i for i in plan_keys if i ∉ used_plan_keys]
-	
+
 
 	route_keys = [i for i in eachindex(rc_routes)]
 	route_values = [rc_routes[ix] for ix in route_keys]
 	sorted_route_ixs = Int.(route_values .* 0)
 	used_route_ixs =
-		[i for i in partialsortperm!(sorted_route_ixs, route_values, 1:crew_column_limit)]
+		[
+			i for i in
+			partialsortperm!(sorted_route_ixs, route_values, 1:crew_column_limit)
+		]
 	max_route_rc = route_values[sorted_route_ixs[crew_column_limit]]
 
 	# if this reduced cost is too high for the upper bound
@@ -373,8 +379,7 @@ function heuristic_upper_bound!!(
 	fire_plans::FirePlanData,
 	num_iters::Int,
 	crew_subproblems::Vector{TimeSpaceNetwork},
-	fire_subproblems::Vector{TimeSpaceNetwork},
-	gurobi_env,
+	fire_subproblems::Vector{TimeSpaceNetwork}, gurobi_env,
 )
 
 	# gather global information
@@ -481,7 +486,8 @@ function heuristic_upper_bound!!(
 		lb_node =
 			rmp.termination_status == MOI.OPTIMAL ? objective_value(rmp.model) : Inf
 
-		t = @elapsed obj, obj_bound, routes, plans = find_integer_solution(rmp, ub, 1200, 4000, 20.0)
+		t = @elapsed obj, obj_bound, routes, plans =
+			find_integer_solution(rmp, ub, 1200, 4000, 20.0)
 		if obj < ub
 			ub = obj
 		end
@@ -594,6 +600,7 @@ function explore_node!!(
 		fire_ixs,
 		cut_data,
 		global_rules,
+		DualRegularizer("infinity_norm", 0.0001, nothing),
 	)
 
 	price_and_cut!!(
@@ -639,7 +646,7 @@ function explore_node!!(
 		@info "infeasible node" node_ix
 	else
 		if rmp.termination_status != MOI.LOCALLY_SOLVED
-			@info "Node not feasible or optimal, CG did not terminate?" 
+			@info "Node not feasible or optimal, CG did not terminate?"
 		else
 			branch_and_bound_node.l_bound = objective_value(rmp.model)
 		end
@@ -790,9 +797,9 @@ function explore_node!!(
 				parent = branch_and_bound_node,
 				new_crew_branching_rules = [right_branching_rule],
 			)
-		push!(all_nodes, left_child)
-		push!(all_nodes, right_child)
-		branch_and_bound_node.children = [left_child, right_child]
+			push!(all_nodes, left_child)
+			push!(all_nodes, right_child)
+			branch_and_bound_node.children = [left_child, right_child]
 
 		end
 		@info "branching rules" left_branching_rule right_branching_rule

@@ -5,14 +5,6 @@ include("BranchingRules.jl")
 using JuMP
 
 
-@kwdef mutable struct DualWarmStart
-
-	linking_values::Matrix{Float64}
-	const strategy::String = "global"
-	epsilon::Float64 = 0.001
-
-end
-
 function define_restricted_master_problem(
 	gurobi_env,
 	crew_route_data::CrewRouteData,
@@ -21,7 +13,7 @@ function define_restricted_master_problem(
 	fire_avail_ixs::Vector{Vector{Int64}},
 	cut_data::GUBCoverCutData,
 	fire_allotment_branching_rules::Vector{GlobalFireAllotmentBranchingRule},
-	dual_warm_start::Union{Nothing, DualWarmStart} = nothing,
+	dual_regularizer::Union{Nothing, DualRegularizer} = nothing,
 )
 
 	# get dimensions
@@ -39,14 +31,6 @@ function define_restricted_master_problem(
 	@variable(m, route[c = 1:num_crews, r ∈ crew_avail_ixs[c]] >= 0)
 	@variable(m, plan[g = 1:num_fires, p ∈ fire_avail_ixs[g]] >= 0)
 
-	if ~isnothing(dual_warm_start)
-
-		error("Not implemented")
-		# dual stabilization variables
-		@variable(m, delta_plus[g = 1:num_fires, t = 1:num_time_periods] >= 0)
-		@variable(m, delta_minus[g = 1:num_fires, t = 1:num_time_periods] >= 0)
-
-	end
 
 	# constraints that you must choose a plan per crew and per fire
 	@constraint(m, route_per_crew[c = 1:num_crews],
@@ -134,60 +118,58 @@ function define_restricted_master_problem(
 	@debug "rmp" fire_allotment_branches
 
 	# linking constraint
-	if isnothing(dual_warm_start)
 
-		# for each fire and time period
-		@constraint(m, linking[g = 1:num_fires, t = 1:num_time_periods],
+	# for each fire and time period
+	@constraint(m, linking[g = 1:num_fires, t = 1:num_time_periods],
 
-			# crews at fire
-			sum(
-				route[c, r] * crew_route_data.fires_fought[c, r, g, t]
-				for c ∈ 1:num_crews, r ∈ crew_avail_ixs[c]
+		# crews at fire
+		sum(
+			route[c, r] * crew_route_data.fires_fought[c, r, g, t]
+			for c ∈ 1:num_crews, r ∈ crew_avail_ixs[c]
+		)
+		>=
+
+		# crews suppressing
+		sum(
+			plan[g, p] * fire_plan_data.crews_present[g, p, t]
+			for p ∈ fire_avail_ixs[g]
+		))
+
+	if ~isnothing(dual_regularizer)
+
+		if dual_regularizer.strategy == "infinity_norm"
+
+			@variable(m, linking_plus[g = 1:num_fires, t = 1:num_time_periods] >= 0)
+			@variable(m, linking_minus[g = 1:num_fires, t = 1:num_time_periods] >= 0)
+
+
+			@constraint(
+				m,
+				perturb,
+				sum(linking_plus) + sum(linking_minus) <= dual_regularizer.epsilon
 			)
-			>=
 
-			# crews suppressing
-			sum(
-				plan[g, p] * fire_plan_data.crews_present[g, p, t]
-				for p ∈ fire_avail_ixs[g]
-			))
-
-	elseif dual_warm_start.strategy == "global"
-
-		error("Not implemented")
-
-		# get expected dual value ratios
-		ratios = dual_warm_start.linking_values
-		ratios = ratios / sum(ratios)
-
-		@constraint(m, linking[g = 1:num_fires, t = 1:num_time_periods],
-
-			# crews at fire
-			sum(
-				route[c, r] * crew_route_data.fires_fought[c, r, g, t]
-				for c ∈ 1:num_crews, r ∈ crew_avail_ixs[c]
-			)
-			+
-
-			# perturbation
-			delta_plus[g, t] - delta_minus[g, t] -
-			sum(ratios .* delta_plus) + sum(ratios .* delta_minus)
-			>=
-
-			# crews suppressing
-			sum(
-				plan[g, p] * fire_plan_data.crews_present[g, p, t]
-				for p ∈ fire_avail_ixs[g]
-			))
-
-		# this constrant neutralizes the perturbation, will be presolved away if RHS is 0
-		# but raising the RHS slightly above 0 allows the perturbation
-		@constraint(m, perturb[g = 1:num_fires, t = 1:num_time_periods],
-			delta_plus[g, t] + delta_minus[g, t] <= 0)
-	else
-		error("Dual stabilization type not implemented")
+			for ix in eachindex(linking)
+				set_normalized_coefficient(
+					linking[ix],
+					linking_plus[ix],
+					1,
+				)
+				set_normalized_coefficient(
+					linking[ix],
+					linking_minus[ix],
+					-1,
+				)
+			end
+			
+			dual_regularizer.constraint_ref = perturb
+			@info "dual regularizer constraint" perturb
+		else
+			error("Dual stabilization type not implemented")
+		end
 	end
 
+	
 
 	@objective(m, Min,
 
@@ -214,6 +196,7 @@ function define_restricted_master_problem(
 		linking,
 		gub_cover_cuts,
 		fire_allotment_branches,
+		dual_regularizer,
 		MOI.OPTIMIZE_NOT_CALLED,
 	)
 
@@ -374,7 +357,8 @@ function add_column_to_master_problem!!(
 				)
 
 				# add the plan to the cut mp lookup
-				cut_data.fire_mp_lookup[cut_ix][(fire, ix)] = cut.fire_lower_bounds[fire][2]
+				cut_data.fire_mp_lookup[cut_ix][(fire, ix)] =
+					cut.fire_lower_bounds[fire][2]
 
 			end
 		end
@@ -441,6 +425,7 @@ function double_column_generation!(
 	# gather global information
 	num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)
 
+
 	if rmp.termination_status == MOI.OPTIMIZE_NOT_CALLED
 		# initialize with an (infeasible) dual solution that will suppress minimally
 		fire_duals = zeros(num_fires) .+ Inf
@@ -463,10 +448,17 @@ function double_column_generation!(
 	new_column_found::Bool = true
 	iteration = 0
 
-	while (new_column_found & (iteration < 200))
+	# reset stabilizer
+	if ~isnothing(rmp.dual_regularizer) && normalized_rhs(rmp.dual_regularizer.constraint_ref) == 0
+		set_normalized_rhs(rmp.dual_regularizer.constraint_ref, rmp.dual_regularizer.epsilon)
+	end
+
+	while (new_column_found && (iteration < 200))
 		if iteration == 199
 			@info "iteration limit hit" iteration
 		end
+
+		@info "duals" maximum(linking_duals)
 
 		iteration += 1
 		new_column_found = false
@@ -664,9 +656,15 @@ function double_column_generation!(
 		if iteration == 1
 			new_column_found = true
 		end
-		if new_column_found 
 
-			# TODO dual warm start passed in here
+		# if dual regularization is still active and no new column found, remove stabilization
+		if ~new_column_found && ~isnothing(rmp.dual_regularizer) && normalized_rhs(rmp.dual_regularizer.constraint_ref) > 0
+			set_normalized_rhs(rmp.dual_regularizer.constraint_ref, 0)
+			new_column_found = true
+		end
+
+		if new_column_found
+
 			optimize!(rmp.model)
 			@debug "rho_gt" iteration dual.(rmp.supply_demand_linking)
 
@@ -730,8 +728,7 @@ function double_column_generation!(
 			end
 
 			@debug "dual values" iteration fire_duals crew_duals linking_duals cut_duals global_fire_allot_duals
-
-		# if no new column added, we have proof of optimality
+			# if no new column added, we have proof of optimality
 		else
 			rmp.termination_status = MOI.LOCALLY_SOLVED
 			@info "RMP stats with no more columns found" iteration objective_value(

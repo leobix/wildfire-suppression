@@ -218,15 +218,15 @@ function get_distance(from_type, from_ix, to_type, to_ix, fire_fire, base_fire)
 	dist = 0
 
 	# if fire to fire
-	if (from_type == CM.FIRE_CODE) & (to_type == CM.FIRE_CODE)
+	if (from_type == CM.FIRE_CODE) && (to_type == CM.FIRE_CODE)
 		dist = fire_fire[from_ix, to_ix]
 
 		# if fire to base
-	elseif (from_type == CM.FIRE_CODE) & (to_type == CM.BASE_CODE)
+	elseif (from_type == CM.FIRE_CODE) && (to_type == CM.BASE_CODE)
 		dist = base_fire[to_ix, from_ix]
 
 		# if base to fire
-	elseif (from_type == CM.BASE_CODE) & (to_type == CM.FIRE_CODE)
+	elseif (from_type == CM.BASE_CODE) && (to_type == CM.FIRE_CODE)
 		dist = base_fire[from_ix, to_ix]
 
 		# otherwise dist still 0
@@ -262,7 +262,7 @@ function get_static_crew_arc_costs(gd, arcs, cost_param_dict)
 		# find the rest violation scores
 		rest_violation_matrix = cost_param_dict["rest_violation"]
 		rest_violations = [
-			(arcs[i, 8] == 0) & (arcs[i, 6] > 0) ?
+			(arcs[i, 8] == 0) && (arcs[i, 6] > 0) ?
 			rest_violation_matrix[arcs[i, 1], arcs[i, 6]] : 0
 			for i in 1:n_arcs
 		]
@@ -548,9 +548,9 @@ function get_state_entrance_cost(state, enter_time, params, num_time_periods)
 
 	if params["model_type"] == "simple_linear"
 
-		if (enter_time == 1) | (enter_time == num_time_periods + 1)
+		if (enter_time == 1) || (enter_time == num_time_periods + 1)
 			return params["beta"] * state / 2
-		elseif (enter_time > 1) & (enter_time < num_time_periods + 1)
+		elseif (enter_time > 1) && (enter_time < num_time_periods + 1)
 			return params["beta"] * state
 		else
 			error("Invalid time")
@@ -689,7 +689,7 @@ function generate_state_transition_crew_reqs(
 				# we can trim arcs that are dominated
 
 				# if this is a feasible number of crews and we do not have a dominating arc
-				if (crews <= num_crews) & (crews < min_used[round_type])
+				if (crews <= num_crews) && (crews < min_used[round_type])
 
 					# update the minimum crews used for this round type
 					min_used[round_type] = crews

@@ -133,6 +133,13 @@ function restrict_GUBCoverCutData(orig::GUBCoverCutData, ixs)
 		crew_mp_lookup)
 end
 
+mutable struct DualRegularizer
+
+	const strategy::String
+	epsilon::Float64
+	constraint_ref::Union{Nothing, ConstraintRef}
+
+end
 
 mutable struct RestrictedMasterProblem # TODO can make some JuMP things const?
 
@@ -149,7 +156,7 @@ mutable struct RestrictedMasterProblem # TODO can make some JuMP things const?
 	const supply_demand_linking::Matrix{ConstraintRef}
 	const gub_cover_cuts::JuMP.Containers.SparseAxisArray
 	const fire_allotment_branches::Vector{ConstraintRef}
-	# linking_perturbation::Matrix{ConstraintRef}
+	const dual_regularizer::Union{Nothing, DualRegularizer}
 
 	# termination status
 	termination_status::MOI.TerminationStatusCode

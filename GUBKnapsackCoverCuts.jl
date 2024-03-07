@@ -63,7 +63,7 @@ function enumerate_minimal_cuts(crew_allots, fire_allots)
 	inactive_crews = Int64[]
 	for crew in eachindex(crew_allots)
 		if (length(crew_allots[crew]) > 0)
-			if (crew_allots[crew][1][1] == true) & (crew_allots[crew][1][2] == 0)
+			if (crew_allots[crew][1][1] == true) && (crew_allots[crew][1][2] == 0)
 				push!(inactive_crews, crew)
 			end
 		end
@@ -104,7 +104,7 @@ function enumerate_minimal_cuts(crew_allots, fire_allots)
 				min_allot = min(min_allot, cur_allot)
 			end
 		end
-		if (cost < 1 - 0.02) & (allot > available_for_fires) &
+		if (cost < 1 - 0.02) && (allot > available_for_fires) &
 		   (allot - min_allot <= available_for_fires)
 			cut_allotments = [fire_allots[j][i[j]][1] for j in eachindex(i)]
 			@debug "cut found" i,
@@ -313,7 +313,7 @@ function incorporate_gub_cover_cuts_into_fire_subproblem!(
 			costs = Dict{Int64, Int8}()
 			if fire in keys(cut.fire_lower_bounds)
 				for i in 1:length(submodel.arc_costs)
-					if (submodel.long_arcs[i, TIME_FROM_] == cut.time_ix) & (
+					if (submodel.long_arcs[i, TIME_FROM_] == cut.time_ix) && (
 						submodel.long_arcs[i, CREWS_PRESENT_] >=
 						cut.fire_lower_bounds[fire][1]
 					)

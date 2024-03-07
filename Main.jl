@@ -134,13 +134,13 @@ function get_command_line_args()
 end
 
 args = get_command_line_args()
-io = open("logs_bb_6.txt", "w")
+io = open("logs_bb_reg.txt", "w")
 if args["debug"] == true
 	global_logger(ConsoleLogger(io, Logging.Debug, show_limited = false))
 else
 	global_logger(ConsoleLogger(io, Logging.Info, show_limited = false))
 end
 
-# branch_and_price(3, 10, 14)
-branch_and_price(6, 20, 14)
+branch_and_price(3, 10, 14)
+# branch_and_price(6, 20, 14)
 close(io)

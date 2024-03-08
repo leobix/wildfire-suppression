@@ -51,7 +51,7 @@ function get_crew_suppression_cdf_by_fire_and_time(
 
 	@info "after sort" cdf
 
-	cdf = cumsum(1 .- cdf, dims=1)
+	cdf = cumsum(1 .- cdf, dims = 1)
 
 
 
@@ -183,7 +183,7 @@ function extract_usages(
 	fire_plans::FirePlanData,
 	rmp::RestrictedMasterProblem,
 )
-## TODO refactor with copied code below ##
+	## TODO refactor with copied code below ##
 
 	# get problem dimensions
 	num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)
@@ -346,17 +346,41 @@ function incorporate_gub_cover_cuts_into_fire_subproblem!(
 	TIME_FROM_ = 3
 	CREWS_PRESENT_ = 6
 
+	# for each cut ix
 	for ix in eachindex(cuts)
+
+		# if the cut ix is not in the cut dict
 		if ix ∉ keys(out_dict)
+
+			# grab the cut and initialize a lookup dictionary arc_ix => cut coeff
 			cut = cuts[ix]
 			costs = Dict{Int64, Int8}()
+
+			# if the fire is involved in the cut 
 			if fire in keys(cut.fire_lower_bounds)
+
+				# for each arc in the subproblem
 				for i in 1:length(submodel.arc_costs)
-					if (submodel.long_arcs[i, TIME_FROM_] == cut.time_ix) & (
-						submodel.long_arcs[i, CREWS_PRESENT_] >=
-						cut.fire_lower_bounds[fire][1]
-					)
-						costs[i] = Float64(cut.fire_lower_bounds[fire][2])
+
+					# if it considers the given time
+					if submodel.long_arcs[i, TIME_FROM_] == cut.time_ix
+
+						# find the excess allotment 
+						exceeds_cut_allotment_by =
+							submodel.long_arcs[i, CREWS_PRESENT_] -
+							cut.fire_lower_bounds[fire][1]
+
+						# if this arc meets the allotment
+						if exceeds_cut_allotment_by >= 0
+
+							costs[i] = Float64(cut.fire_lower_bounds[fire][2])
+							if length(cut.fire_lower_bounds) == 1
+
+								# based on the number of crews involved in the cut, we can lift
+								num_crews_in_cut = length(cut.inactive_crews)
+								costs[i] += min(exceeds_cut_allotment_by, num_crews_in_cut)
+							end
+						end
 					end
 				end
 			end
@@ -398,6 +422,35 @@ function incorporate_gub_cover_cuts_into_crew_subproblem!(
 	end
 end
 
+function update_cut_fire_mp_lookup!(
+	cut_fire_mp_lookup::Dict{Tuple{Int64, Int64}, Int8},
+	cut::GUBCoverCut,
+	fire_plans::FirePlanData,
+	fire::Int64,
+	plan_ix::Int64,
+)
+	exceeds_cut_allotment_by =
+		fire_plans.crews_present[fire, plan_ix..., cut.time_ix] -
+		cut.fire_lower_bounds[fire][1]
+
+	# if this arc meets the allotment
+	if exceeds_cut_allotment_by >= 0
+
+		cut_fire_mp_lookup[(fire, plan_ix)] = cut.fire_lower_bounds[fire][2]
+		if length(cut.fire_lower_bounds) == 1
+			
+			# based on the number of crews involved in the cut, we can lift
+			num_crews_in_cut = length(cut.inactive_crews)
+			cut_fire_mp_lookup[(fire, plan_ix)] += min(exceeds_cut_allotment_by, num_crews_in_cut)
+		end
+
+		return true
+	end
+
+	return false
+
+end
+
 function push_cut_to_rmp!!(
 	rmp::RestrictedMasterProblem,
 	cut_data::GUBCoverCutData,
@@ -407,18 +460,15 @@ function push_cut_to_rmp!!(
 )
 
 	cut_time = cut.time_ix
-	cut_fire_allots = cut.fire_lower_bounds
 	cut_crew_allots = cut.inactive_crews
 	cut_rhs = cut.rhs
 
 	ix = cut_data.cuts_per_time[cut_time] + 1
 
 	cut_fire_mp_lookup = Dict{Tuple{Int64, Int64}, Int8}()
-	for f in keys(cut_fire_allots)
+	for f in keys(cut.fire_lower_bounds)
 		for i in eachindex(rmp.plans[f, :])
-			if fire_plans.crews_present[f, i..., cut_time] >= cut_fire_allots[f][1]
-				cut_fire_mp_lookup[(f, i...)] = cut_fire_allots[f][2]
-			end
+			update_cut_fire_mp_lookup!(cut_fire_mp_lookup, cut, fire_plans, f, i...)
 		end
 	end
 
@@ -428,7 +478,7 @@ function push_cut_to_rmp!!(
 		for i in eachindex(rmp.routes[c, :])
 
 			# crew has to suppress one of the fires in the cut to avoid entering this cut
-			fires = [i for i in keys(cut_fire_allots)]
+			fires = [i for i in keys(cut.fire_lower_bounds)]
 			if maximum(crew_routes.fires_fought[c, i..., fires, cut_time]) == 0
 				cut_crew_mp_lookup[(c, i...)] = 1
 			end

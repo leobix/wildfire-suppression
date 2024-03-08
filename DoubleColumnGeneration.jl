@@ -362,21 +362,24 @@ function add_column_to_master_problem!!(
 		# if this fire is involved in the cut
 		if fire ∈ keys(cut.fire_lower_bounds)
 
-			# if this fire is suppressed at least the allotment of the cut
-			if fire_plans.crews_present[fire, ix, cut.time_ix] >=
-			   cut.fire_lower_bounds[fire][1]
+			# update mp lookup and see if this plan has >0 coeff in the cut
+			plan_in_cut = update_cut_fire_mp_lookup!(
+				cut_data.fire_mp_lookup[cut_ix],
+				cut,
+				fire_plans,
+				fire,
+				ix,
+			)
 
-				# set the coefficient of this route in this cut to the coefficient of the cut (negated because >=)
+			if plan_in_cut
+				# set the coefficient of this plan in this cut to the coefficient of the cut (negated because >=)
 				set_normalized_coefficient(
 					rmp.gub_cover_cuts[cut_ix],
 					rmp.plans[fire, ix],
-					-cut.fire_lower_bounds[fire][2],
+					-cut_data.fire_mp_lookup[cut_ix][(fire, ix)],
 				)
-
-				# add the plan to the cut mp lookup
-				cut_data.fire_mp_lookup[cut_ix][(fire, ix)] = cut.fire_lower_bounds[fire][2]
-
 			end
+
 		end
 	end
 
@@ -434,9 +437,10 @@ function double_column_generation!(
 	global_fire_allotment_branching_rules::Vector{GlobalFireAllotmentBranchingRule},
 	crew_routes::CrewRouteData,
 	fire_plans::FirePlanData,
-	cut_data::GUBCoverCutData,
+	cut_data::GUBCoverCutData;
 	upper_bound::Float64 = 1e20,
-	improving_column_abs_tolerance::Float64 = 1e-4)
+	improving_column_abs_tolerance::Float64 = 1e-4,
+	local_gap_rel_tolerance::Float64 = 1e-9)
 
 	# gather global information
 	num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)
@@ -664,7 +668,7 @@ function double_column_generation!(
 		if iteration == 1
 			new_column_found = true
 		end
-		if new_column_found 
+		if new_column_found
 
 			# TODO dual warm start passed in here
 			optimize!(rmp.model)
@@ -731,7 +735,7 @@ function double_column_generation!(
 
 			@debug "dual values" iteration fire_duals crew_duals linking_duals cut_duals global_fire_allot_duals
 
-		# if no new column added, we have proof of optimality
+			# if no new column added, we have proof of optimality
 		else
 			rmp.termination_status = MOI.LOCALLY_SOLVED
 			@info "RMP stats with no more columns found" iteration objective_value(

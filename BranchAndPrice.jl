@@ -235,7 +235,7 @@ function price_and_cut!!(
 		eachindex(rmp.plans),
 	) length([i for i in eachindex(rmp.plans) if reduced_cost(rmp.plans[i]) < 1e-2]) length([
 		i for i in eachindex(rmp.routes) if reduced_cost(rmp.routes[i]) < 1e-2
-	]) dual.(rmp.supply_demand_linking) dual.(
+	]) dual.(rmp.supply_demand_linking) dual.(rmp.gub_cover_cuts) cut_data.cut_dict dual.(
 		rmp.fire_allotment_branches
 	) rmp.fire_allotment_branches
 	@debug "reduced_costs" reduced_cost.(rmp.plans) reduced_cost.(rmp.routes)

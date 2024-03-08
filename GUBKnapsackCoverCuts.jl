@@ -27,6 +27,39 @@ function get_gub_fire_relevant_suppression_data(
 	return pairs
 end
 
+function get_crew_suppression_cdf_by_fire_and_time(
+	crew_routes::CrewRouteData,
+	t::Int64,
+	used_routes,
+	rmp::RestrictedMasterProblem,
+)
+	num_crews, _, num_fires, _ = size(crew_routes.fires_fought)
+
+	cdf = zeros(num_crews, num_fires)
+	for c in 1:num_crews
+		all_fires_fought = crew_routes.fires_fought[c, used_routes[c], :, t]
+		coeffs = [value(rmp.routes[c, i]) for i in used_routes[c]]
+		fires_fought = all_fires_fought' * coeffs
+		cdf[c, :] = fires_fought
+	end
+
+	@info "after populate" cdf
+
+	for col in eachcol(cdf)
+		sort!(col)
+	end
+
+	@info "after sort" cdf
+
+	cdf = cumsum(1 .- cdf, dims=1)
+
+
+
+
+	return cdf
+end
+
+
 function get_gub_crew_relevant_routing_data(
 	c::Int64,
 	t::Int64,
@@ -191,6 +224,12 @@ function extract_usages(
 				used_plans,
 			)
 		end
+		# a = get_crew_suppression_cdf_by_fire_and_time(
+		# 	crew_routes,
+		# 	t,
+		# 	used_routes,
+		# 	rmp,
+		# )
 		for c ∈ 1:num_crews
 			all_crew_allots[c, t] = get_gub_crew_relevant_routing_data(
 				c,

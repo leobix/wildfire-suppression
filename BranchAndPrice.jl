@@ -186,13 +186,16 @@ function price_and_cut!!(
 	fire_rules::Vector{FireDemandBranchingRule},
 	global_fire_allotment_rules::Vector{GlobalFireAllotmentBranchingRule},
 	crew_routes::CrewRouteData,
-	fire_plans::FirePlanData)
+	fire_plans::FirePlanData;
+	upper_bound::Float64=1e20)
 
 	@debug "at price and cut start" length(rmp.plans[1, :]) length(rmp.plans[2, :]) length(
 		rmp.plans[3, :],
 	)
 
-	for loop_ix ∈ 1:8
+	loop_ix = 1
+	loop_max = 8
+	while loop_ix < loop_max
 		# run DCG, adding columns as needed
 		double_column_generation!(
 			rmp,
@@ -204,7 +207,12 @@ function price_and_cut!!(
 			crew_routes,
 			fire_plans,
 			cut_data,
+			upper_bound = upper_bound
 		)
+		if rmp.termination_status == MOI.OBJECTIVE_LIMIT
+			@info "no more cuts needed"
+			break
+		end
 		@debug "objective after cg" objective_value(rmp.model)
 		# add cuts
 		num_cuts = find_and_incorporate_knapsack_gub_cuts!!(
@@ -221,18 +229,26 @@ function price_and_cut!!(
 			break
 		end
 
+		loop_ix += 1
+
 	end
-	double_column_generation!(
-		rmp,
-		crew_subproblems,
-		fire_subproblems,
-		crew_rules,
-		fire_rules,
-		global_fire_allotment_rules,
-		crew_routes,
-		fire_plans,
-		cut_data,
-	)
+
+	# if we got completely through all the loop of cut generation
+	if loop_ix == loop_max
+		@info "One last DCG to have provable lower bound"
+		double_column_generation!(
+			rmp,
+			crew_subproblems,
+			fire_subproblems,
+			crew_rules,
+			fire_rules,
+			global_fire_allotment_rules,
+			crew_routes,
+			fire_plans,
+			cut_data,
+			upper_bound = upper_bound
+		)
+	end
 
 	@info "rmp stats end" objective_value(rmp.model) length(eachindex(rmp.routes)) length(
 		eachindex(rmp.plans),
@@ -421,7 +437,8 @@ function heuristic_upper_bound!!(
 		fire_rules,
 		global_rules,
 		crew_routes,
-		fire_plans)
+		fire_plans,
+		upper_bound = ub)
 
 	if rmp.termination_status == MOI.OPTIMAL
 		lb = objective_value(rmp.model)
@@ -485,7 +502,8 @@ function heuristic_upper_bound!!(
 			fire_rules,
 			global_rules,
 			crew_routes,
-			fire_plans)
+			fire_plans,
+			upper_bound = ub)
 
 		lb_node =
 			rmp.termination_status == MOI.OPTIMAL ? objective_value(rmp.model) : Inf
@@ -614,7 +632,8 @@ function explore_node!!(
 		fire_rules,
 		global_rules,
 		crew_routes,
-		fire_plans)
+		fire_plans, 
+		upper_bound = current_global_upper_bound)
 	@info "after price and cut" objective_value(rmp.model) crew_routes.routes_per_crew fire_plans.plans_per_fire
 
 	# extract some data
@@ -648,8 +667,9 @@ function explore_node!!(
 		branch_and_bound_node.l_bound = Inf
 		@info "infeasible node" node_ix
 	else
-		if rmp.termination_status != MOI.LOCALLY_SOLVED
+		if rmp.termination_status ∉ [MOI.LOCALLY_SOLVED, MOI.OBJECTIVE_LIMIT]
 			@info "Node not feasible or optimal, CG did not terminate?"
+			error("Node not feasible or optimal, CG did not terminate?")
 		else
 			branch_and_bound_node.l_bound = objective_value(rmp.model)
 		end

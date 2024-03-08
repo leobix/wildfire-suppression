@@ -112,7 +112,7 @@ function GUBCoverCutData(num_crews::Int, num_fires::Int, num_time_periods::Int)
 end
 
 function restrict_GUBCoverCutData(orig::GUBCoverCutData, ixs)
-	cut_objects = Dict(a => b for (a, b) in orig.cut_objects if a in ixs)
+	cut_objects = Dict(a => b for (a, b) in orig.cut_dict if a in ixs)
 	cuts_per_time = orig.cuts_per_time
 	fire_sp_lookup = Dict(
 		a => Dict(b => c for (b, c) in orig.fire_sp_lookup[a] if b ∈ ixs) for
@@ -127,8 +127,8 @@ function restrict_GUBCoverCutData(orig::GUBCoverCutData, ixs)
 	return GUBCoverCutData(
 		cut_objects,
 		cuts_per_time,
-		fire_cut_sp_lookup,
-		crew_cut_sp_lookup,
+		fire_sp_lookup,
+		crew_sp_lookup,
 		fire_mp_lookup,
 		crew_mp_lookup)
 end

@@ -53,7 +53,7 @@ function branch_and_price(num_fires::Int, num_crews::Int, num_time_periods::Int)
 
 	# initialize nodes list with the root node
 	nodes = BranchAndBoundNode[]
-	first_node = BranchAndBoundNode(ix = 1, parent = nothing)
+	first_node = BranchAndBoundNode(ix = 1, parent = nothing, cut_data = cut_data)
 	push!(nodes, first_node)
 
 	# initialize global variables to track in branch-and-bound tree
@@ -75,7 +75,6 @@ function branch_and_price(num_fires::Int, num_crews::Int, num_time_periods::Int)
 			fire_plans,
 			crew_models,
 			fire_models,
-			cut_data,
 			nothing,
 			GRB_ENV,
 		)
@@ -141,6 +140,6 @@ else
 	global_logger(ConsoleLogger(io, Logging.Info, show_limited = false))
 end
 
-# branch_and_price(3, 10, 14)
-branch_and_price(6, 20, 14)
+branch_and_price(3, 10, 14)
+# branch_and_price(6, 20, 14)
 close(io)

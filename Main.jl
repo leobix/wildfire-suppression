@@ -99,7 +99,7 @@ function branch_and_price(num_fires::Int, num_crews::Int, num_time_periods::Int)
 		@info "number of nodes" node_ix length(nodes)
 		@info "columns" crew_routes.routes_per_crew fire_plans.plans_per_fire
 
-		if node_ix > 7
+		if node_ix > 15
 			println("halted early.")
             # for g in 1:num_fires
             #     num_plans = fire_plans.plans_per_fire[g]
@@ -133,7 +133,7 @@ function get_command_line_args()
 end
 
 args = get_command_line_args()
-io = open("logs_2.txt", "w")
+io = open("logs_1.txt", "w")
 if args["debug"] == true
 	global_logger(ConsoleLogger(io, Logging.Debug, show_limited = false))
 else

@@ -194,7 +194,7 @@ function price_and_cut!!(
 	)
 
 	loop_ix = 1
-	loop_max = 8
+	loop_max = 10
 	while loop_ix < loop_max
 		# run DCG, adding columns as needed
 		double_column_generation!(
@@ -235,7 +235,7 @@ function price_and_cut!!(
 
 	# if we got completely through all the loop of cut generation
 	if loop_ix == loop_max
-		@info "One last DCG to have provable lower bound"
+		@info "There may be more cuts; one last DCG to have provable lower bound"
 		double_column_generation!(
 			rmp,
 			crew_subproblems,

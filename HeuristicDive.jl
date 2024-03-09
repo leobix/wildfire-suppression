@@ -26,10 +26,31 @@ function find_heuristic_upper_bound(
 
 	crew_routes = CrewRouteData(100000, num_fires, num_crews, num_time_periods)
 	fire_plans = FirePlanData(100000, num_fires, num_time_periods)
+	cut_data = GUBCoverCutData(num_crews, num_fires, num_time_periods)
+
+	ub = Inf
+
+	# initialize nodes list with the root node
+	nodes = BranchAndBoundNode[]
+	first_node = BranchAndBoundNode(ix = 1, parent = nothing, cut_data = cut_data)
+	push!(nodes, first_node)
+
+	explore_node!!(
+		first_node,
+		nodes,
+		ub,
+		crew_routes,
+		fire_plans,
+		crew_models,
+		fire_models,
+		nothing,
+		GRB_ENV,
+	)
 
     heuristic_upper_bound!!(
         crew_routes,
         fire_plans,
+		first_node,
         3,
         crew_models,
         fire_models,
@@ -59,7 +80,7 @@ end
 # find_heuristic_upper_bound(3, 10, 14)
 
 Profile.init(delay=0.05)
-@profile find_heuristic_upper_bound(6, 20, 14)
+find_heuristic_upper_bound(3, 10, 14)
 # Profile.print(io2, mincount=500, maxdepth=10)
 
 close(io)

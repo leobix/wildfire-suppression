@@ -77,6 +77,7 @@ function branch_and_price(num_fires::Int, num_crews::Int, num_time_periods::Int)
 			fire_models,
 			nothing,
 			GRB_ENV,
+			restore_integrality = true
 		)
 
 		# if this node has an integer solution, check if we have found 

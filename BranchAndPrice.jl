@@ -396,6 +396,7 @@ end
 function heuristic_upper_bound!!(
 	crew_routes::CrewRouteData,
 	fire_plans::FirePlanData,
+	explored_bb_node::BranchAndBoundNode,
 	num_iters::Int,
 	crew_subproblems::Vector{TimeSpaceNetwork},
 	fire_subproblems::Vector{TimeSpaceNetwork},
@@ -406,46 +407,24 @@ function heuristic_upper_bound!!(
 	num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)
 
 	# initialize side data
-	cut_data = GUBCoverCutData(num_crews, num_fires, num_time_periods)
-	crew_ixs = [Int[] for i ∈ 1:num_crews]
-	fire_ixs = [Int[] for i ∈ 1:num_fires]
+	cut_data = deepcopy(explored_bb_node.cut_data)
+
+	# TODO maybe we only keep active columns, though cut addition not so bad
+	# except maybe we want these columns for heuristic sol
+	crew_ixs =
+		[[i[1] for i in eachindex(explored_bb_node.master_problem.routes[j, :])] for j ∈ 1:num_crews]
+	fire_ixs =
+		[[i[1] for i in eachindex(explored_bb_node.master_problem.plans[j, :])] for j ∈ 1:num_fires]
+	
+	# TODO these should be node specific if we want to dive not from root node
 	crew_rules = CrewSupplyBranchingRule[]
 	fire_rules = FireDemandBranchingRule[]
 	global_rules = GlobalFireAllotmentBranchingRule[]
-	lb = -Inf
 	ub = Inf
 
-	## solve at root node so that we can get fractional weighted-average solution
-
-	rmp = define_restricted_master_problem(
-		gurobi_env,
-		crew_routes,
-		crew_ixs,
-		fire_plans,
-		fire_ixs,
-		cut_data,
-		global_rules,
-	)
-
-	# TODO smarter cuts that incorporate these upper bounds (crews_available)
-	price_and_cut!!(
-		rmp,
-		cut_data,
-		crew_subproblems,
-		fire_subproblems,
-		crew_rules,
-		fire_rules,
-		global_rules,
-		crew_routes,
-		fire_plans,
-		upper_bound = ub)
-
-	if rmp.termination_status == MOI.OPTIMAL
-		lb = objective_value(rmp.model)
-	end
 
 	fractional_weighted_average_solution, _ =
-		get_fire_and_crew_incumbent_weighted_average(rmp,
+		get_fire_and_crew_incumbent_weighted_average(explored_bb_node.master_problem,
 			crew_routes,
 			fire_plans,
 		)
@@ -462,12 +441,6 @@ function heuristic_upper_bound!!(
 				fire_subproblems,
 			)
 		global_rules = [branching_rule]
-
-		# TODO maybe we only keep active columns, though cut addition not so bad
-		crew_ixs =
-			[[i[1] for i in eachindex(rmp.routes[j, :])] for j ∈ 1:num_crews]
-		fire_ixs =
-			[[i[1] for i in eachindex(rmp.plans[j, :])] for j ∈ 1:num_fires]
 
 		for fire ∈ 1:num_fires
 			to_delete = Int64[]
@@ -506,10 +479,10 @@ function heuristic_upper_bound!!(
 			upper_bound = ub)
 
 		lb_node =
-			rmp.termination_status == MOI.OPTIMAL ? objective_value(rmp.model) : Inf
+			rmp.termination_status == MOI.LOCALLY_SOLVED ? objective_value(rmp.model) : - Inf
 
 		t = @elapsed obj, obj_bound, routes, plans =
-			find_integer_solution(rmp, ub, 1200, 4000, 20.0)
+			find_integer_solution(rmp, ub, 12000, 40000, 20.0)
 		if obj < ub
 			ub = obj
 		end
@@ -529,8 +502,8 @@ function heuristic_upper_bound!!(
 			)
 
 		if ~any(binding_non_zero_allotments)
-			@info "No upper bounds are binding on the allotment, breaking"
-			break
+			@info "No upper bounds are binding on the allotment, bumping all up by 1"
+			binding_non_zero_allotments = binding_non_zero_allotments .| true
 		end
 
 		current_allotment = current_allotment .+ binding_non_zero_allotments
@@ -547,7 +520,8 @@ function explore_node!!(
 	crew_subproblems::Vector{TimeSpaceNetwork},
 	fire_subproblems::Vector{TimeSpaceNetwork},
 	warm_start_strategy::Union{String, Nothing},
-	gurobi_env)
+	gurobi_env;
+	restore_integrality=false)
 
 	# gather global information
 	num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)
@@ -678,12 +652,15 @@ function explore_node!!(
 		plan_values = value.(rmp.plans)
 		route_values = value.(rmp.routes)
 
-		t = @elapsed obj, obj_bound, routes, plans =
-			find_integer_solution(rmp, current_global_upper_bound, 300, 1000, 0.5)
-		branch_and_bound_node.u_bound = obj
+		if restore_integrality
+			t = @elapsed obj, obj_bound, routes, plans =
+				find_integer_solution(rmp, current_global_upper_bound, 300, 1000, 0.5)
+			branch_and_bound_node.u_bound = obj
+			@info "after restoring integrality" t obj obj_bound
+		end
 	end
 
-	@info "after restoring integrality" t obj obj_bound
+	
 
 	@debug "used fire plans" [
 		(ix, value(rmp.plans[ix]), fire_plans.crews_present[ix..., :]) for

@@ -77,15 +77,31 @@ function branch_and_price(num_fires::Int, num_crews::Int, num_time_periods::Int)
 			fire_models,
 			nothing,
 			GRB_ENV,
-			restore_integrality = true
+			restore_integrality = false,
 		)
+
+		if node_ix == 1
+			heuristic_ub, ub_rmp = heuristic_upper_bound!!(
+				crew_routes,
+				fire_plans,
+				nodes[node_ix],
+				5,
+				crew_models,
+				fire_models,
+				GRB_ENV,
+			)
+
+			if heuristic_ub < nodes[node_ix].u_bound
+				nodes[node_ix].u_bound = heuristic_ub
+			end
+		end
 
 		# if this node has an integer solution, check if we have found 
 		# a better solution than the incumbent
-        if nodes[node_ix].u_bound < ub
-            ub = nodes[node_ix].u_bound
-            ub_ix = node_ix
-        end
+		if nodes[node_ix].u_bound < ub
+			ub = nodes[node_ix].u_bound
+			ub_ix = node_ix
+		end
 
 		# calculate the best current lower bound by considering all nodes with
 		# fully explored children 
@@ -100,24 +116,24 @@ function branch_and_price(num_fires::Int, num_crews::Int, num_time_periods::Int)
 		@info "number of nodes" node_ix length(nodes)
 		@info "columns" crew_routes.routes_per_crew fire_plans.plans_per_fire
 
-		if node_ix > 15
+		if node_ix > 7
 			println("halted early.")
-            # for g in 1:num_fires
-            #     num_plans = fire_plans.plans_per_fire[g]
-            #     plans = eachrow(fire_plans.crews_present[g, 1:num_plans, :])
-            #     plans = [i for i in plans if sum(i) > 0]
-            #     @info plans
-            #     @assert allunique(plans)
-            # end
+			# for g in 1:num_fires
+			#     num_plans = fire_plans.plans_per_fire[g]
+			#     plans = eachrow(fire_plans.crews_present[g, 1:num_plans, :])
+			#     plans = [i for i in plans if sum(i) > 0]
+			#     @info plans
+			#     @assert allunique(plans)
+			# end
 
-            # for c in 1:num_crews
-            #     num_routes = crew_routes.routes_per_crew[c]
-            #     routes = [crew_routes.fires_fought[c, i] for i in 1:num_routes]
-            #     routes = [i for i in routes if sum(i) > 0]
-            #     @info routes
-            #     @assert allunique(routes)
-            # end
-            return
+			# for c in 1:num_crews
+			#     num_routes = crew_routes.routes_per_crew[c]
+			#     routes = [crew_routes.fires_fought[c, i] for i in 1:num_routes]
+			#     routes = [i for i in routes if sum(i) > 0]
+			#     @info routes
+			#     @assert allunique(routes)
+			# end
+			return
 		end
 	end
 

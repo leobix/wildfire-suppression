@@ -73,8 +73,7 @@ function max_variance_natural_variable(
 			route_values[ix] * crew_routes.fires_fought[crew, route, :, :]
 	end
 	crew_variances = crew_means .* (1 .- crew_means)
-	@debug "Means" crew_means # crew_means
-	@debug "Variances" crew_variances # crew_variances
+
 	# calculate variance of B_{gt}, demand at fire g at time t
 	fire_means = zeros(Float64, (num_fires, num_time_periods))
 	fire_sq_means = zeros(Float64, (num_fires, num_time_periods))
@@ -400,7 +399,7 @@ function heuristic_upper_bound!!(
 	num_iters::Int,
 	crew_subproblems::Vector{TimeSpaceNetwork},
 	fire_subproblems::Vector{TimeSpaceNetwork},
-	gurobi_env,
+	gurobi_env
 )
 
 	# gather global information
@@ -409,18 +408,26 @@ function heuristic_upper_bound!!(
 	# initialize side data
 	cut_data = deepcopy(explored_bb_node.cut_data)
 
-	# TODO maybe we only keep active columns, though cut addition not so bad
-	# except maybe we want these columns for heuristic sol
+	# keep all columns from explored node
 	crew_ixs =
 		[[i[1] for i in eachindex(explored_bb_node.master_problem.routes[j, :])] for j ∈ 1:num_crews]
 	fire_ixs =
 		[[i[1] for i in eachindex(explored_bb_node.master_problem.plans[j, :])] for j ∈ 1:num_fires]
 	
-	# TODO these should be node specific if we want to dive not from root node
+	# grab any fire and crew branching rules
 	crew_rules = CrewSupplyBranchingRule[]
 	fire_rules = FireDemandBranchingRule[]
+	cur_node = explored_bb_node
+	while ~isnothing(cur_node)
+
+		crew_rules = vcat(cur_node.new_crew_branching_rules, crew_rules)
+		fire_rules = vcat(cur_node.new_fire_branching_rules, fire_rules)
+		cur_node = cur_node.parent
+	end
+
 	global_rules = GlobalFireAllotmentBranchingRule[]
 	ub = Inf
+	ub_rmp = nothing
 
 
 	fractional_weighted_average_solution, _ =
@@ -478,13 +485,25 @@ function heuristic_upper_bound!!(
 			fire_plans,
 			upper_bound = ub)
 
+		crew_ixs = [[i[1] for i in eachindex(rmp.routes[j, :])] for j ∈ 1:num_crews]
+		fire_ixs = [[i[1] for i in eachindex(rmp.plans[j, :])] for j ∈ 1:num_fires]
+	
+
 		lb_node =
 			rmp.termination_status == MOI.LOCALLY_SOLVED ? objective_value(rmp.model) : - Inf
 
+		if lb_node / ub > 1 - 1e-9
+			@info "pruning heuristic round by bound, bumping allotments"
+			current_allotment = current_allotment .+ 1
+			continue
+		end
+
+		## TODO push the solution from last iteration?
 		t = @elapsed obj, obj_bound, routes, plans =
 			find_integer_solution(rmp, ub, 12000, 40000, 20.0)
 		if obj < ub
 			ub = obj
+			ub_rmp = rmp
 		end
 
 		fire_allots, _ =
@@ -508,6 +527,8 @@ function heuristic_upper_bound!!(
 
 		current_allotment = current_allotment .+ binding_non_zero_allotments
 	end
+
+	return ub, ub_rmp
 end
 
 
@@ -521,6 +542,7 @@ function explore_node!!(
 	fire_subproblems::Vector{TimeSpaceNetwork},
 	warm_start_strategy::Union{String, Nothing},
 	gurobi_env;
+	rel_tol = 1e-9,
 	restore_integrality=false)
 
 	# gather global information
@@ -673,9 +695,9 @@ function explore_node!!(
 
 
 	# if we cannot prune
-	if (branch_and_bound_node.u_bound - branch_and_bound_node.l_bound > 1e-5) &
+	if (branch_and_bound_node.u_bound - branch_and_bound_node.l_bound > rel_tol) &
 	   branch_and_bound_node.feasible &
-	   (branch_and_bound_node.l_bound < current_global_upper_bound)
+	   (branch_and_bound_node.l_bound / current_global_upper_bound < 1 - rel_tol)
 
 		# TODO think about branching rules
 		@info "fire_allots" all_fire_allots fire_alloc

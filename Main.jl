@@ -45,11 +45,26 @@ function find_lower_bound(node::BranchAndBoundNode)
 	end
 
 end
-function branch_and_price(num_fires::Int, num_crews::Int, num_time_periods::Int)
+function branch_and_price(
+	num_fires::Int,
+	num_crews::Int,
+	num_time_periods::Int;
+	algo_tracking = false,
+)
+	start_time = time()
 
 	# initialize input data
 	crew_routes, fire_plans, crew_models, fire_models, cut_data =
 		initialize_data_structures(num_fires, num_crews, num_time_periods)
+
+	# println(size(crew_models[1].wide_arcs))
+	# for i ∈ 1:num_fires
+	# 	println(size(fire_models[i].wide_arcs))
+	# end
+
+	algo_tracking ?
+	(@info "Checkpoint after initializing data structures" time() - start_time) :
+	nothing
 
 	# initialize nodes list with the root node
 	nodes = BranchAndBoundNode[]
@@ -114,7 +129,12 @@ function branch_and_price(num_fires::Int, num_crews::Int, num_time_periods::Int)
 		# go to the next node
 		node_ix += 1
 		@info "number of nodes" node_ix length(nodes)
-		@info "columns" crew_routes.routes_per_crew fire_plans.plans_per_fire
+		@info "columns" sum(crew_routes.routes_per_crew) sum(
+			fire_plans.plans_per_fire,
+		)
+		algo_tracking ?
+		(@info "Time check" time() - start_time) :
+		nothing
 
 		if node_ix > 7
 			println("halted early.")
@@ -122,7 +142,7 @@ function branch_and_price(num_fires::Int, num_crews::Int, num_time_periods::Int)
 			#     num_plans = fire_plans.plans_per_fire[g]
 			#     plans = eachrow(fire_plans.crews_present[g, 1:num_plans, :])
 			#     plans = [i for i in plans if sum(i) > 0]
-			#     @info plans
+			#     @debug plans
 			#     @assert allunique(plans)
 			# end
 
@@ -130,7 +150,7 @@ function branch_and_price(num_fires::Int, num_crews::Int, num_time_periods::Int)
 			#     num_routes = crew_routes.routes_per_crew[c]
 			#     routes = [crew_routes.fires_fought[c, i] for i in 1:num_routes]
 			#     routes = [i for i in routes if sum(i) > 0]
-			#     @info routes
+			#     @debug routes
 			#     @assert allunique(routes)
 			# end
 			return
@@ -149,14 +169,21 @@ function get_command_line_args()
 	return parse_args(arg_parse_settings)
 end
 
+
 args = get_command_line_args()
-io = open("logs_1.txt", "w")
+io = open("logs_2.txt", "w")
 if args["debug"] == true
 	global_logger(ConsoleLogger(io, Logging.Debug, show_limited = false))
 else
 	global_logger(ConsoleLogger(io, Logging.Info, show_limited = false))
 end
 
-branch_and_price(3, 10, 14)
-# branch_and_price(6, 20, 14)
+# precompile
+branch_and_price(3, 10, 14, algo_tracking=false)
+
+Profile.init()
+@profile branch_and_price(3, 10, 14, algo_tracking=true)
+io2 = open("prof.txt", "w")
+Profile.print(io2, mincount=50)
 close(io)
+close(io2)

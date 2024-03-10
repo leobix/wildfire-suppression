@@ -43,13 +43,13 @@ function get_crew_suppression_cdf_by_fire_and_time(
 		cdf[c, :] = fires_fought
 	end
 
-	@info "after populate" cdf
+	@debug "after populate" cdf
 
 	for col in eachcol(cdf)
 		sort!(col)
 	end
 
-	@info "after sort" cdf
+	@debug "after sort" cdf
 
 	cdf = cumsum(1 .- cdf, dims = 1)
 
@@ -123,7 +123,7 @@ function enumerate_minimal_cuts(crew_allots, fire_allots)
 	for i in product(allotment_option_ixs...)
 		loop_count += 1
 		if loop_count >= 1000
-			@info "Broke cover enumeration early" loop_count
+			@debug "Broke cover enumeration early" loop_count
 			break
 		end
 		allot = 0

@@ -463,7 +463,7 @@ function double_column_generation!(
 
 	while (continue_iterating & (iteration < 200))
 		if iteration == 199
-			@info "iteration limit hit" iteration
+			@debug "iteration limit hit" iteration
 		end
 
 		iteration += 1
@@ -653,7 +653,7 @@ function double_column_generation!(
 			   (termination_status(rmp.model) == MOI.INFEASIBLE_OR_UNBOUNDED)
 
 				# log this
-				@info "RMP is infeasible, using dual certificate to get dual values" iteration fire_duals crew_duals linking_duals cut_duals dual_status(
+				@debug "RMP is infeasible, using dual certificate to get dual values" iteration fire_duals crew_duals linking_duals cut_duals dual_status(
 					rmp.model,
 				)
 
@@ -695,7 +695,7 @@ function double_column_generation!(
 				ub = objective_value(rmp.model)
 				lb = ub + reduced_cost_sum
 				if lb > upper_bound
-					@info "prune by bound" lb upper_bound iteration
+					@debug "prune by bound" lb upper_bound iteration
 					continue_iterating = false
 					rmp.termination_status = MOI.OBJECTIVE_LIMIT
 				end
@@ -704,7 +704,7 @@ function double_column_generation!(
 			# if no new column added, we have proof of optimality
 		else
 			rmp.termination_status = MOI.LOCALLY_SOLVED
-			@info "RMP stats with no more columns found" iteration objective_value(
+			@debug "RMP stats with no more columns found" iteration objective_value(
 				rmp.model,
 			)
 			fire_allots, crew_allots = get_fire_and_crew_incumbent_weighted_average(

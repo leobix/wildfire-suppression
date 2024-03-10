@@ -140,12 +140,6 @@ function enumerate_minimal_cuts(crew_allots, fire_allots)
 		if (cost < 1 - 0.02) & (allot > available_for_fires) &
 		   (allot - min_allot <= available_for_fires)
 			cut_allotments = [fire_allots[j][i[j]][1] for j in eachindex(i)]
-			@debug "cut found" i,
-			available_for_fires,
-			allot,
-			min_allot,
-			cost,
-			cut_allotments
 			push!(
 				all_cuts,
 				(available_for_fires, cost, cut_allotments, inactive_crews),
@@ -280,7 +274,6 @@ function find_knapsack_cuts(
 	# get the current fire suppression relaxed solution
 	fire_alloc, _ =
 		get_fire_and_crew_incumbent_weighted_average(rmp, crew_routes, fire_plans)
-	@debug fire_alloc
 
 	# intitialize output 
 	knapsack_gub_cuts = []
@@ -316,7 +309,6 @@ function find_knapsack_cuts(
 			unused_crews = cut[4]
 			adjusted_cut =
 				adjust_cut_fire_allotment(orig_fire_allots, fire_alloc[:, t], cut[1])
-			@debug cut, adjusted_cut
 			fire_allot_dict = Dict(
 				ix => adjusted_cut[ix] for
 				ix in eachindex(orig_fire_allots) if orig_fire_allots[ix] > 0
@@ -330,7 +322,6 @@ function find_knapsack_cuts(
 			push!(knapsack_gub_cuts, gub_cut)
 		end
 	end
-	@debug "usage info" all_fire_allots all_crew_allots
 
 	return knapsack_gub_cuts
 end
@@ -494,7 +485,6 @@ function push_cut_to_rmp!!(
 		push!(lhs, cut_crew_mp_lookup[ix] * rmp.routes[ix])
 	end
 
-	@debug "pushing cut info" cut cut_crew_mp_lookup cut_fire_mp_lookup
 	# update data structures
 	rmp.gub_cover_cuts[cut_time, ix] = @constraint(rmp.model, -sum(lhs) >= -cut_rhs)
 	cut_data.cut_dict[(cut_time, ix)] = cut
@@ -524,7 +514,6 @@ function find_and_incorporate_knapsack_gub_cuts!!(gub_cut_data::GUBCoverCutData,
 		## for now let's do one round of minimal cuts but could do all of them or tune based on change in objective
 
 		keep_iterating = false
-		@debug "Adding knapsack cuts" length(knapsack_cuts)
 
 		# if length(knapsack_cuts) == 0
 		#     keep_iterating = false
@@ -541,9 +530,6 @@ function find_and_incorporate_knapsack_gub_cuts!!(gub_cut_data::GUBCoverCutData,
 		end
 
 		optimize!(rmp.model)
-		@debug "Objective directly after adding cuts and reoptimizing" objective_value(
-			rmp.model,
-		)
 	end
 
 	for fire ∈ 1:num_fires

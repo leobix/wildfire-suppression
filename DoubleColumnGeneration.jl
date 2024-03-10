@@ -66,8 +66,6 @@ function define_restricted_master_problem(
 		0 >= 0
 	)
 
-	@debug "cut mp lookups" cut_data.fire_mp_lookup cut_data.crew_mp_lookup gub_cover_cuts
-
 	# set cut RHS (negating because of >= convention)
 	for ix in keys(cut_data.cut_dict)
 		set_normalized_rhs(gub_cover_cuts[ix], -cut_data.cut_dict[ix].rhs)
@@ -99,7 +97,6 @@ function define_restricted_master_problem(
 		end
 	end
 
-	@debug "incorporated cuts" gub_cover_cuts
 
 	# container for fire allotment branching rules
 	@constraint(
@@ -130,8 +127,6 @@ function define_restricted_master_problem(
 		end
 
 	end
-
-	@debug "rmp" fire_allotment_branches
 
 	# linking constraint
 	if isnothing(dual_warm_start)
@@ -460,8 +455,6 @@ function double_column_generation!(
 		global_fire_allot_duals = dual.(rmp.fire_allotment_branches)
 	end
 
-	@debug "initial dual values DCG" fire_duals crew_duals linking_duals cut_duals global_fire_allot_duals
-
 	ub = copy(upper_bound)
 
 	# initialize column generation loop
@@ -492,8 +485,7 @@ function double_column_generation!(
 			linking_duals,
 			crew_branching_rules,
 		)
-		# @info "crew prohibited_arcs" length(subproblem.long_arcs[prohibited_arcs, :])
-		# @debug "crew prohibited_arcs" subproblem.long_arcs[prohibited_arcs, :]
+
 		arc_costs = rel_costs .+ subproblem.arc_costs
 
 		# for each crew
@@ -535,23 +527,12 @@ function double_column_generation!(
 				# get the real cost, unadjusted for duals
 				cost = sum(subproblem.arc_costs[arcs_used])
 
-				@debug "Crew arc costs" crew subproblem.arc_costs[[
-					100,
-					200,
-					300,
-					400,
-					500,
-					600,
-				]]
-
 				# get the indicator matrix of fires fought at each time
 				fires_fought = get_fires_fought(
 					subproblem.wide_arcs,
 					arcs_used,
 					(num_fires, num_time_periods),
 				)
-
-				@debug "crew_found" crew objective cost fires_fought
 
 				# add the route to the routes
 				new_route_ix =
@@ -581,8 +562,6 @@ function double_column_generation!(
 				[rule for rule ∈ fire_branching_rules if rule.fire_ix == fire],
 			)
 
-			# @info "fire prohibited_arcs" length(subproblem.long_arcs[prohibited_arcs, :])
-			# @debug "fire prohibited_arcs" subproblem.long_arcs[prohibited_arcs, :]
 			arc_costs = rel_costs .+ subproblem.arc_costs
 
 			# adjust the arc costs for the cuts
@@ -629,23 +608,12 @@ function double_column_generation!(
 				# get the real cost, unadjusted for duals
 				cost = sum(subproblem.arc_costs[arcs_used])
 
-				@debug "Fire arc costs" fire subproblem.arc_costs[[
-					100,
-					200,
-					300,
-					400,
-					500,
-					600,
-				]]
-
 				# get the vector of crew demands at each time
 				crew_demands = get_crew_demands(
 					subproblem.wide_arcs,
 					arcs_used,
 					num_time_periods,
 				)
-
-				@debug "fire_found" fire objective cost crew_demands
 
 				# add the plan to the plans
 				new_plan_ix =
@@ -669,13 +637,9 @@ function double_column_generation!(
 
 			# TODO dual warm start passed in here
 			optimize!(rmp.model)
-			@debug "rho_gt" iteration dual.(rmp.supply_demand_linking)
 
 			## TODO FIX THIS LOGIC AND INFEASIBLE LOGIC
 			rmp.termination_status = MOI.ITERATION_LIMIT
-			@debug "after iteration" objective_value(rmp.model) length(
-				cut_data.cut_dict,
-			)
 
 			# grab dual values (or farkas vector if infeasible)
 			fire_duals = dual.(rmp.plan_per_fire)
@@ -703,17 +667,17 @@ function double_column_generation!(
 					dual_costs +=
 						(normalized_rhs(rmp.plan_per_fire[ix]) * fire_duals[ix])
 				end
-				@debug "dual costs" dual_costs
+
 				for ix in eachindex(crew_duals)
 					dual_costs +=
 						(normalized_rhs(rmp.route_per_crew[ix]) * crew_duals[ix])
 				end
-				@debug "dual costs" dual_costs
+
 				for ix in eachindex(cut_duals)
 					dual_costs +=
 						(normalized_rhs(rmp.gub_cover_cuts[ix]) * cut_duals[ix])
 				end
-				@debug "dual costs" dual_costs
+
 				for ix in eachindex(global_fire_allot_duals)
 					dual_costs +=
 						(
@@ -723,7 +687,6 @@ function double_column_generation!(
 				end
 
 				scale = upper_bound / dual_costs
-				@debug "scale" scale
 				fire_duals = fire_duals .* scale
 				crew_duals = crew_duals .* scale
 				linking_duals = linking_duals .* scale
@@ -731,7 +694,6 @@ function double_column_generation!(
 			else
 				ub = objective_value(rmp.model)
 				lb = ub + reduced_cost_sum
-				@debug "progress" lb ub iteration
 				if lb > upper_bound
 					@info "prune by bound" lb upper_bound iteration
 					continue_iterating = false
@@ -739,32 +701,18 @@ function double_column_generation!(
 				end
 			end
 
-			@debug "dual values" iteration fire_duals crew_duals linking_duals cut_duals global_fire_allot_duals
-
 			# if no new column added, we have proof of optimality
 		else
 			rmp.termination_status = MOI.LOCALLY_SOLVED
 			@info "RMP stats with no more columns found" iteration objective_value(
 				rmp.model,
 			)
-			@debug "final dual values" fire_duals crew_duals linking_duals cut_duals
 			fire_allots, crew_allots = get_fire_and_crew_incumbent_weighted_average(
 				rmp,
 				crew_routes,
 				fire_plans,
 			)
-			@debug "used fire plans" [
-				(ix, value(rmp.plans[ix]), fire_plans.crews_present[ix..., :]) for
-				ix in eachindex(rmp.plans) if value(rmp.plans[ix]) > 0
-			]
-			@debug "used crew routes" [
-				(ix, value(rmp.routes[ix])) for
-				ix in eachindex(rmp.routes) if value(rmp.routes[ix]) > 0
-			]
-			@debug "weighted allots" fire_allots
 		end
 	end
-	@debug "DCG end status:" rmp.termination_status iteration
-
 end
 

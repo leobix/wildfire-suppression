@@ -84,16 +84,8 @@ function max_variance_natural_variable(
 			plan_values[ix] * fire_plans.crews_present[fire, plan, :]
 		fire_sq_means[fire, :] +=
 			plan_values[ix] * (fire_plans.crews_present[fire, plan, :] .^ 2)
-		if plan_values[ix] > 0.0001
-			@debug "used plan" ix plan_values[ix] fire_plans.crews_present[
-				fire,
-				plan,
-				:,
-			]
-		end
 	end
 	fire_variances = fire_sq_means - (fire_means .^ 2)
-	@debug "Means" fire_means # crew_means
 	@info "Variances" fire_variances # crew_variances
 	# get the max variance for each natural variable type
 	crew_max_var, crew_max_ix = findmax(crew_variances)
@@ -188,10 +180,6 @@ function price_and_cut!!(
 	fire_plans::FirePlanData;
 	upper_bound::Float64=1e20)
 
-	@debug "at price and cut start" length(rmp.plans[1, :]) length(rmp.plans[2, :]) length(
-		rmp.plans[3, :],
-	)
-
 	loop_ix = 1
 	loop_max = 10
 	while loop_ix < loop_max
@@ -212,7 +200,6 @@ function price_and_cut!!(
 			@info "no more cuts needed"
 			break
 		end
-		@debug "objective after cg" objective_value(rmp.model)
 		# add cuts
 		num_cuts = find_and_incorporate_knapsack_gub_cuts!!(
 			cut_data,
@@ -256,7 +243,6 @@ function price_and_cut!!(
 	]) dual.(rmp.supply_demand_linking) dual.(rmp.gub_cover_cuts) cut_data.cut_dict dual.(
 		rmp.fire_allotment_branches
 	) rmp.fire_allotment_branches
-	@debug "reduced_costs" reduced_cost.(rmp.plans) reduced_cost.(rmp.routes)
 
 end
 
@@ -350,11 +336,6 @@ function find_integer_solution(
 
 	used_route_keys = route_keys[used_route_ixs]
 	unused_route_keys = [i for i in route_keys if i ∉ used_route_keys]
-
-	@debug "allowed columns for restore_integrality" length(used_plan_keys) length(
-		used_route_keys,
-	) maximum(plan_values[used_plan_ixs]) maximum(route_values[used_route_ixs])
-
 
 	# fix unused variables to 0, set binary variables
 	for i ∈ unused_route_keys
@@ -565,7 +546,6 @@ function explore_node!!(
 			[[i[1] for i in eachindex(parent_rmp.routes[j, :])] for j ∈ 1:num_crews]
 		fire_ixs =
 			[[i[1] for i in eachindex(parent_rmp.plans[j, :])] for j ∈ 1:num_fires]
-		@debug "avaliable columns before cull" crew_ixs fire_ixs
 		for rule in branch_and_bound_node.new_crew_branching_rules
 			crew_ixs = apply_branching_rule(crew_ixs, crew_routes, rule)
 		end
@@ -604,7 +584,6 @@ function explore_node!!(
 		cur_node = cur_node.parent
 
 	end
-	@debug "all branching rules found to pass to DCG" crew_rules fire_rules global_fire_allotment_branching_rules
 
 	# define the restricted master problem
 	## TODO how do we handle existing cuts
@@ -681,18 +660,6 @@ function explore_node!!(
 			@info "after restoring integrality" t obj obj_bound
 		end
 	end
-
-	
-
-	@debug "used fire plans" [
-		(ix, value(rmp.plans[ix]), fire_plans.crews_present[ix..., :]) for
-		ix in eachindex(rmp.plans) if value(rmp.plans[ix]) > 0
-	]
-	@debug "used crew routes" [
-		(ix, value(rmp.routes[ix])) for
-		ix in eachindex(rmp.routes) if value(rmp.routes[ix]) > 0
-	]
-
 
 	# if we cannot prune
 	if (branch_and_bound_node.u_bound - branch_and_bound_node.l_bound > rel_tol) &

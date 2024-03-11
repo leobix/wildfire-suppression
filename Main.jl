@@ -53,6 +53,7 @@ function branch_and_price(
 )
 	start_time = time()
 
+	@info "Initializing data structures"
 	# initialize input data
 	crew_routes, fire_plans, crew_models, fire_models, cut_data =
 		initialize_data_structures(num_fires, num_crews, num_time_periods)
@@ -136,7 +137,7 @@ function branch_and_price(
 		(@info "Time check" time() - start_time) :
 		nothing
 
-		if node_ix > 7
+		if node_ix > 15
 			println("halted early.")
 			# for g in 1:num_fires
 			#     num_plans = fire_plans.plans_per_fire[g]
@@ -181,9 +182,9 @@ end
 # precompile
 branch_and_price(3, 10, 14, algo_tracking=false)
 
-Profile.init()
-@profile branch_and_price(3, 10, 14, algo_tracking=true)
-io2 = open("prof.txt", "w")
-Profile.print(io2, mincount=50)
-close(io)
-close(io2)
+# Profile.init()
+# @profile branch_and_price(6, 20, 14, algo_tracking=true)
+# io2 = open("prof.txt", "w")
+# Profile.print(io2, mincount=1000)
+# close(io)
+# close(io2)

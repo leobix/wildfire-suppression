@@ -334,9 +334,6 @@ function incorporate_gub_cover_cuts_into_fire_subproblem!(
 	submodel,
 )
 
-	TIME_FROM_ = 3
-	CREWS_PRESENT_ = 6
-
 	# for each cut ix
 	for ix in eachindex(cuts)
 
@@ -354,11 +351,11 @@ function incorporate_gub_cover_cuts_into_fire_subproblem!(
 				for i in 1:length(submodel.arc_costs)
 
 					# if it considers the given time
-					if submodel.long_arcs[i, TIME_FROM_] == cut.time_ix
+					if submodel.long_arcs[i, FM.TIME_FROM] == cut.time_ix
 
 						# find the excess allotment 
 						exceeds_cut_allotment_by =
-							submodel.long_arcs[i, CREWS_PRESENT_] -
+							submodel.long_arcs[i, FM.CREWS_PRESENT] -
 							cut.fire_lower_bounds[fire][1]
 
 						# if this arc meets the allotment

@@ -252,22 +252,20 @@ function get_adjusted_fire_arc_costs(
 	linking_duals,
 	branching_rules,
 )
-	TIME_FROM_ = 3
-	CREWS_PRESENT_ = 6
 
 	# no cost for starting arc
 	duals = vcat(0.0, linking_duals)
 
 	# + 1 is because we appended the 0
-	rel_costs = duals[long_arcs[:, TIME_FROM_].+1] .* long_arcs[:, CREWS_PRESENT_]
+	rel_costs = duals[long_arcs[:, FM.TIME_FROM].+1] .* long_arcs[:, FM.CREWS_PRESENT]
 
 	# get disallowed arcs due to branching rules
 	# TODO refactor to track this info in B-and-B tree, check each rule just once
 	prohibited_arcs = falses(size(long_arcs)[1])
 	for rule ∈ branching_rules
 		for arc ∈ 1:size(long_arcs)[1]
-			if long_arcs[arc, TIME_FROM_] == rule.time_ix
-				if ~satisfies_branching_rule(rule, long_arcs[arc, CREWS_PRESENT_])
+			if long_arcs[arc, FM.TIME_FROM] == rule.time_ix
+				if ~satisfies_branching_rule(rule, long_arcs[arc, FM.CREWS_PRESENT])
 					prohibited_arcs[arc] = true
 				end
 			end
@@ -287,11 +285,8 @@ function fire_dp_inner_loop(
 	min_index::Int64,
 )
 
-	TIME_FROM_ = 3
-	STATE_FROM_ = 2
-
 	# get the time from which this arc comes
-	time_from = arc[TIME_FROM_]
+	time_from = arc[FM.TIME_FROM]
 
 	# arcs from time 0 have no past state cost
 	past_state_cost = 0
@@ -300,8 +295,8 @@ function fire_dp_inner_loop(
 	if time_from >= 1
 
 		# get the info of where the arc came from
-		state_from = arc[STATE_FROM_]
-		time_from = arc[TIME_FROM_]
+		state_from = arc[FM.STATE_FROM]
+		time_from = arc[FM.TIME_FROM]
 
 		# get the min cost path to the prior state
 		past_state_cost = path_costs[state_from, time_from]
@@ -321,9 +316,6 @@ function fire_dp_subproblem(arcs::Matrix{Int64},
 	arc_costs::Vector{Float64},
 	prohibited_arcs::BitVector,
 	state_in_arcs::Matrix{Vector{Int64}})
-
-	TIME_FROM_ = 3
-	STATE_FROM_ = 2
 
 	path_costs = zeros(Float64, size(state_in_arcs)) .+ 1e30
 	in_arcs = zeros(Int, size(state_in_arcs))
@@ -373,8 +365,8 @@ function fire_dp_subproblem(arcs::Matrix{Int64},
 			arc_ix = in_arcs[current_state...]
 			push!(arcs_used, arc_ix)
 			arc = @view arcs[:, arc_ix]
-			state_from = arc[STATE_FROM_]
-			time_from = arc[TIME_FROM_]
+			state_from = arc[FM.STATE_FROM]
+			time_from = arc[FM.TIME_FROM]
 			current_state = (state_from, time_from)
 		end
 		return lowest_cost, arcs_used
@@ -388,7 +380,7 @@ function get_crew_demands(
 	num_time_periods,
 )
 
-	CREWS_PRESENT_ = 6
-	return reverse(wide_arcs[CREWS_PRESENT_, arcs_used][1:num_time_periods])
+	FM.CREWS_PRESENT = 6
+	return reverse(wide_arcs[FM.CREWS_PRESENT, arcs_used][1:num_time_periods])
 
 end

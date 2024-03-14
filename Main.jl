@@ -50,6 +50,11 @@ function branch_and_price(
 	num_crews::Int,
 	num_time_periods::Int;
 	algo_tracking = false,
+	soft_heuristic_time_limit=60.0,
+	hard_heuristic_iteration_limit=10,
+	heuristic_must_improve_rounds=2,
+	heuristic_cadence=10,
+	total_time_limit=600.0
 )
 	start_time = time()
 
@@ -73,15 +78,34 @@ function branch_and_price(
 	push!(nodes, first_node)
 
 	# initialize global variables to track in branch-and-bound tree
-	node_ix = 1
 	ub = Inf
 	ub_ix::Int = -1
 
 	## breadth-first search for now, can get smarter/add options
 
-	# while there are more nodes to explore
-	while node_ix <= size(nodes)[1]
+	unexplored = [i for i in eachindex(nodes) if isnothing(nodes[i].master_problem)]
+	node_lbs = []
+	for i in unexplored
+		if (~isnothing(nodes[i].parent))
+			push!(node_lbs, nodes[i].parent.l_bound)
+		else
+			@warn "Node with no parent" i
+			push!(node_lbs, -Inf)
+		end
+	end
 
+	node_explored_count = 0
+	# while there are more nodes to explore
+	while length(unexplored) > 0
+
+		node_explored_count += 1
+
+		### breadth first ###
+		# node_ix = unexplored[1]
+
+		### raise lb ###
+		node_ix = unexplored[findmin(node_lbs)[2]]
+		
 		# explore the next node
 		explore_node!!(
 			nodes[node_ix],
@@ -96,16 +120,30 @@ function branch_and_price(
 			restore_integrality = false,
 		)
 
-		if node_ix == 1
+		if time() - start_time > total_time_limit
+			@info "Full time limit reached"
+			break
+		end
+
+		if node_explored_count % heuristic_cadence == 1
 			heuristic_ub, ub_rmp = heuristic_upper_bound!!(
 				crew_routes,
 				fire_plans,
 				nodes[node_ix],
-				5,
+				hard_heuristic_iteration_limit,
+				soft_heuristic_time_limit,
+				heuristic_must_improve_rounds,
 				crew_models,
 				fire_models,
 				GRB_ENV,
 			)
+
+			if time() - start_time > total_time_limit
+				@info "Full time limit reached"
+				break
+			end
+
+			nodes[node_ix].heuristic_found_master_problem = ub_rmp
 
 			if heuristic_ub < nodes[node_ix].u_bound
 				nodes[node_ix].u_bound = heuristic_ub
@@ -114,6 +152,7 @@ function branch_and_price(
 
 		# if this node has an integer solution, check if we have found 
 		# a better solution than the incumbent
+		# TODO keep track if it comes from heurisitc or no
 		if nodes[node_ix].u_bound < ub
 			ub = nodes[node_ix].u_bound
 			ub_ix = node_ix
@@ -128,8 +167,7 @@ function branch_and_price(
 		@info "current bounds" node_ix lb ub
 
 		# go to the next node
-		node_ix += 1
-		@info "number of nodes" node_ix length(nodes)
+		@info "number of nodes" node_explored_count length(nodes)
 		@info "columns" sum(crew_routes.routes_per_crew) sum(
 			fire_plans.plans_per_fire,
 		)
@@ -137,7 +175,7 @@ function branch_and_price(
 		(@info "Time check" time() - start_time) :
 		nothing
 
-		if node_ix > 15
+		if node_explored_count > 200
 			println("halted early.")
 			# for g in 1:num_fires
 			#     num_plans = fire_plans.plans_per_fire[g]
@@ -155,6 +193,17 @@ function branch_and_price(
 			#     @assert allunique(routes)
 			# end
 			return
+		end
+
+		unexplored = [i for i in eachindex(nodes) if isnothing(nodes[i].master_problem)]
+		node_lbs = []
+		for i in unexplored
+			if (~isnothing(nodes[i].parent))
+				push!(node_lbs, nodes[i].parent.l_bound)
+			else
+				@warn "Node with no parent" i
+				push!(node_lbs, -Inf)
+			end
 		end
 	end
 
@@ -181,6 +230,7 @@ end
 
 # precompile
 branch_and_price(3, 10, 14, algo_tracking=false)
+# branch_and_price(6, 20, 14, algo_tracking=true)
 
 # Profile.init()
 # @profile branch_and_price(6, 20, 14, algo_tracking=true)

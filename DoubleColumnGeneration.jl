@@ -701,7 +701,7 @@ function double_column_generation!(
 				end
 			end
 
-			# if no new column added, we have proof of optimality
+		# if no new column added, we have proof of optimality
 		else
 			rmp.termination_status = MOI.LOCALLY_SOLVED
 			@debug "RMP stats with no more columns found" iteration objective_value(

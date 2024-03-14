@@ -19,6 +19,7 @@ mutable struct BranchAndBoundNode
 	l_bound::Float64
 	u_bound::Float64
 	master_problem::Union{Nothing, RestrictedMasterProblem}
+	heuristic_found_master_problem::Union{Nothing, RestrictedMasterProblem}
 	feasible::Union{Nothing, Bool}
 end
 
@@ -36,6 +37,7 @@ function BranchAndBoundNode(
 	l_bound::Float64 = -Inf,
 	u_bound::Float64 = Inf,
 	master_problem::Union{Nothing, RestrictedMasterProblem} = nothing,
+	heuristic_found_master_problem::Union{Nothing, RestrictedMasterProblem} = nothing,
 	feasible::Union{Nothing, Bool} = nothing)
 
 	return BranchAndBoundNode(
@@ -49,6 +51,7 @@ function BranchAndBoundNode(
 		l_bound,
 		u_bound,
 		master_problem,
+		heuristic_found_master_problem,
 		feasible,
 	)
 end
@@ -178,7 +181,7 @@ function price_and_cut!!(
 	global_fire_allotment_rules::Vector{GlobalFireAllotmentBranchingRule},
 	crew_routes::CrewRouteData,
 	fire_plans::FirePlanData;
-	upper_bound::Float64=1e20)
+	upper_bound::Float64 = 1e20)
 
 	loop_ix = 1
 	loop_max = 10
@@ -194,7 +197,7 @@ function price_and_cut!!(
 			crew_routes,
 			fire_plans,
 			cut_data,
-			upper_bound = upper_bound
+			upper_bound = upper_bound,
 		)
 		if rmp.termination_status == MOI.OBJECTIVE_LIMIT
 			@debug "no more cuts needed"
@@ -232,11 +235,11 @@ function price_and_cut!!(
 			crew_routes,
 			fire_plans,
 			cut_data,
-			upper_bound = upper_bound
+			upper_bound = upper_bound,
 		)
 	end
 
-	@info "After price-and-cut" objective_value(rmp.model) 
+	@info "After price-and-cut" objective_value(rmp.model)
 	@debug "Afer price-and-cut" length(eachindex(rmp.routes)) length(
 		eachindex(rmp.plans),
 	) length([i for i in eachindex(rmp.plans) if reduced_cost(rmp.plans[i]) < 1e-2]) length([
@@ -252,7 +255,9 @@ function find_integer_solution(
 	upper_bound::Float64,
 	fire_column_limit::Int64,
 	crew_column_limit::Int64,
-	time_limit::Float64,
+	time_limit::Float64;
+	warm_start_routes = nothing,
+	warm_start_plans = nothing,
 )
 	# get reduced costs
 	rc_plans = reduced_cost.(solved_rmp.plans)
@@ -292,12 +297,12 @@ function find_integer_solution(
 	max_plan_rc = plan_values[sorted_plan_ixs[fire_column_limit]]
 
 	# if this reduced cost is too high for the upper bound
-	if lp_objective + max_plan_rc > upper_bound
+	if lp_objective + max_plan_rc > upper_bound + 1e-5
 
 		# delete elements of used_plan_ixs
 		to_delete = Int64[]
 		for (i, ix) in enumerate(used_plan_ixs)
-			if lp_objective + plan_values[ix] > upper_bound
+			if lp_objective + plan_values[ix] > upper_bound + 1e-5
 				push!(to_delete, i)
 			end
 		end
@@ -321,12 +326,12 @@ function find_integer_solution(
 	max_route_rc = route_values[sorted_route_ixs[crew_column_limit]]
 
 	# if this reduced cost is too high for the upper bound
-	if lp_objective + max_plan_rc > upper_bound
+	if lp_objective + max_route_rc > upper_bound + 1e-5
 
-		# delete elements of used_plan_ixs
+		# delete elements of used_route_ixs
 		to_delete = Int64[]
 		for (i, ix) in enumerate(used_route_ixs)
-			if lp_objective + route_values[ix] > upper_bound
+			if lp_objective + route_values[ix] > upper_bound + 1e-5
 				push!(to_delete, i)
 			end
 		end
@@ -340,9 +345,16 @@ function find_integer_solution(
 
 	# fix unused variables to 0, set binary variables
 	for i ∈ unused_route_keys
+		if ~isnothing(warm_start_routes) && (i ∈ eachindex(warm_start_routes)) &&
+		   (warm_start_routes[i] > 0.99)
+			@warn "Route pruned by reduced cost bound but part of warm start solution, should not happen if warm start solution is best UB"
+		end
 		fix(solved_rmp.routes[i], 0, force = true)
 	end
 	for i ∈ unused_plan_keys
+		if ~isnothing(warm_start_plans) && (i ∈ eachindex(warm_start_plans)) && (warm_start_plans[i] > 0.99)
+			@warn "Plan pruned by reduced cost bound but part of warm start solution, should not happen if warm start solution is best UB"
+		end
 		fix(solved_rmp.plans[i], 0, force = true)
 	end
 	for i ∈ used_route_keys
@@ -352,8 +364,35 @@ function find_integer_solution(
 		set_binary(solved_rmp.plans[i])
 	end
 
-	# set time TimeLimit
+	if ~isnothing(warm_start_plans)
+		@info "pushing solution to IP"
+		plans_ws = 0
+		for i ∈ eachindex(solved_rmp.plans)
+			if (i ∈ eachindex(warm_start_plans)) && (warm_start_plans[i] > 0.99)
+				plans_ws += 1
+				set_start_value(solved_rmp.plans[i], 1)
+			else
+				set_start_value(solved_rmp.plans[i], 0)
+			end
+		end
+		@debug "ws_plans" plans_ws
+		routes_ws = 0
+		for i ∈ eachindex(solved_rmp.routes)
+			if (i ∈ eachindex(warm_start_routes)) && (warm_start_routes[i] > 0.99)
+				routes_ws += 1
+				set_start_value(solved_rmp.routes[i], 1)
+			else
+				set_start_value(solved_rmp.routes[i], 0)
+			end
+		end
+		@debug "ws_routes" routes_ws
+
+	end
+
+	# set time TimeLimit and MIPFocus
 	set_optimizer_attribute(solved_rmp.model, "TimeLimit", time_limit)
+	set_optimizer_attribute(solved_rmp.model, "InfProofCuts", 0)
+	set_optimizer_attribute(solved_rmp.model, "OutputFlag", 1)
 
 	# solve
 	optimize!(solved_rmp.model)
@@ -362,10 +401,10 @@ function find_integer_solution(
 	obj = Inf
 	routes_used = nothing
 	plans_used = nothing
-	if is_solved_and_feasible(solved_rmp.model)
+	if result_count(solved_rmp.model) >= 1
 		obj = objective_value(solved_rmp.model)
-		routes_used = value.(solved_rmp.routes)
-		plans_used = value.(solved_rmp.plans)
+		routes_used = Int.(round.(value.(solved_rmp.routes)))
+		plans_used = Int.(round.(value.(solved_rmp.plans)))
 	end
 	obj_bound = objective_bound(solved_rmp.model)
 
@@ -379,24 +418,32 @@ function heuristic_upper_bound!!(
 	fire_plans::FirePlanData,
 	explored_bb_node::BranchAndBoundNode,
 	num_iters::Int,
+	soft_time_limit::Float64,
+	kill_if_no_improvement_rounds::Int64,
 	crew_subproblems::Vector{TimeSpaceNetwork},
 	fire_subproblems::Vector{TimeSpaceNetwork},
-	gurobi_env
+	gurobi_env,
 )
+	start_time = time()
 	@info "Finding heuristic upper bound" explored_bb_node.ix
 
 	# gather global information
 	num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)
 
-	# initialize side data
 	cut_data = deepcopy(explored_bb_node.cut_data)
 
 	# keep all columns from explored node
 	crew_ixs =
-		[[i[1] for i in eachindex(explored_bb_node.master_problem.routes[j, :])] for j ∈ 1:num_crews]
+		[
+			[i[1] for i in eachindex(explored_bb_node.master_problem.routes[j, :])]
+			for j ∈ 1:num_crews
+		]
 	fire_ixs =
-		[[i[1] for i in eachindex(explored_bb_node.master_problem.plans[j, :])] for j ∈ 1:num_fires]
-	
+		[
+			[i[1] for i in eachindex(explored_bb_node.master_problem.plans[j, :])]
+			for j ∈ 1:num_fires
+		]
+
 	# grab any fire and crew branching rules
 	crew_rules = CrewSupplyBranchingRule[]
 	fire_rules = FireDemandBranchingRule[]
@@ -411,6 +458,9 @@ function heuristic_upper_bound!!(
 	global_rules = GlobalFireAllotmentBranchingRule[]
 	ub = Inf
 	ub_rmp = nothing
+	routes = nothing
+	plans = nothing
+	rounds_since_improvement = 0
 
 
 	fractional_weighted_average_solution, _ =
@@ -422,7 +472,17 @@ function heuristic_upper_bound!!(
 	current_allotment = Int.(ceil.(fractional_weighted_average_solution))
 
 
-	for i ∈ 1:num_iters
+	for iter ∈ 1:num_iters
+
+		cur_time = time() - start_time
+		if cur_time > soft_time_limit
+			@info "Breaking heuristic round" iter-1 cur_time soft_time_limit
+		end
+
+
+		# get rid of past cuts
+		# do we want cuts? lose guarantee of feasibility in next step because we may find a cut later 
+		# cut_data = GUBCoverCutData(num_crews, num_fires, num_time_periods)
 
 		branching_rule =
 			GlobalFireAllotmentBranchingRule(current_allotment,
@@ -455,8 +515,9 @@ function heuristic_upper_bound!!(
 			global_rules,
 		)
 
+
 		# TODO consider cut management
-		price_and_cut!!(
+		t = @elapsed price_and_cut!!(
 			rmp,
 			cut_data,
 			crew_subproblems,
@@ -467,13 +528,15 @@ function heuristic_upper_bound!!(
 			crew_routes,
 			fire_plans,
 			upper_bound = ub)
+		@info "Price and cut time (heuristic)" t
 
 		crew_ixs = [[i[1] for i in eachindex(rmp.routes[j, :])] for j ∈ 1:num_crews]
 		fire_ixs = [[i[1] for i in eachindex(rmp.plans[j, :])] for j ∈ 1:num_fires]
-	
+
 
 		lb_node =
-			rmp.termination_status == MOI.LOCALLY_SOLVED ? objective_value(rmp.model) : - Inf
+			rmp.termination_status == MOI.LOCALLY_SOLVED ?
+			objective_value(rmp.model) : -Inf
 
 		if lb_node / ub > 1 - 1e-9
 			@debug "pruning heuristic round by bound, bumping allotments"
@@ -481,16 +544,35 @@ function heuristic_upper_bound!!(
 			continue
 		end
 
-		## TODO push the solution from last iteration?
+		# TODO add global branching rule as a valid inequality to help solver find cuts
+
 		t = @elapsed obj, obj_bound, routes, plans =
-			find_integer_solution(rmp, ub, 12000, 40000, 20.0)
-		if obj < ub
+			find_integer_solution(
+				rmp,
+				ub,
+				12000,
+				40000,
+				20.0,
+				warm_start_plans = plans,
+				warm_start_routes = routes,
+			)
+		
+		rounds_since_improvement += 1
+		if obj < ub - 1e-9
 			ub = obj
 			ub_rmp = rmp
+			rounds_since_improvement = 0
+		elseif obj == Inf && ub < Inf
+			@warn "Failure of warm start solution"
+		end
+		@info "found sol" t obj obj_bound
+		if rounds_since_improvement >= kill_if_no_improvement_rounds
+			@info "Too long since improvement in heuristic, killing early" rounds_since_improvement
+			break
 		end
 
 		fire_allots, _ =
-			get_fire_and_crew_incumbent_weighted_average(rmp,
+			get_fire_and_crew_incumbent_weighted_average(ub_rmp,
 				crew_routes,
 				fire_plans,
 			)
@@ -527,7 +609,7 @@ function explore_node!!(
 	warm_start_strategy::Union{String, Nothing},
 	gurobi_env;
 	rel_tol = 1e-9,
-	restore_integrality=false)
+	restore_integrality = false)
 
 	@info "Exploring node" branch_and_bound_node.ix
 
@@ -541,16 +623,28 @@ function explore_node!!(
 		crew_ixs = [Int[] for i ∈ 1:num_crews]
 		fire_ixs = [Int[] for i ∈ 1:num_fires]
 
+
+	else
 		# if we are not at the root node, there are a lot of options here, but
 		# for now take all the columns generated by the parent RMP that satisfy 
-		# the new branching rule. Probably could improve performance by culling
-		# columns based on reduced costs or absence in basis.
-	else
+		# the new branching rule. Maybe could improve performance by culling
+		# columns based on reduced costs or absence in basis, but first try at this
+		# showed worse performance
+		cull = false
 		parent_rmp = branch_and_bound_node.parent.master_problem
-		crew_ixs =
-			[[i[1] for i in eachindex(parent_rmp.routes[j, :])] for j ∈ 1:num_crews]
-		fire_ixs =
-			[[i[1] for i in eachindex(parent_rmp.plans[j, :])] for j ∈ 1:num_fires]
+		if ~cull
+			crew_ixs =
+				[[i[1] for i in eachindex(parent_rmp.routes[j, :])] for j ∈ 1:num_crews]
+			fire_ixs =
+				[[i[1] for i in eachindex(parent_rmp.plans[j, :])] for j ∈ 1:num_fires]
+		else
+			crew_ixs =
+			[[i[1] for i in eachindex(parent_rmp.routes[j, :]) if value(parent_rmp.routes[j, i...]) > 1e-4] for j ∈ 1:num_crews]
+			fire_ixs =
+			[[i[1] for i in eachindex(parent_rmp.plans[j, :]) if value(parent_rmp.plans[j, i...])  > 1e-4] for j ∈ 1:num_fires]
+		end
+		@debug "num ix" length(fire_ixs[1])
+
 		for rule in branch_and_bound_node.new_crew_branching_rules
 			crew_ixs = apply_branching_rule(crew_ixs, crew_routes, rule)
 		end
@@ -603,7 +697,7 @@ function explore_node!!(
 		global_rules,
 	)
 
-	price_and_cut!!(
+	t = @elapsed price_and_cut!!(
 		rmp,
 		cut_data,
 		crew_subproblems,
@@ -612,8 +706,9 @@ function explore_node!!(
 		fire_rules,
 		global_rules,
 		crew_routes,
-		fire_plans, 
+		fire_plans,
 		upper_bound = current_global_upper_bound)
+	@info "Price and cut time (b-and-b)" t
 	@debug "after price and cut" objective_value(rmp.model) crew_routes.routes_per_crew fire_plans.plans_per_fire
 
 	# extract some data
@@ -660,9 +755,23 @@ function explore_node!!(
 
 		if restore_integrality
 			t = @elapsed obj, obj_bound, routes, plans =
-				find_integer_solution(rmp, current_global_upper_bound, 300, 1000, 0.5)
+				find_integer_solution(
+					rmp,
+					current_global_upper_bound,
+					300,
+					1000,
+					0.5,
+				)
 			branch_and_bound_node.u_bound = obj
 			@debug "after restoring integrality" t obj obj_bound
+		else
+			tolerance = 1e-8
+			integer =
+				all((plan_values .< tolerance) .|| (plan_values .> 1 - tolerance)) &&
+				all((route_values .< tolerance) .|| (route_values .> 1 - tolerance))
+			if integer
+				branch_and_bound_node.u_bound = branch_and_bound_node.l_bound
+			end
 		end
 	end
 
@@ -673,47 +782,6 @@ function explore_node!!(
 
 		# TODO think about branching rules
 		@debug "fire_allots" all_fire_allots fire_alloc
-		# cap = zeros(Int, num_fires, num_time_periods)
-		# for g ∈ 1:num_fires
-		# 	for t ∈ 1:num_time_periods
-		# 		l = length(all_fire_allots[g, t])
-		# 		if l > 0
-		# 			if all_fire_allots[g, t][l][2] > 0
-		# 				cap[g, t] = all_fire_allots[g, t][l][1] - 1
-		# 			else
-		# 				cap[g, t] = num_crews
-		# 			end
-		# 		else
-		# 			cap[g, t] = num_crews
-		# 		end
-		# 	end
-		# end
-
-		# left_branching_rule =
-		# 	GlobalFireAllotmentBranchingRule(Int.(ceil.(fire_alloc) .+ 2),
-		# 		false,
-		# 		fire_plans,
-		# 		fire_subproblems,
-		# 	)
-		# # TODO examine side effects of shared reference
-		# right_branching_rule = GlobalFireAllotmentBranchingRule(
-		# 	left_branching_rule.allotment_matrix,
-		# 	true,
-		# 	deepcopy(left_branching_rule.fire_sp_arc_lookup),
-		# 	deepcopy(left_branching_rule.mp_lookup),
-		# )
-
-
-		# left_child = BranchAndBoundNode(
-		# 	ix = size(all_nodes)[1] + 1,
-		# 	parent = branch_and_bound_node,
-		# 	new_global_fire_allotment_branching_rules = [left_branching_rule],
-		# )
-		# right_child = BranchAndBoundNode(
-		# 	ix = size(all_nodes)[1] + 2,
-		# 	parent = branch_and_bound_node,
-		# 	new_global_fire_allotment_branching_rules = [right_branching_rule],
-		# )
 
 		# decide the next branching rules
 		branch_type, branch_ix, var_variance, var_mean =
@@ -745,13 +813,13 @@ function explore_node!!(
 				ix = size(all_nodes)[1] + 1,
 				parent = branch_and_bound_node,
 				new_fire_branching_rules = [left_branching_rule],
-				cut_data = used_cuts
+				cut_data = used_cuts,
 			)
 			right_child = BranchAndBoundNode(
 				ix = size(all_nodes)[1] + 2,
 				parent = branch_and_bound_node,
 				new_fire_branching_rules = [right_branching_rule],
-				cut_data = used_cuts
+				cut_data = used_cuts,
 			)
 			push!(all_nodes, left_child)
 			push!(all_nodes, right_child)
@@ -771,13 +839,13 @@ function explore_node!!(
 				ix = size(all_nodes)[1] + 1,
 				parent = branch_and_bound_node,
 				new_crew_branching_rules = [left_branching_rule],
-				cut_data = used_cuts
+				cut_data = used_cuts,
 			)
 			right_child = BranchAndBoundNode(
 				ix = size(all_nodes)[1] + 2,
 				parent = branch_and_bound_node,
 				new_crew_branching_rules = [right_branching_rule],
-				cut_data = used_cuts
+				cut_data = used_cuts,
 			)
 			push!(all_nodes, left_child)
 			push!(all_nodes, right_child)

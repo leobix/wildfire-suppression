@@ -123,7 +123,7 @@ function enumerate_minimal_cuts(crew_allots, fire_allots)
 	for i in product(allotment_option_ixs...)
 		loop_count += 1
 		if loop_count >= 1000
-			@debug "Broke cover enumeration early" loop_count
+			@info "Broke cover cut enumeration early" loop_count
 			break
 		end
 		allot = 0
@@ -218,12 +218,7 @@ function extract_usages(
 				used_plans,
 			)
 		end
-		# a = get_crew_suppression_cdf_by_fire_and_time(
-		# 	crew_routes,
-		# 	t,
-		# 	used_routes,
-		# 	rmp,
-		# )
+
 		for c ∈ 1:num_crews
 			all_crew_allots[c, t] = get_gub_crew_relevant_routing_data(
 				c,

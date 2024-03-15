@@ -50,11 +50,11 @@ function branch_and_price(
 	num_crews::Int,
 	num_time_periods::Int;
 	algo_tracking = false,
-	soft_heuristic_time_limit=60.0,
+	soft_heuristic_time_limit=300.0,
 	hard_heuristic_iteration_limit=10,
 	heuristic_must_improve_rounds=2,
 	heuristic_cadence=10,
-	total_time_limit=600.0
+	total_time_limit=1200.0
 )
 	start_time = time()
 
@@ -175,7 +175,7 @@ function branch_and_price(
 		(@info "Time check" time() - start_time) :
 		nothing
 
-		if node_explored_count > 200
+		if node_explored_count > 500
 			println("halted early.")
 			# for g in 1:num_fires
 			#     num_plans = fire_plans.plans_per_fire[g]
@@ -230,7 +230,7 @@ end
 
 # precompile
 branch_and_price(3, 10, 14, algo_tracking=false)
-# branch_and_price(6, 20, 14, algo_tracking=true)
+# branch_and_price(9, 30, 14, algo_tracking=true)
 
 # Profile.init()
 # @profile branch_and_price(6, 20, 14, algo_tracking=true)

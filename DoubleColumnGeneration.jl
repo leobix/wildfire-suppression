@@ -28,7 +28,7 @@ function define_restricted_master_problem(
 	num_crews, _, num_fires, num_time_periods = size(crew_route_data.fires_fought)
 
 	# inititalze JuMP model
-	m = Model(() -> Gurobi.Optimizer(gurobi_env))
+	m = direct_model(Gurobi.Optimizer(gurobi_env))
 	set_optimizer_attribute(m, "OptimalityTol", 1e-9)
 	set_optimizer_attribute(m, "FeasibilityTol", 1e-9)
 	set_optimizer_attribute(m, "OutputFlag", 0)

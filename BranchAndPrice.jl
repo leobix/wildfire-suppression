@@ -477,6 +477,7 @@ function heuristic_upper_bound!!(
 		cur_time = time() - start_time
 		if cur_time > soft_time_limit
 			@info "Breaking heuristic round" iter-1 cur_time soft_time_limit
+			break
 		end
 
 
@@ -552,7 +553,7 @@ function heuristic_upper_bound!!(
 				ub,
 				12000,
 				40000,
-				20.0,
+				40.0,
 				warm_start_plans = plans,
 				warm_start_routes = routes,
 			)
@@ -579,18 +580,7 @@ function heuristic_upper_bound!!(
 
 		@debug "solution bounds" t lb_node ub obj obj_bound fire_allots
 
-		binding_non_zero_allotments =
-			(
-				current_allotment .==
-				Int.(round.(fire_allots))
-			)
-
-		if ~any(binding_non_zero_allotments)
-			@debug "No upper bounds are binding on the allotment, bumping all up by 1"
-			binding_non_zero_allotments = binding_non_zero_allotments .| true
-		end
-
-		current_allotment = current_allotment .+ binding_non_zero_allotments
+		current_allotment = current_allotment .+ 1
 	end
 	@info "Found heuristic upper bound" ub
 

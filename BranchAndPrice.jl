@@ -529,7 +529,7 @@ function heuristic_upper_bound!!(
 			crew_routes,
 			fire_plans,
 			upper_bound = ub)
-		@info "Price and cut time (heuristic)" t
+		@info "Price and cut time (heuristic)" t 
 
 		crew_ixs = [[i[1] for i in eachindex(rmp.routes[j, :])] for j ∈ 1:num_crews]
 		fire_ixs = [[i[1] for i in eachindex(rmp.plans[j, :])] for j ∈ 1:num_fires]

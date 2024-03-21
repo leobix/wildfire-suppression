@@ -4,6 +4,11 @@ include("GUBKnapsackCoverCuts.jl")
 
 using Gurobi, Statistics
 
+mutable struct MutGRBsvec
+    len::Cint
+    ind::Ptr{Cint}
+    val::Ptr{Cdouble}
+end
 
 mutable struct BranchAndBoundNode
 
@@ -176,6 +181,7 @@ function price_and_cut!!(
 	cut_data::GUBCoverCutData,
 	crew_subproblems::Vector{TimeSpaceNetwork},
 	fire_subproblems::Vector{TimeSpaceNetwork},
+	gub_cut_limit_per_time::Int64,
 	crew_rules::Vector{CrewSupplyBranchingRule},
 	fire_rules::Vector{FireDemandBranchingRule},
 	global_fire_allotment_rules::Vector{GlobalFireAllotmentBranchingRule},
@@ -206,6 +212,7 @@ function price_and_cut!!(
 		# add cuts
 		num_cuts = find_and_incorporate_knapsack_gub_cuts!!(
 			cut_data,
+			gub_cut_limit_per_time,
 			rmp,
 			crew_routes,
 			fire_plans,
@@ -422,6 +429,7 @@ function heuristic_upper_bound!!(
 	kill_if_no_improvement_rounds::Int64,
 	crew_subproblems::Vector{TimeSpaceNetwork},
 	fire_subproblems::Vector{TimeSpaceNetwork},
+	gub_cut_limit_per_time::Int64,
 	gurobi_env,
 )
 	start_time = time()
@@ -505,7 +513,7 @@ function heuristic_upper_bound!!(
 		end
 
 
-		@debug "entering heuristic round" branching_rule.allotment_matrix crew_ixs fire_ixs
+		@debug "entering heuristic round" branching_rule.allotment_matrix
 		rmp = define_restricted_master_problem(
 			gurobi_env,
 			crew_routes,
@@ -523,6 +531,7 @@ function heuristic_upper_bound!!(
 			cut_data,
 			crew_subproblems,
 			fire_subproblems,
+			gub_cut_limit_per_time,
 			crew_rules,
 			fire_rules,
 			global_rules,
@@ -596,6 +605,7 @@ function explore_node!!(
 	fire_plans::FirePlanData,
 	crew_subproblems::Vector{TimeSpaceNetwork},
 	fire_subproblems::Vector{TimeSpaceNetwork},
+	gub_cut_limit_per_time::Int64,
 	warm_start_strategy::Union{String, Nothing},
 	gurobi_env;
 	rel_tol = 1e-9,
@@ -646,12 +656,10 @@ function explore_node!!(
 		for rule in branch_and_bound_node.new_global_fire_allotment_branching_rules
 			if ~rule.geq_flag
 				for fire in 1:num_fires
-					@debug "fire_ixs" length(fire_ixs[fire])
 					fire_ixs[fire] = filter!(
 						x -> (fire, x) ∉ keys(rule.mp_lookup),
 						fire_ixs[fire],
 					)
-					@debug "fire_ixs" length(fire_ixs[fire])
 				end
 			end
 		end
@@ -692,6 +700,7 @@ function explore_node!!(
 		cut_data,
 		crew_subproblems,
 		fire_subproblems,
+		gub_cut_limit_per_time,
 		crew_rules,
 		fire_rules,
 		global_rules,
@@ -724,7 +733,7 @@ function explore_node!!(
 		crew_routes,
 		fire_plans,
 	)
-	@debug "usages" all_fire_allots all_crew_allots fire_alloc crew_alloc
+	@debug "usages" all_fire_allots all_crew_allots
 
 	# update the branch-and-bound node to be feasible or not
 	if rmp.termination_status == MOI.INFEASIBLE

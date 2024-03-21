@@ -88,7 +88,10 @@ function get_gub_crew_relevant_routing_data(
 	return pairs
 end
 
-function enumerate_minimal_cuts(crew_allots, fire_allots)
+function enumerate_minimal_cuts(
+	crew_allots::Vector{Vector{Tuple}}, 
+	fire_allots::Vector{Vector{Tuple}}, 
+	cut_search_limit_per_time::Int64)
 
 	all_cuts = []
 
@@ -122,8 +125,10 @@ function enumerate_minimal_cuts(crew_allots, fire_allots)
 	loop_count = 0
 	for i in product(allotment_option_ixs...)
 		loop_count += 1
-		if loop_count >= 1000
-			@info "Broke cover cut enumeration early" loop_count
+		if loop_count >= cut_search_limit_per_time
+			if loop_count > 1
+				@info "Broke cover cut enumeration early" loop_count
+			end
 			break
 		end
 		allot = 0
@@ -137,7 +142,7 @@ function enumerate_minimal_cuts(crew_allots, fire_allots)
 				min_allot = min(min_allot, cur_allot)
 			end
 		end
-		if (cost < 1 - 0.02) & (allot > available_for_fires) &
+		if (cost < 1 - 0.01) & (allot > available_for_fires) &
 		   (allot - min_allot <= available_for_fires)
 			cut_allotments = [fire_allots[j][i[j]][1] for j in eachindex(i)]
 			push!(
@@ -151,9 +156,9 @@ function enumerate_minimal_cuts(crew_allots, fire_allots)
 end
 
 function adjust_cut_fire_allotment(
-	current_allotment,
-	incumbent_weighted_average,
-	budget,
+	current_allotment::Vector{Int64},
+	incumbent_weighted_average::Vector{Float64},
+	budget::Int64,
 )
 
 	adjusted_allotment = copy(current_allotment)
@@ -238,6 +243,7 @@ function find_knapsack_cuts(
 	crew_routes::CrewRouteData,
 	fire_plans::FirePlanData,
 	rmp::RestrictedMasterProblem,
+	cut_search_limit_per_time::Int64
 )
 
 	# get problem dimensions
@@ -297,7 +303,7 @@ function find_knapsack_cuts(
 		end
 
 		minimal_cuts =
-			enumerate_minimal_cuts(all_crew_allots[:, t], all_fire_allots[:, t])
+			enumerate_minimal_cuts(all_crew_allots[:, t], all_fire_allots[:, t], cut_search_limit_per_time)
 
 		for cut in minimal_cuts
 			orig_fire_allots = cut[3]
@@ -485,7 +491,9 @@ function push_cut_to_rmp!!(
 	cut_data.fire_mp_lookup[(cut_time, ix)] = cut_fire_mp_lookup
 end
 
-function find_and_incorporate_knapsack_gub_cuts!!(gub_cut_data::GUBCoverCutData,
+function find_and_incorporate_knapsack_gub_cuts!!(
+	gub_cut_data::GUBCoverCutData,
+	cut_search_limit_per_time::Int64,
 	rmp::RestrictedMasterProblem,
 	crew_routes::CrewRouteData,
 	fire_plans::FirePlanData,
@@ -497,7 +505,7 @@ function find_and_incorporate_knapsack_gub_cuts!!(gub_cut_data::GUBCoverCutData,
 	num_cuts_found = 0
 	keep_iterating = true
 	while keep_iterating
-		knapsack_cuts = find_knapsack_cuts(crew_routes, fire_plans, rmp)
+		knapsack_cuts = find_knapsack_cuts(crew_routes, fire_plans, rmp, cut_search_limit_per_time)
 		num_cuts_found += length(knapsack_cuts)
 
 		## lots of choices for how many times to introduce cuts and re-optimize

@@ -398,7 +398,6 @@ function find_integer_solution(
 
 	# set time TimeLimit and MIPFocus
 	set_optimizer_attribute(solved_rmp.model, "TimeLimit", time_limit)
-	set_optimizer_attribute(solved_rmp.model, "InfProofCuts", 0)
 	set_optimizer_attribute(solved_rmp.model, "OutputFlag", 1)
 
 	# solve
@@ -560,8 +559,8 @@ function heuristic_upper_bound!!(
 			find_integer_solution(
 				rmp,
 				ub,
-				12000,
-				40000,
+				120000,
+				400000,
 				40.0,
 				warm_start_plans = plans,
 				warm_start_routes = routes,

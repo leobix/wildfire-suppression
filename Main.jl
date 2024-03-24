@@ -236,49 +236,50 @@ end
 branch_and_price(3, 10, 14, algo_tracking = false)
 close(io)
 
-sizes = [(3, 10, 14)]
+# # sizes = [(3, 10, 14), (6, 20, 14)]
 # sizes = [(3, 10, 14), (6, 20, 14), (9, 30, 14), (12, 40, 14), (15, 50, 14)]
-cut_limits = [10000, 0]
-heuristic_time_limits = [300.0, 0.0]
-out_dir = "data/experiment_outputs/20240321/"
+# cut_limits = [10000, 0]
+# heuristic_time_limits = [300.0, 0.0]
+# out_dir = "data/experiment_outputs/20240321/"
 
-for (problem_size, cut_limit, heuristic_time_limit) ∈ product(sizes, cut_limits, heuristic_time_limits)
+# for (problem_size, cut_limit, heuristic_time_limit) ∈ product(sizes, cut_limits, heuristic_time_limits)
 
-	(g, c, t) = problem_size
-	heuristic_enabled = heuristic_time_limit > 0.0
-	file_name = string(c) * "_" * string(cut_limit) * "_heuristic_" * string(heuristic_enabled)
-	local io = open(out_dir * "logs_" * file_name * ".txt", "w")
-	if args["debug"] == true
-		global_logger(ConsoleLogger(io, Logging.Debug, show_limited = false))
-	else
-		global_logger(ConsoleLogger(io, Logging.Info, show_limited = false))
-	end
-	explored_nodes, ubs, lbs, columns, times, time_1 =
-		branch_and_price(
-			g,
-			c,
-			t,
-			algo_tracking = true,
-			gub_cut_limit_per_time = cut_limit,
-			soft_heuristic_time_limit = heuristic_time_limit,
-			total_time_limit = 1800.0
-		)
-	json_name = file_name * ".json"
-	outputs = Dict(
-		"explored_nodes" => explored_nodes,
-		"upper_bounds" => ubs,
-		"lower_bounds" => lbs,
-		"times" => times,
-		"num_columns" => columns,
-		"times" => times,
-		"init_time" => time_1,
-	)
-	close(io)
+# 	(g, c, t) = problem_size
+# 	heuristic_enabled = heuristic_time_limit > 0.0
+# 	file_name = string(c) * "_" * string(cut_limit) * "_heuristic_" * string(heuristic_enabled)
+# 	local io = open(out_dir * "logs_" * file_name * ".txt", "w")
+# 	if args["debug"] == true
+# 		global_logger(ConsoleLogger(io, Logging.Debug, show_limited = false))
+# 	else
+# 		global_logger(ConsoleLogger(io, Logging.Info, show_limited = false))
+# 	end
+# 	explored_nodes, ubs, lbs, columns, times, time_1 =
+# 		branch_and_price(
+# 			g,
+# 			c,
+# 			t,
+# 			algo_tracking = true,
+# 			gub_cut_limit_per_time = cut_limit,
+# 			soft_heuristic_time_limit = heuristic_time_limit,
+# 			total_time_limit = 1800.0
+# 		)
+# 	json_name = file_name * ".json"
+# 	outputs = Dict(
+# 		"explored_nodes" => explored_nodes,
+# 		"upper_bounds" => ubs,
+# 		"lower_bounds" => lbs,
+# 		"times" => times,
+# 		"num_columns" => columns,
+# 		"times" => times,
+# 		"init_time" => time_1,
+# 	)
+# 	close(io)
 
-	open(out_dir * json_name, "w") do f
-		JSON.print(f, outputs, 4)
-	end
-end
+# 	open(out_dir * json_name, "w") do f
+# 		JSON.print(f, outputs, 4)
+# 	end
+# end
+
 # Profile.init()
 # @profile branch_and_price(6, 20, 14, algo_tracking=true)
 # io2 = open("prof.txt", "w")

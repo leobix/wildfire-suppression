@@ -461,10 +461,7 @@ function double_column_generation!(
 	continue_iterating::Bool = true
 	iteration = 0
 
-	while (continue_iterating & (iteration < 200))
-		if iteration == 199
-			@debug "iteration limit hit" iteration
-		end
+	while continue_iterating
 
 		iteration += 1
 		reduced_cost_sum = 0

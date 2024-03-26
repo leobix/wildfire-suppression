@@ -394,6 +394,42 @@ function add_column_to_master_problem!!(
 	end
 end
 
+function get_fire_incumbent_weighted_average(
+	rmp::RestrictedMasterProblem,
+	fire_plans::FirePlanData,
+	num_fires::Int,
+	num_time_periods::Int,
+)
+
+	fire_allotment = zeros(num_fires, num_time_periods)
+	for ix in eachindex(rmp.plans)
+		if value(rmp.plans[ix]) > 0
+			fire_allotment[ix[1], :] +=
+				fire_plans.crews_present[ix..., :] * value(rmp.plans[ix])
+		end
+	end
+
+	return fire_allotment
+
+end
+
+function get_crew_incumbent_weighted_average(
+	rmp::RestrictedMasterProblem,
+	crew_routes::CrewRouteData,
+)
+
+	num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)
+
+	crew_allotment = zeros(num_crews, num_fires, num_time_periods)
+	for ix in eachindex(rmp.routes)
+		if value(rmp.routes[ix]) > 0
+			crew_allotment[ix[1], :, :] +=
+				crew_routes.fires_fought[ix..., :, :] * value(rmp.routes[ix])
+		end
+	end
+
+	return crew_allotment
+end
 
 function get_fire_and_crew_incumbent_weighted_average(
 	rmp::RestrictedMasterProblem,
@@ -404,23 +440,14 @@ function get_fire_and_crew_incumbent_weighted_average(
 	# get problem dimensions
 	num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)
 
-	fire_allotment = zeros(num_fires, num_time_periods)
-	for ix in eachindex(rmp.plans)
-		if value(rmp.plans[ix]) > 0
-			fire_allotment[ix[1], :] +=
-				fire_plans.crews_present[ix..., :] * value(rmp.plans[ix])
-		end
-	end
-
-	crew_allotment = zeros(num_crews, num_fires, num_time_periods)
-	for ix in eachindex(rmp.routes)
-		if value(rmp.routes[ix]) > 0
-			crew_allotment[ix[1], :, :] +=
-				crew_routes.fires_fought[ix..., :, :] * value(rmp.routes[ix])
-		end
-	end
-
-	fire_allotment, crew_allotment
+	fire_allotment = get_fire_incumbent_weighted_average(
+		rmp,
+		fire_plans,
+		num_fires,
+		num_time_periods,
+	)
+	crew_allotment = get_crew_incumbent_weighted_average(rmp, crew_routes)
+	return fire_allotment, crew_allotment
 end
 
 function double_column_generation!(
@@ -698,7 +725,7 @@ function double_column_generation!(
 				end
 			end
 
-		# if no new column added, we have proof of optimality
+			# if no new column added, we have proof of optimality
 		else
 			rmp.termination_status = MOI.LOCALLY_SOLVED
 			@debug "RMP stats with no more columns found" iteration objective_value(

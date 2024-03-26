@@ -234,6 +234,7 @@ end
 
 # precompile
 branch_and_price(3, 10, 14, algo_tracking = false)
+# branch_and_price(6, 20, 14, algo_tracking = false, total_time_limit=120.0)
 close(io)
 
 # # sizes = [(3, 10, 14), (6, 20, 14)]

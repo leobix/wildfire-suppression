@@ -191,6 +191,10 @@ function price_and_cut!!(
 
 	loop_ix = 1
 	loop_max = 10
+	last_num_cuts = 0
+	general_cuts = true
+	single_fire_cuts = false
+
 	while loop_ix < loop_max
 		# run DCG, adding columns as needed
 		double_column_generation!(
@@ -218,13 +222,23 @@ function price_and_cut!!(
 			fire_plans,
 			crew_subproblems,
 			fire_subproblems,
+			general_cuts = general_cuts,
+			single_fire_cuts = single_fire_cuts
 		)
 		@debug "after cuts" num_cuts objective_value(rmp.model)
-		if num_cuts == 0
+		if (last_num_cuts == 0) && (num_cuts == 0)
 			@debug "No cuts found, breaking" loop_ix
 			break
 		end
 
+		if num_cuts == 0
+			@debug "No cuts found, breaking" loop_ix
+			break
+			# general_cuts = ~general_cuts
+			# single_fire_cuts = ~single_fire_cuts
+		end
+
+		last_num_cuts = num_cuts
 		loop_ix += 1
 
 	end
@@ -714,6 +728,7 @@ function explore_node!!(
 		i for i in eachindex(rmp.gub_cover_cuts) if
 		dual(rmp.gub_cover_cuts[i]) > 1e-4
 	]
+	@info "cut_duals" dual.(rmp.gub_cover_cuts)
 	used_plans = [
 		i for i in eachindex(rmp.plans) if
 		value(rmp.plans[i]) > 1e-4
@@ -722,6 +737,29 @@ function explore_node!!(
 		i for i in eachindex(rmp.routes) if
 		value(rmp.routes[i]) > 1e-4
 	]
+
+	plan_weights = []
+	plan_demands = []
+	plan_fires = []
+	for i ∈ used_plans
+		push!(plan_fires, i[1])
+		push!(plan_weights, value(rmp.plans[i]))
+		push!(plan_demands, sum(fire_plans.crews_present[i..., :]))
+	end
+	plan_global_allots = hcat(plan_fires, plan_weights, plan_demands)
+
+
+	route_weights = []
+	route_demands = []
+	route_crews = []
+	for i ∈ used_routes
+		push!(route_crews, i[1])
+		push!(route_weights, value(rmp.routes[i]))
+		push!(route_demands, num_time_periods - sum(crew_routes.fires_fought[i..., :, :]))
+	end
+	route_global_allots = hcat(route_crews, route_weights, route_demands)
+
+	@info "cdfs" plan_global_allots route_global_allots
 
 	# update the rmp 
 	branch_and_bound_node.master_problem = rmp
@@ -732,7 +770,7 @@ function explore_node!!(
 		crew_routes,
 		fire_plans,
 	)
-	@debug "usages" all_fire_allots all_crew_allots
+	@info "usages" all_fire_allots all_crew_allots
 
 	# update the branch-and-bound node to be feasible or not
 	if rmp.termination_status == MOI.INFEASIBLE
@@ -792,6 +830,7 @@ function explore_node!!(
 
 		# restrict to used cuts
 		used_cuts = restrict_GUBCoverCutData(cut_data, binding_cuts)
+		@info "cuts" used_cuts.cut_dict
 
 		@assert var_variance > 0 "Cannot branch on variable with no variance, should already be integral"
 

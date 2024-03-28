@@ -86,24 +86,26 @@ function get_gub_crew_relevant_routing_data(
 end
 
 function enumerate_minimal_cuts(
-	crew_allots::Vector{Vector{Tuple}},
+	crew_allots::Matrix{Float64},
 	fire_allots::Vector{Vector{Tuple}},
 	cut_search_limit_per_time::Int64)
 
 	all_cuts = []
 
 	# find the crews that are inactive at time t in all used routes
-	inactive_crews = Int64[]
-	for crew in eachindex(crew_allots)
-		if (length(crew_allots[crew]) > 0)
-			if (crew_allots[crew][1][1] == true) & (crew_allots[crew][1][2] == 0)
-				push!(inactive_crews, crew)
-			end
-		end
-	end
+	# inactive_crews = Int64[]
+	# for crew in eachindex(crew_allots)
+	# 	if (length(crew_allots[crew]) > 0)
+	# 		if (crew_allots[crew][1][1] == true) & (crew_allots[crew][1][2] == 0)
+	# 			push!(inactive_crews, crew)
+	# 		end
+	# 	end
+	# end
 
+	crew_usages = vec(mapslices(sum, crew_allots, dims=2))
+	inactive_crews = vec(findall(x -> x < 1e-5, crew_usages))
 	# for now, assume that these crews were inactive for a "good" reason and force those to be part of any cover
-	available_for_fires = length(crew_allots) - length(inactive_crews)
+	available_for_fires = length(crew_usages) - length(inactive_crews)
 
 	### get all minimal GUB covers under this assumption ###
 
@@ -128,23 +130,25 @@ function enumerate_minimal_cuts(
 			end
 			break
 		end
+
+		possible_allots = [fire_allots[j][i[j]][1] for j in eachindex(i)]
+
 		allot = 0
 		cost = 0
 		min_allot = 10000
 		for j in eachindex(i)
-			cur_allot = fire_allots[j][i[j]][1]
+			cur_allot = possible_allots[j]
 			allot += cur_allot
 			cost += fire_allots[j][i[j]][2]
-			if i[j] > 1
+			if i[j] > 1 # not the dummy (0,0) index
 				min_allot = min(min_allot, cur_allot)
 			end
 		end
-		if (cost < 1 - 0.01) & (allot > available_for_fires) &
+		if (cost < 1 - 1e-3) & (allot > available_for_fires) &
 		   (allot - min_allot <= available_for_fires)
-			cut_allotments = [fire_allots[j][i[j]][1] for j in eachindex(i)]
 			push!(
 				all_cuts,
-				(available_for_fires, cost, cut_allotments, inactive_crews),
+				(available_for_fires, cost, possible_allots, inactive_crews),
 			)
 		end
 	end
@@ -308,7 +312,6 @@ function find_knapsack_cuts(
 	num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)
 
 	all_fire_allots = Array{Vector{Tuple}, 2}(undef, num_fires, num_time_periods)
-	all_crew_allots = Array{Vector{Tuple}, 2}(undef, num_crews, num_time_periods)
 
 	# get the plans that are used in the current RMP solution
 	used_plans = []
@@ -318,7 +321,7 @@ function find_knapsack_cuts(
 			i in eachindex(rmp.plans[g, :]) if value(rmp.plans[g, i...]) > 1e-4
 		]
 		push!(used_plans, plans)
-	end
+	end 
 
 	# get the routes that are used in the current RMP solution
 	used_routes = []
@@ -350,16 +353,6 @@ function find_knapsack_cuts(
 				used_plans,
 			)
 		end
-		for c ∈ 1:num_crews
-			all_crew_allots[c, t] = get_gub_crew_relevant_routing_data(
-				c,
-				t,
-				crew_routes,
-				used_routes,
-				rmp,
-			)
-		end
-
 	end
 
 	if single_fire_cuts
@@ -395,13 +388,13 @@ function find_knapsack_cuts(
 	if general_cuts
 		for t in 1:num_time_periods
 
+			crew_assign = get_crew_incumbent_weighted_average(rmp, crew_routes)
 			minimal_cuts =
 				enumerate_minimal_cuts(
-					all_crew_allots[:, t],
+					crew_assign[:, :, t],
 					all_fire_allots[:, t],
 					cut_search_limit_per_time,
 				)
-
 
 			for cut in minimal_cuts
 				orig_fire_allots = cut[3]

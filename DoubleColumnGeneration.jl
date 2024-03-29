@@ -19,7 +19,7 @@ function define_restricted_master_problem(
 	crew_avail_ixs::Vector{Vector{Int64}},
 	fire_plan_data::FirePlanData,
 	fire_avail_ixs::Vector{Vector{Int64}},
-	cut_data::GUBCoverCutData,
+	cut_data::GUBCutData,
 	fire_allotment_branching_rules::Vector{GlobalFireAllotmentBranchingRule},
 	dual_warm_start::Union{Nothing, DualWarmStart} = nothing,
 )
@@ -257,7 +257,7 @@ end
 
 function add_column_to_master_problem!!(
 	rmp::RestrictedMasterProblem,
-	cut_data::GUBCoverCutData,
+	cut_data::GUBCutData,
 	crew_routes::CrewRouteData,
 	crew::Int64,
 	ix::Int64,
@@ -292,10 +292,10 @@ function add_column_to_master_problem!!(
 	for (cut_ix, cut) ∈ cut_data.cut_dict
 
 		# if this crew is involved in the cut
-		if crew ∈ cut.inactive_crews
+		if cut.crew_coeffs[crew] > 1e-20
 
 			# get the fires not suppressed at the given time in order to enter cut
-			fires = [i for i in keys(cut.fire_lower_bounds)]
+			fires = [i for i in keys(cut.fire_coeffs)]
 
 			# if these fires are not suppressed at the given time
 			if maximum(crew_routes.fires_fought[crew, ix, fires, cut.time_ix]) == 0
@@ -319,7 +319,7 @@ end
 
 function add_column_to_master_problem!!(
 	rmp::RestrictedMasterProblem,
-	cut_data::GUBCoverCutData,
+	cut_data::GUBCutData,
 	fire_plans::FirePlanData,
 	fire_allotment_branching_rules::Vector{GlobalFireAllotmentBranchingRule},
 	fire::Int64,
@@ -355,7 +355,7 @@ function add_column_to_master_problem!!(
 	for (cut_ix, cut) ∈ cut_data.cut_dict
 
 		# if this fire is involved in the cut
-		if fire ∈ keys(cut.fire_lower_bounds)
+		if fire ∈ keys(cut.fire_coeffs)
 
 			# update mp lookup and see if this plan has >0 coeff in the cut
 			plan_in_cut = update_cut_fire_mp_lookup!(
@@ -459,7 +459,7 @@ function double_column_generation!(
 	global_fire_allotment_branching_rules::Vector{GlobalFireAllotmentBranchingRule},
 	crew_routes::CrewRouteData,
 	fire_plans::FirePlanData,
-	cut_data::GUBCoverCutData;
+	cut_data::GUBCutData;
 	upper_bound::Float64,
 	improving_column_abs_tolerance::Float64 = 1e-4,
 	local_gap_rel_tolerance::Float64 = 1e-9)
@@ -536,10 +536,10 @@ function double_column_generation!(
 				subproblem.state_in_arcs,
 			)
 
-			# adjust the objective for the cuts (we gave -1 if allotment not broken, give +1 here)
+			# adjust the objective for the cuts (we gave - coeff if allotment not broken, give + coeff here)
 			for (ix, cut) in cut_data.cut_dict
-				if crew ∈ cut.inactive_crews
-					objective += cut_duals[ix]
+				if cut.crew_coeffs[crew] > 1e-20
+					objective += (cut.crew_coeffs[crew] * cut_duals[ix])
 				end
 			end
 

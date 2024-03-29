@@ -26,7 +26,7 @@ function initialize_data_structures(
 
 	crew_routes = CrewRouteData(100000, num_fires, num_crews, num_time_periods)
 	fire_plans = FirePlanData(100000, num_fires, num_time_periods)
-	cut_data = GUBCoverCutData(num_crews, num_fires, num_time_periods)
+	cut_data = GUBCutData(num_crews, num_fires, num_time_periods)
 
 	return crew_routes, fire_plans, crew_models, fire_models, cut_data
 end
@@ -225,7 +225,7 @@ end
 
 args = get_command_line_args()
 
-io = open("logs_precompile.txt", "w")
+io = open("logs_precompile2.txt", "w")
 if args["debug"] == true
 	global_logger(ConsoleLogger(io, Logging.Debug, show_limited = false))
 else
@@ -235,7 +235,7 @@ end
 # precompile
 branch_and_price(3, 10, 14, algo_tracking = false)
 Profile.init()
-@profile branch_and_price(9, 30, 14, algo_tracking=true, soft_heuristic_time_limit = 0.0, total_time_limit=60.0)
+@profile branch_and_price(6, 20, 14, algo_tracking=true, soft_heuristic_time_limit = 0.0, total_time_limit=120.0)
 io2 = open("prof.txt", "w")
 Profile.print(io2, mincount=300)
 close(io2)

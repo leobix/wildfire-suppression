@@ -86,13 +86,16 @@ function get_gub_crew_relevant_routing_data(
 end
 
 function cut_generating_LP(gurobi_env,
+	time_ix::Int64,
 	crew_allots::Matrix{Float64},
 	fire_allots::Vector{Vector{Tuple}})
 
 	crew_usages = vec(mapslices(sum, crew_allots, dims = 2))
-	inactive_crews = vec(findall(x -> x < 1e-5, crew_usages))
+
+	inactive_crews = vec(findall(x -> x < 1e-20, crew_usages))
 
 	# for now, assume that these crews were inactive for a "good" reason and force those to be part of any cover
+	# TODO could be smarter about inactive crews, not necessarily all 0 only
 	num_crews = length(crew_usages)
 	available_for_fires = num_crews - length(inactive_crews)
 
@@ -174,12 +177,35 @@ function cut_generating_LP(gurobi_env,
 		end
 	end
 	optimize!(m)
-	if has_values(m) && (objective_value(m) > 1)
-		@debug "CGLP helped!" value.(vars) m available_for_fires
+	if has_values(m) && (objective_value(m) > 1 + 1e-2)
+		num_crews_in_cut = length(inactive_crews)
+		crew_coeffs = [j ∈ inactive_crews ? 1.0 : 0.0 for j ∈ 1:num_crews]
+		fire_coeffs = Dict{Int64, Vector{Float64}}()
+		for (fire, allot) ∈ eachindex(vars)
+			cost = value(vars[fire, allot])
+			if cost > 1e-20
+				if fire ∉ keys(fire_coeffs)
+					fire_coeffs[fire] = zeros(Float64, num_crews)
+				end
+				for j ∈ eachindex(fire_coeffs[fire])
+					if j >= allot
+						fire_coeffs[fire][j] = max(cost, fire_coeffs[fire][j])
+					end
+				end
+			end
+		end
+		cut = GUBKnapsackCut(
+			time_ix,
+			fire_coeffs,
+			crew_coeffs,
+			1 + num_crews_in_cut,
+		)
+		@debug "CGLP helped!" cut
+		return cut
 	end
 	@debug "cglp model" length(cartesian_product)
-
 end
+
 
 function enumerate_minimal_cuts(
 	crew_allots::Matrix{Float64},
@@ -240,7 +266,7 @@ function enumerate_minimal_cuts(
 				min_allot = min(min_allot, cur_allot)
 			end
 		end
-		if (cost < 1 - 1e-3) & (allot > available_for_fires) &
+		if (cost < 1 - 1e-2) & (allot > available_for_fires) &
 		   (allot - min_allot <= available_for_fires)
 			push!(
 				all_cuts,
@@ -513,22 +539,62 @@ function find_knapsack_cuts(
 				)
 				num_crews_in_cut = length(unused_crews)
 
-				gub_cut = GUBCoverCut(
+				crew_coeffs = [j ∈ unused_crews ? 1.0 : 0.0 for j ∈ 1:num_crews]
+				fire_coeffs = Dict(
+					fire => zeros(Float64, num_crews) for
+					fire ∈ keys(fire_allot_dict)
+				)
+				for fire in keys(fire_coeffs)
+					for j ∈ 1:num_crews
+						if j >= fire_allot_dict[fire]
+							fire_coeffs[fire][j] = 1.0
+
+							# lift coefficients for fires in special case of 1 fire involved only
+							if length(keys(fire_coeffs)) == 1
+
+								# based on the number of crews involved in the cut, we can lift
+								fire_coeffs[fire][j] +=
+									min(j - fire_allot_dict[fire], num_crews_in_cut)
+							end
+						end
+					end
+				end
+
+				cut = GUBKnapsackCut(
 					t,
-					fire_allot_dict,
-					unused_crews,
+					fire_coeffs,
+					crew_coeffs,
 					length(keys(fire_allot_dict)) + num_crews_in_cut - 1,
 				)
-				push!(knapsack_gub_cuts, gub_cut)
+
+				push!(knapsack_gub_cuts, cut)
 			end
 		end
 	end
 
-	if true
-		for t in 1:num_time_periods
-			cut_generating_LP(GRB_ENV, crew_assign[:, :, t], all_fire_allots[:, t])
+
+	for t in 1:num_time_periods
+		if t ∉ [knapsack_cut.time_ix for knapsack_cut ∈ knapsack_gub_cuts]
+			max_viol_cut = cut_generating_LP(GRB_ENV, t, crew_assign[:, :, t], all_fire_allots[:, t])
+			if ~isnothing(max_viol_cut)
+
+				# TODO all the domination not needed if we keep this outer if clause
+				incorporate_cut = true
+				for cut ∈ knapsack_gub_cuts
+					if first_cut_dominates(cut, max_viol_cut)
+						@debug "cut dominated" cut max_viol_cut
+						incorporate_cut = false
+						break
+					end
+				end
+				if incorporate_cut
+					push!(knapsack_gub_cuts, max_viol_cut)
+					@debug "pushing max viol cglp cut!" max_viol_cut
+				end
+			end
 		end
 	end
+
 
 
 	return knapsack_gub_cuts
@@ -550,10 +616,10 @@ function incorporate_gub_cover_cuts_into_fire_subproblem!(
 
 			# grab the cut and initialize a lookup dictionary arc_ix => cut coeff
 			cut = cuts[ix]
-			costs = Dict{Int64, Int8}()
+			costs = Dict{Int64, Float64}()
 
 			# if the fire is involved in the cut 
-			if fire in keys(cut.fire_lower_bounds)
+			if fire in keys(cut.fire_coeffs)
 
 				# for each arc in the subproblem
 				for i in 1:length(submodel.arc_costs)
@@ -561,21 +627,15 @@ function incorporate_gub_cover_cuts_into_fire_subproblem!(
 					# if it considers the given time
 					if submodel.long_arcs[i, FM.TIME_FROM] == cut.time_ix
 
-						# find the excess allotment 
-						exceeds_cut_allotment_by =
-							submodel.long_arcs[i, FM.CREWS_PRESENT] -
-							cut.fire_lower_bounds[fire][1]
-
-						# if this arc meets the allotment
-						if exceeds_cut_allotment_by >= 0
-
-							costs[i] = Float64(cut.fire_lower_bounds[fire][2])
-							if length(cut.fire_lower_bounds) == 1
-
-								# based on the number of crews involved in the cut, we can lift
-								num_crews_in_cut = length(cut.inactive_crews)
-								costs[i] +=
-									min(exceeds_cut_allotment_by, num_crews_in_cut)
+						# get cost based on the coefficient
+						crews_present = submodel.long_arcs[
+							i,
+							FM.CREWS_PRESENT,
+						]
+						if (crews_present > 0) 
+							cost = cut.fire_coeffs[fire][crews_present]
+							if cost > 1e-20
+								costs[i] = cost
 							end
 						end
 					end
@@ -598,18 +658,18 @@ function incorporate_gub_cover_cuts_into_crew_subproblem!(
 	for ix in eachindex(cuts)
 		if ix ∉ keys(out_dict)
 			cut = cuts[ix]
-			costs = Dict{Int64, Int8}()
-			if crew in cut.inactive_crews
+			costs = Dict{Int64, Float64}()
+			if cut.crew_coeffs[crew] > 1e-20
 				ixs = findall(submodel.long_arcs[:, CM.CREW_NUMBER] .== crew)
 				for i in ixs
-					# -1 for any that do suppress at the time
+					# - coeff for any that do suppress at the time
 					if (submodel.long_arcs[i, CM.TIME_TO] == cut.time_ix) &
 					   (submodel.long_arcs[i, CM.TO_TYPE] == CM.FIRE_CODE)
 
 						# the route needs to suppress a fire in the cut to avoid the penalty
-						fires = [i for i in keys(cut.fire_lower_bounds)]
+						fires = [i for i in keys(cut.fire_coeffs)]
 						if (submodel.long_arcs[i, CM.LOC_TO] ∈ fires)
-							costs[i] = -1
+							costs[i] = -cut.crew_coeffs[crew]
 						end
 					end
 				end
@@ -620,65 +680,59 @@ function incorporate_gub_cover_cuts_into_crew_subproblem!(
 end
 
 function update_cut_fire_mp_lookup!(
-	cut_fire_mp_lookup::Dict{Tuple{Int64, Int64}, Int8},
-	cut::GUBCoverCut,
+	cut_fire_mp_lookup::Dict{Tuple{Int64, Int64}, Float64},
+	cut::GUBKnapsackCut,
 	fire_plans::FirePlanData,
 	fire::Int64,
 	plan_ix::Int64,
 )
-	exceeds_cut_allotment_by =
-		fire_plans.crews_present[fire, plan_ix..., cut.time_ix] -
-		cut.fire_lower_bounds[fire][1]
-
-	# if this arc meets the allotment
-	if exceeds_cut_allotment_by >= 0
-
-		cut_fire_mp_lookup[(fire, plan_ix)] = cut.fire_lower_bounds[fire][2]
-		if length(cut.fire_lower_bounds) == 1
-
-			# based on the number of crews involved in the cut, we can lift
-			num_crews_in_cut = length(cut.inactive_crews)
-			cut_fire_mp_lookup[(fire, plan_ix)] +=
-				min(exceeds_cut_allotment_by, num_crews_in_cut)
-		end
-
+	crews_present = fire_plans.crews_present[
+		fire,
+		plan_ix...,
+		cut.time_ix,
+	]
+	cut_coeff = 0.0
+	if crews_present > 0
+		cut_coeff = cut.fire_coeffs[fire][crews_present]
+	end
+	if cut_coeff > 1e-20
+		cut_fire_mp_lookup[(fire, plan_ix)] = cut_coeff
 		return true
 	end
-
 	return false
 
 end
 
 function push_cut_to_rmp!!(
 	rmp::RestrictedMasterProblem,
-	cut_data::GUBCoverCutData,
-	cut::GUBCoverCut,
+	cut_data::GUBCutData,
+	cut::GUBKnapsackCut,
 	crew_routes::CrewRouteData,
 	fire_plans::FirePlanData,
 )
 
 	cut_time = cut.time_ix
-	cut_crew_allots = cut.inactive_crews
 	cut_rhs = cut.rhs
 
 	ix = cut_data.cuts_per_time[cut_time] + 1
 
-	cut_fire_mp_lookup = Dict{Tuple{Int64, Int64}, Int8}()
-	for f in keys(cut.fire_lower_bounds)
+	cut_fire_mp_lookup = Dict{Tuple{Int64, Int64}, Float64}()
+	for f in keys(cut.fire_coeffs)
 		for i in eachindex(rmp.plans[f, :])
 			update_cut_fire_mp_lookup!(cut_fire_mp_lookup, cut, fire_plans, f, i...)
 		end
 	end
 
-	# TODO allow coeffs for this cut too
-	cut_crew_mp_lookup = Dict{Tuple{Int64, Int64}, Int8}()
-	for c in cut_crew_allots
-		for i in eachindex(rmp.routes[c, :])
+	cut_crew_mp_lookup = Dict{Tuple{Int64, Int64}, Any}()
+	for c in eachindex(cut.crew_coeffs)
+		if cut.crew_coeffs[c] > 1e-20
+			for i in eachindex(rmp.routes[c, :])
 
-			# crew has to suppress one of the fires in the cut to avoid entering this cut
-			fires = [i for i in keys(cut.fire_lower_bounds)]
-			if maximum(crew_routes.fires_fought[c, i..., fires, cut_time]) == 0
-				cut_crew_mp_lookup[(c, i...)] = 1
+				# crew has to suppress one of the fires in the cut to avoid entering this cut
+				fires = [i for i in keys(cut.fire_coeffs)]
+				if maximum(crew_routes.fires_fought[c, i..., fires, cut_time]) == 0
+					cut_crew_mp_lookup[(c, i...)] = cut.crew_coeffs[c]
+				end
 			end
 		end
 	end
@@ -710,7 +764,7 @@ function push_cut_to_rmp!!(
 end
 
 function find_and_incorporate_knapsack_gub_cuts!!(
-	gub_cut_data::GUBCoverCutData,
+	gub_cut_data::GUBCutData,
 	cut_search_limit_per_time::Int64,
 	rmp::RestrictedMasterProblem,
 	crew_routes::CrewRouteData,

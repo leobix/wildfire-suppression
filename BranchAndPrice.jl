@@ -19,7 +19,7 @@ mutable struct BranchAndBoundNode
 	const new_global_fire_allotment_branching_rules::Vector{
 		GlobalFireAllotmentBranchingRule,
 	}
-	const cut_data::GUBCoverCutData
+	const cut_data::GUBCutData
 	children::Vector{BranchAndBoundNode}
 	l_bound::Float64
 	u_bound::Float64
@@ -32,7 +32,7 @@ function BranchAndBoundNode(
 	;
 	ix::Int64,
 	parent::Union{Nothing, BranchAndBoundNode},
-	cut_data::GUBCoverCutData,
+	cut_data::GUBCutData,
 	new_crew_branching_rules::Vector{CrewSupplyBranchingRule} = CrewSupplyBranchingRule[],
 	new_fire_branching_rules::Vector{FireDemandBranchingRule} = FireDemandBranchingRule[],
 	new_global_fire_allotment_branching_rules::Vector{
@@ -178,7 +178,7 @@ end
 
 function price_and_cut!!(
 	rmp::RestrictedMasterProblem,
-	cut_data::GUBCoverCutData,
+	cut_data::GUBCutData,
 	crew_subproblems::Vector{TimeSpaceNetwork},
 	fire_subproblems::Vector{TimeSpaceNetwork},
 	gub_cut_limit_per_time::Int64,
@@ -190,7 +190,7 @@ function price_and_cut!!(
 	upper_bound::Float64 = 1e20)
 
 	loop_ix = 1
-	loop_max = 10
+	loop_max = 15
 	last_num_cuts = 0
 	general_cuts = true
 	single_fire_cuts = false
@@ -213,6 +213,7 @@ function price_and_cut!!(
 			@debug "no more cuts needed"
 			break
 		end
+		@info "in cut generation" loop_ix objective_value(rmp.model)
 		# add cuts
 		num_cuts = find_and_incorporate_knapsack_gub_cuts!!(
 			cut_data,
@@ -243,9 +244,10 @@ function price_and_cut!!(
 
 	end
 
+	@info "cut loops" loop_ix
 	# if we got completely through all the loop of cut generation
 	if loop_ix == loop_max
-		@debug "There may be more cuts; one last DCG to have provable lower bound"
+		@info "There may be more cuts; one last DCG to have provable lower bound"
 		double_column_generation!(
 			rmp,
 			crew_subproblems,
@@ -504,7 +506,7 @@ function heuristic_upper_bound!!(
 
 		# get rid of past cuts
 		# do we want cuts? lose guarantee of feasibility in next step because we may find a cut later 
-		# cut_data = GUBCoverCutData(num_crews, num_fires, num_time_periods)
+		# cut_data = GUBCutData(num_crews, num_fires, num_time_periods)
 
 		branching_rule =
 			GlobalFireAllotmentBranchingRule(current_allotment,
@@ -698,7 +700,8 @@ function explore_node!!(
 	# define the restricted master problem
 	## TODO how do we handle existing cuts
 	## currently carrying them all
-	rmp = define_restricted_master_problem(
+	
+	t = @elapsed rmp = define_restricted_master_problem(
 		gurobi_env,
 		crew_routes,
 		crew_ixs,
@@ -707,6 +710,7 @@ function explore_node!!(
 		cut_data,
 		global_rules,
 	)
+	@info "Define rmp time (b-and-b)" t
 
 	t = @elapsed price_and_cut!!(
 		rmp,
@@ -806,7 +810,7 @@ function explore_node!!(
 			)
 
 		# restrict to used cuts
-		used_cuts = restrict_GUBCoverCutData(cut_data, binding_cuts)
+		used_cuts = restrict_GUBCutData(cut_data, binding_cuts)
 		@debug "cuts" used_cuts.cut_dict
 
 		@assert var_variance > 0 "Cannot branch on variable with no variance, should already be integral"

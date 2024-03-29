@@ -574,6 +574,15 @@ function push_cut_to_rmp!!(
 		end
 	end
 
+	# TODO this method of forming JuMP expressions tosses a warning
+	# Warning: The addition operator has been used on JuMP expressions a large number of times. 
+	# This warning is safe to ignore but may indicate that model generation 
+	# is slower than necessary. For performance reasons, you should not 
+	# add expressions in a loop. Instead of x += y, use add_to_expression!(x,y) 
+	# to modify x in place. If y is a single variable, you may also use 
+	# add_to_expression!(x, coef, y) for x += coef*y.
+	# But low priority to fix, not the bottleneck
+
 	lhs = []
 	for ix in eachindex(cut_fire_mp_lookup)
 		push!(lhs, cut_fire_mp_lookup[ix] * rmp.plans[ix])
@@ -585,6 +594,7 @@ function push_cut_to_rmp!!(
 
 	# update data structures
 	rmp.gub_cover_cuts[cut_time, ix] = @constraint(rmp.model, -sum(lhs) >= -cut_rhs)
+	@debug "done creating cuts"
 	cut_data.cut_dict[(cut_time, ix)] = cut
 	cut_data.cuts_per_time[cut_time] = ix
 	cut_data.crew_mp_lookup[(cut_time, ix)] = cut_crew_mp_lookup

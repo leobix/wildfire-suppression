@@ -234,7 +234,7 @@ end
 
 # precompile
 branch_and_price(3, 10, 14, algo_tracking = false)
-branch_and_price(9, 30, 14, algo_tracking = true, total_time_limit=180.0)
+branch_and_price(9, 30, 14, algo_tracking = true, total_time_limit=120.0, soft_heuristic_time_limit=0.0)
 close(io)
 
 error("done")

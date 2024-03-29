@@ -235,7 +235,7 @@ end
 # precompile
 branch_and_price(3, 10, 14, algo_tracking = false)
 Profile.init()
-@profile branch_and_price(6, 20, 14, algo_tracking=true, soft_heuristic_time_limit = 0.0, total_time_limit=120.0)
+@profile branch_and_price(9, 30, 14, algo_tracking=true, soft_heuristic_time_limit = 0.0, total_time_limit=120.0)
 io2 = open("prof.txt", "w")
 Profile.print(io2, mincount=300)
 close(io2)

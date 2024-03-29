@@ -234,7 +234,11 @@ end
 
 # precompile
 branch_and_price(3, 10, 14, algo_tracking = false)
-branch_and_price(9, 30, 14, algo_tracking = true, total_time_limit=120.0, soft_heuristic_time_limit=0.0)
+Profile.init()
+@profile branch_and_price(9, 30, 14, algo_tracking=true, soft_heuristic_time_limit = 0.0, total_time_limit=60.0)
+io2 = open("prof.txt", "w")
+Profile.print(io2, mincount=300)
+close(io2)
 close(io)
 
 error("done")
@@ -287,9 +291,4 @@ for (problem_size, cut_limit, heuristic_time_limit) ∈ product(sizes, cut_limit
 	end
 end
 
-# Profile.init()
-# @profile branch_and_price(6, 20, 14, algo_tracking=true)
-# io2 = open("prof.txt", "w")
-# Profile.print(io2, mincount=1000)
-# close(io)
-# close(io2)
+

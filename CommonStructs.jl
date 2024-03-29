@@ -55,6 +55,13 @@ function FirePlanData(
 	)
 end
 
+struct GeneralGUBCut
+	time_ix::Int64
+	fire_coeffs::Dict{Int64, Dict{Int64, Tuple{Int64, Float64}}}
+	crew_coeffs::Vector{Float64}
+	rhs::Int64
+end
+
 struct GUBCoverCut
 	time_ix::Int64
 	fire_lower_bounds::Dict{Int64, Tuple{Int64, Int8}} # fire : (allotment : coeff)

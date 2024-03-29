@@ -85,6 +85,102 @@ function get_gub_crew_relevant_routing_data(
 	return pairs
 end
 
+function cut_generating_LP(gurobi_env,
+	crew_allots::Matrix{Float64},
+	fire_allots::Vector{Vector{Tuple}})
+
+	crew_usages = vec(mapslices(sum, crew_allots, dims = 2))
+	inactive_crews = vec(findall(x -> x < 1e-5, crew_usages))
+
+	# for now, assume that these crews were inactive for a "good" reason and force those to be part of any cover
+	num_crews = length(crew_usages)
+	available_for_fires = num_crews - length(inactive_crews)
+
+	# define model
+	m = direct_model(Gurobi.Optimizer(gurobi_env))
+	@objective(m, Max, 0)
+	set_optimizer_attribute(m, "OutputFlag", 0)
+
+	# define decision variables
+	vars = @variable(m, coeff[fire ∈ 1:1, allot ∈ 1:1; 0 != 0] >= 0)
+	costs = []
+	for fire in eachindex(fire_allots)
+		specific_fire_allots = fire_allots[fire]
+		push!(costs, [j[1] for j in specific_fire_allots])
+
+		# turn survival function into CDFs
+		current_weights = [j[2] for j in specific_fire_allots]
+		for i in eachindex(current_weights)
+			if i == length(current_weights)
+				current_weights[i] = 1 - current_weights[i]
+			else
+				current_weights[i] = current_weights[i+1] - current_weights[i]
+			end
+		end
+		for ix in eachindex(costs[fire])
+			allot = costs[fire][ix]
+			vars[fire, allot] = @variable(
+				m,
+				base_name = "coeff[$fire,$allot]",
+				lower_bound = 0
+			)
+			set_objective_coefficient(
+				m,
+				vars[fire, allot],
+				current_weights[ix],
+			)
+		end
+	end
+
+	# find constraints
+	fires_to_consider =
+		[fire for fire in eachindex(fire_allots) if length(fire_allots[fire]) > 0]
+	if length(fires_to_consider) < 2
+		# For now only consider cuts with >= 2 fires
+		return
+	end
+
+	allotment_option_ixs = []
+	for ix in eachindex(fires_to_consider)
+		fire = fires_to_consider[ix]
+		push!(allotment_option_ixs, [i for i in 0:length(fire_allots[fire])])
+	end
+	cartesian_product = product(allotment_option_ixs...)
+	if length(cartesian_product) > 10000
+		@info "CGLP too big, returning"
+		return
+	end
+
+	for ix_per_fire in cartesian_product
+		if sum(ix_per_fire) == 0
+			continue
+		end
+		allots_per_fire =
+			[
+				fire_ix == 0 ? 0 : costs[fires_to_consider[ix]][fire_ix] for
+				(ix, fire_ix) in enumerate(ix_per_fire)
+			]
+		if sum(allots_per_fire) <= available_for_fires
+			a = @constraint(
+				m,
+				sum(
+					vars[
+						fires_to_consider[ix],
+						costs[fires_to_consider[ix]][fire_ix],
+					] for (ix, fire_ix) in enumerate(ix_per_fire) if fire_ix > 0
+				) <=
+				1
+			)
+		end
+	end
+	optimize!(m)
+	if has_values(m) && (objective_value(m) > 1)
+		@debug "CGLP helped!" value.(vars) m available_for_fires
+	end
+	@debug "cglp model" length(cartesian_product)
+
+end
+
 function enumerate_minimal_cuts(
 	crew_allots::Matrix{Float64},
 	fire_allots::Vector{Vector{Tuple}},
@@ -102,7 +198,7 @@ function enumerate_minimal_cuts(
 	# 	end
 	# end
 
-	crew_usages = vec(mapslices(sum, crew_allots, dims=2))
+	crew_usages = vec(mapslices(sum, crew_allots, dims = 2))
 	inactive_crews = vec(findall(x -> x < 1e-5, crew_usages))
 	# for now, assume that these crews were inactive for a "good" reason and force those to be part of any cover
 	available_for_fires = length(crew_usages) - length(inactive_crews)
@@ -279,7 +375,10 @@ function find_single_fire_knapsack_cuts(
 				n_crews_in_cut = max_per_fire[1, g, t][2]
 				crews_present = argsort_crew_assign[1:n_crews_in_cut, g, t]
 				cut_allotments =
-					[ix == g ? num_crews - n_crews_in_cut + 1 : 0 for ix ∈ 1:num_fires]
+					[
+						ix == g ? num_crews - n_crews_in_cut + 1 : 0 for
+						ix ∈ 1:num_fires
+					]
 				push!(
 					cuts,
 					(
@@ -321,7 +420,7 @@ function find_knapsack_cuts(
 			i in eachindex(rmp.plans[g, :]) if value(rmp.plans[g, i...]) > 1e-4
 		]
 		push!(used_plans, plans)
-	end 
+	end
 
 	# get the routes that are used in the current RMP solution
 	used_routes = []
@@ -336,6 +435,8 @@ function find_knapsack_cuts(
 	# get the current fire suppression relaxed solution
 	fire_alloc, _ =
 		get_fire_and_crew_incumbent_weighted_average(rmp, crew_routes, fire_plans)
+
+	crew_assign = get_crew_incumbent_weighted_average(rmp, crew_routes)
 
 	# intitialize output 
 	knapsack_gub_cuts = []
@@ -356,39 +457,40 @@ function find_knapsack_cuts(
 	end
 
 	if single_fire_cuts
-		crew_assign = get_crew_incumbent_weighted_average(rmp, crew_routes)
-		@info "crew_assign" crew_assign
-		cdf_crew_assign =
-			mapslices(cumsum, mapslices(sort, crew_assign, dims = 1), dims = 1)
-		argsort_crew_assign = mapslices(sortperm, crew_assign, dims = 1)
-		cuts = find_single_fire_knapsack_cuts(
-			all_fire_allots,
-			cdf_crew_assign,
-			argsort_crew_assign,
-		)
-		for cut in cuts
-			orig_fire_allots = cut[3]
-			unused_crews = cut[4]
-			fire_allot_dict = Dict(
-				ix => orig_fire_allots[ix] for
-				ix in eachindex(orig_fire_allots) if orig_fire_allots[ix] > 0
-			)
-			num_crews_in_cut = length(unused_crews)
+		# crew_assign = get_crew_incumbent_weighted_average(rmp, crew_routes)
+		# @info "crew_assign" crew_assign
+		# cdf_crew_assign =
+		# 	mapslices(cumsum, mapslices(sort, crew_assign, dims = 1), dims = 1)
+		# argsort_crew_assign = mapslices(sortperm, crew_assign, dims = 1)
+		# cuts = find_single_fire_knapsack_cuts(
+		# 	all_fire_allots,
+		# 	cdf_crew_assign,
+		# 	argsort_crew_assign,
+		# )
+		# for cut in cuts
+		# 	orig_fire_allots = cut[3]
+		# 	unused_crews = cut[4]
+		# 	fire_allot_dict = Dict(
+		# 		ix => orig_fire_allots[ix] for
+		# 		ix in eachindex(orig_fire_allots) if orig_fire_allots[ix] > 0
+		# 	)
+		# 	num_crews_in_cut = length(unused_crews)
 
-			gub_cut = GUBCoverCut(
-				cut[5],
-				fire_allot_dict,
-				unused_crews,
-				length(keys(fire_allot_dict)) + num_crews_in_cut - 1,
-			)
-			push!(knapsack_gub_cuts, gub_cut)
-		end
+		# 	gub_cut = GUBCoverCut(
+		# 		cut[5],
+		# 		fire_allot_dict,
+		# 		unused_crews,
+		# 		length(keys(fire_allot_dict)) + num_crews_in_cut - 1,
+		# 	)
+		# 	push!(knapsack_gub_cuts, gub_cut)
+		# end
+
+		error("are you sure you want to do this, this did not help in testing")
 	end
 
 	if general_cuts
 		for t in 1:num_time_periods
 
-			crew_assign = get_crew_incumbent_weighted_average(rmp, crew_routes)
 			minimal_cuts =
 				enumerate_minimal_cuts(
 					crew_assign[:, :, t],
@@ -421,6 +523,13 @@ function find_knapsack_cuts(
 			end
 		end
 	end
+
+	if true
+		for t in 1:num_time_periods
+			cut_generating_LP(GRB_ENV, crew_assign[:, :, t], all_fire_allots[:, t])
+		end
+	end
+
 
 	return knapsack_gub_cuts
 end
@@ -594,7 +703,6 @@ function push_cut_to_rmp!!(
 
 	# update data structures
 	rmp.gub_cover_cuts[cut_time, ix] = @constraint(rmp.model, -sum(lhs) >= -cut_rhs)
-	@debug "done creating cuts"
 	cut_data.cut_dict[(cut_time, ix)] = cut
 	cut_data.cuts_per_time[cut_time] = ix
 	cut_data.crew_mp_lookup[(cut_time, ix)] = cut_crew_mp_lookup
@@ -609,8 +717,8 @@ function find_and_incorporate_knapsack_gub_cuts!!(
 	fire_plans::FirePlanData,
 	crew_models,
 	fire_models;
-	general_cuts=true,
-	single_fire_cuts=false
+	general_cuts = true,
+	single_fire_cuts = false,
 )
 
 	num_crews, _, num_fires, _ = size(crew_routes.fires_fought)
@@ -623,7 +731,7 @@ function find_and_incorporate_knapsack_gub_cuts!!(
 			rmp,
 			cut_search_limit_per_time,
 			general_cuts,
-			single_fire_cuts
+			single_fire_cuts,
 		)
 		num_cuts_found += length(knapsack_cuts)
 

@@ -54,7 +54,43 @@ function define_restricted_master_problem(
 	@constraint(m, plan_per_fire[g = 1:num_fires],
 		sum(plan[g, p] for p ∈ fire_avail_ixs[g]) >= 1)
 
-	# container for GUB cover cuts
+	## constraints for GUB knapsack cuts
+
+	# get proper coefficients of columns in gub_cover_cuts
+	cut_ixs = keys(cut_data.cut_dict)
+
+	fire_plan_ixs = Dict()
+	fire_plan_coeffs = Dict()
+	fire_lookup = cut_data.fire_mp_lookup
+	for cut_ix in cut_ixs
+		cut_plan_ixs = []
+		cut_plan_coeffs = []
+		for (fire_ix, coeff) in fire_lookup[cut_ix]
+			if fire_ix in eachindex(plan)
+				push!(cut_plan_ixs, fire_ix)
+				push!(cut_plan_coeffs, -coeff)
+			end
+		end
+		fire_plan_ixs[cut_ix] = cut_plan_ixs
+		fire_plan_coeffs[cut_ix] = cut_plan_coeffs
+	end
+
+	crew_route_ixs = Dict()
+	crew_route_coeffs = Dict()
+	crew_lookup = cut_data.crew_mp_lookup
+	for cut_ix in cut_ixs
+		cut_route_ixs = []
+		cut_route_coeffs = []
+		for (crew_ix, coeff) in crew_lookup[cut_ix]
+			if crew_ix in eachindex(route)
+				push!(cut_route_ixs, crew_ix)
+				push!(cut_route_coeffs, -coeff)
+			end
+		end
+		crew_route_ixs[cut_ix] = cut_route_ixs
+		crew_route_coeffs[cut_ix] = cut_route_coeffs
+	end
+
 	# need it to default to SparseAxisArray when empty, maybe there is a better way
 	@constraint(
 		m,
@@ -63,39 +99,15 @@ function define_restricted_master_problem(
 			u = 1:1000;
 			(t, u) ∈ keys(cut_data.cut_dict),
 		],
-		0 >= 0
+		sum(crew_route_coeffs[t, u][i] * route[crew_route_ixs[t, u][i]] for i ∈ eachindex(crew_route_coeffs[t, u])) + 
+		sum(fire_plan_coeffs[t, u][i] * plan[fire_plan_ixs[t, u][i]] for i ∈ eachindex(fire_plan_coeffs[t, u])) >=
+		-cut_data.cut_dict[(t, u)].rhs
 	)
 
-	# set cut RHS (negating because of >= convention)
-	for ix in keys(cut_data.cut_dict)
-		set_normalized_rhs(gub_cover_cuts[ix], -cut_data.cut_dict[ix].rhs)
-	end
-
-	# get proper coefficients of columns in gub_cover_cuts
-	fire_lookup = cut_data.fire_mp_lookup
-	for cut_ix in eachindex(fire_lookup)
-		for (fire_ix, coeff) in fire_lookup[cut_ix]
-			if fire_ix in eachindex(plan)
-				set_normalized_coefficient(
-					gub_cover_cuts[cut_ix],
-					plan[fire_ix],
-					-coeff,
-				)
-			end
-		end
-	end
-	crew_lookup = cut_data.crew_mp_lookup
-	for cut_ix in eachindex(crew_lookup)
-		for (crew_ix, coeff) in crew_lookup[cut_ix]
-			if crew_ix in eachindex(route)
-				set_normalized_coefficient(
-					gub_cover_cuts[cut_ix],
-					route[crew_ix],
-					-coeff,
-				)
-			end
-		end
-	end
+	# # set cut RHS (negating because of >= convention)
+	# for ix in keys(cut_data.cut_dict)
+	# 	set_normalized_rhs(gub_cover_cuts[ix], -cut_data.cut_dict[ix].rhs)
+	# end
 
 
 	# container for fire allotment branching rules

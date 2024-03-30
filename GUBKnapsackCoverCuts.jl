@@ -100,7 +100,7 @@ function cut_generating_LP(gurobi_env,
 	available_for_fires = num_crews - length(inactive_crews)
 
 	# define model
-	m = direct_model(Gurobi.Optimizer(gurobi_env))
+	m = Model(() -> Gurobi.Optimizer(gurobi_env))
 	@objective(m, Max, 0)
 	set_optimizer_attribute(m, "OutputFlag", 0)
 

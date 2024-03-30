@@ -156,6 +156,22 @@ function branch_and_price(
 			end
 		end
 
+		## now that we have done the heuristic, can mess up rmp and lose duals
+		
+		# t = @elapsed obj, obj_bound, routes, plans =
+		# 	find_integer_solution(
+		# 		nodes[node_ix].master_problem,
+		# 		ub,
+		# 		1200,
+		# 		4000,
+		# 		1.0,)
+			
+		# @info "restore_integrality" t obj obj_bound
+		# if obj < nodes[node_ix].u_bound
+		# 	nodes[node_ix].u_bound = obj
+		# end
+
+
 		# if this node has an integer solution, check if we have found 
 		# a better solution than the incumbent
 		# TODO keep track if it comes from heurisitc or no
@@ -189,11 +205,6 @@ function branch_and_price(
 			)
 			push!(times, time() - start_time)
 		end
-
-		# if node_explored_count > 500
-		# 	println("halted early.")
-		# 	return
-		# end
 
 		unexplored =
 			[i for i in eachindex(nodes) if isnothing(nodes[i].master_problem)]
@@ -235,7 +246,7 @@ end
 # precompile
 branch_and_price(3, 10, 14, algo_tracking = false)
 Profile.init()
-@profile branch_and_price(9, 30, 14, algo_tracking=true, soft_heuristic_time_limit = 0.0, total_time_limit=120.0)
+@profile branch_and_price(6, 20, 14, algo_tracking=true, soft_heuristic_time_limit = 60.0, total_time_limit=1200.0)
 io2 = open("prof.txt", "w")
 Profile.print(io2, mincount=300)
 close(io2)
@@ -245,7 +256,7 @@ error("done")
 sizes = [(3, 10, 14), (6, 20, 14)]
 # sizes = [(3, 10, 14), (6, 20, 14), (9, 30, 14), (12, 40, 14), (15, 50, 14)]
 cut_limits = [10000, 0]
-heuristic_time_limits = [300.0, 0.0]
+heuristic_time_limits = [100.0, 0.0]
 out_dir = "data/experiment_outputs/20240321/"
 
 for (problem_size, cut_limit, heuristic_time_limit) ∈ product(sizes, cut_limits, heuristic_time_limits)

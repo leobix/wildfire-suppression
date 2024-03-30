@@ -278,7 +278,7 @@ function find_integer_solution(
 	upper_bound::Float64,
 	fire_column_limit::Int64,
 	crew_column_limit::Int64,
-	time_limit::Float64;
+	time_limit::Union{Int, Float64};
 	warm_start_routes = nothing,
 	warm_start_plans = nothing,
 )
@@ -645,6 +645,7 @@ function explore_node!!(
 		# the new branching rule. Maybe could improve performance by culling
 		# columns based on reduced costs or absence in basis, but first try at this
 		# showed worse performance
+
 		cull = false
 		parent_rmp = branch_and_bound_node.parent.master_problem
 		if ~cull
@@ -653,6 +654,9 @@ function explore_node!!(
 			fire_ixs =
 				[[i[1] for i in eachindex(parent_rmp.plans[j, :])] for j ∈ 1:num_fires]
 		else
+			# TODO if we want to cull, need some better solution of timing of restore_integrality
+			# in parent node
+			@warn "If we restored integrality in parent node, only getting these columns"
 			crew_ixs =
 			[[i[1] for i in eachindex(parent_rmp.routes[j, :]) if value(parent_rmp.routes[j, i...]) > 1e-4] for j ∈ 1:num_crews]
 			fire_ixs =
@@ -772,16 +776,17 @@ function explore_node!!(
 		route_values = value.(rmp.routes)
 
 		if restore_integrality
-			t = @elapsed obj, obj_bound, routes, plans =
-				find_integer_solution(
-					rmp,
-					current_global_upper_bound,
-					300,
-					1000,
-					0.5,
-				)
-			branch_and_bound_node.u_bound = obj
-			@debug "after restoring integrality" t obj obj_bound
+			error("Doing this here messes up heuristic upper bound")
+			# t = @elapsed obj, obj_bound, routes, plans =
+			# 	find_integer_solution(
+			# 		rmp,
+			# 		current_global_upper_bound,
+			# 		300,
+			# 		1000,
+			# 		0.5,
+			# 	)
+			# branch_and_bound_node.u_bound = obj
+			# @debug "after restoring integrality" t obj obj_bound
 		else
 			tolerance = 1e-8
 			integer =

@@ -1,6 +1,6 @@
 include("BranchAndPrice.jl")
 
-using JuMP, Gurobi, Profile, ArgParse, Logging
+using JuMP, Gurobi, JSON, Profile, ArgParse, Logging, IterTools
 
 const GRB_ENV = Gurobi.Env()
 
@@ -26,7 +26,7 @@ function initialize_data_structures(
 
 	crew_routes = CrewRouteData(100000, num_fires, num_crews, num_time_periods)
 	fire_plans = FirePlanData(100000, num_fires, num_time_periods)
-	cut_data = GUBCoverCutData(num_crews, num_fires, num_time_periods)
+	cut_data = GUBCutData(num_crews, num_fires, num_time_periods)
 
 	return crew_routes, fire_plans, crew_models, fire_models, cut_data
 end
@@ -45,26 +45,72 @@ function find_lower_bound(node::BranchAndBoundNode)
 	end
 
 end
-function branch_and_price(num_fires::Int, num_crews::Int, num_time_periods::Int)
+function branch_and_price(
+	num_fires::Int,
+	num_crews::Int,
+	num_time_periods::Int;
+	algo_tracking = false,
+	gub_cut_limit_per_time = 1000,
+	soft_heuristic_time_limit = 300.0,
+	hard_heuristic_iteration_limit = 10,
+	heuristic_must_improve_rounds = 2,
+	heuristic_cadence = 10,
+	total_time_limit = 1200.0,
+)
+	start_time = time()
 
+	@info "Initializing data structures"
 	# initialize input data
 	crew_routes, fire_plans, crew_models, fire_models, cut_data =
 		initialize_data_structures(num_fires, num_crews, num_time_periods)
 
+
+	algo_tracking ?
+	(@info "Checkpoint after initializing data structures" time() - start_time) :
+	nothing
+
+	explored_nodes = []
+	ubs = []
+	lbs = []
+	columns = []
+	times = []
+	time_1 = time() - start_time
+
 	# initialize nodes list with the root node
 	nodes = BranchAndBoundNode[]
-	first_node = BranchAndBoundNode(ix = 1, parent = nothing)
+	first_node = BranchAndBoundNode(ix = 1, parent = nothing, cut_data = cut_data)
 	push!(nodes, first_node)
 
 	# initialize global variables to track in branch-and-bound tree
-	node_ix = 1
 	ub = Inf
 	ub_ix::Int = -1
+	routes_best_sol = nothing
+	plans_best_sol = nothing
 
 	## breadth-first search for now, can get smarter/add options
 
+	unexplored = [i for i in eachindex(nodes) if isnothing(nodes[i].master_problem)]
+	node_lbs = []
+	for i in unexplored
+		if (~isnothing(nodes[i].parent))
+			push!(node_lbs, nodes[i].parent.l_bound)
+		else
+			@warn "Node with no parent" i
+			push!(node_lbs, -Inf)
+		end
+	end
+
+	node_explored_count = 0
 	# while there are more nodes to explore
-	while node_ix <= size(nodes)[1]
+	while length(unexplored) > 0
+
+		node_explored_count += 1
+
+		### breadth first ###
+		# node_ix = unexplored[1]
+
+		### raise lb ###
+		node_ix = unexplored[findmin(node_lbs)[2]]
 
 		# explore the next node
 		explore_node!!(
@@ -75,51 +121,109 @@ function branch_and_price(num_fires::Int, num_crews::Int, num_time_periods::Int)
 			fire_plans,
 			crew_models,
 			fire_models,
-			cut_data,
+			gub_cut_limit_per_time,
 			nothing,
 			GRB_ENV,
+			restore_integrality = false,
 		)
+
+		if time() - start_time > total_time_limit
+			@info "Full time limit reached"
+			break
+		end
+
+		if (node_explored_count % heuristic_cadence == 1) &&
+		   (soft_heuristic_time_limit > 0.0)
+			heuristic_ub, ub_rmp, routes_best_sol, plans_best_sol = heuristic_upper_bound!!(
+				crew_routes,
+				fire_plans,
+				nodes[node_ix],
+				hard_heuristic_iteration_limit,
+				soft_heuristic_time_limit,
+				heuristic_must_improve_rounds,
+				crew_models,
+				fire_models,
+				gub_cut_limit_per_time,
+				GRB_ENV,
+				routes_best_sol = routes_best_sol,
+				plans_best_sol = plans_best_sol
+			)
+
+			if time() - start_time > total_time_limit
+				@info "Full time limit reached"
+				break
+			end
+
+			nodes[node_ix].heuristic_found_master_problem = ub_rmp
+
+			if heuristic_ub < nodes[node_ix].u_bound
+				nodes[node_ix].u_bound = heuristic_ub
+			end
+		end
+
+		## now that we have done the heuristic, can mess up rmp and lose duals
+		
+		# t = @elapsed obj, obj_bound, routes, plans =
+		# 	find_integer_solution(
+		# 		nodes[node_ix].master_problem,
+		# 		ub,
+		# 		1200,
+		# 		4000,
+		# 		10.0,)			
+		# @info "restore_integrality" t obj obj_bound
+		# if obj < nodes[node_ix].u_bound
+		# 	nodes[node_ix].u_bound = obj
+		# end
+
 
 		# if this node has an integer solution, check if we have found 
 		# a better solution than the incumbent
-        if nodes[node_ix].u_bound < ub
-            ub = nodes[node_ix].u_bound
-            ub_ix = node_ix
-        end
+		# TODO keep track if it comes from heurisitc or no
+		if nodes[node_ix].u_bound < ub
+			ub = nodes[node_ix].u_bound
+			ub_ix = node_ix
+		end
 
 		# calculate the best current lower bound by considering all nodes with
 		# fully explored children 
 		lb = find_lower_bound(nodes[1])
 
 		# print progress
-
 		@info "current bounds" node_ix lb ub
-
 		# go to the next node
-		node_ix += 1
-		@info "number of nodes" node_ix length(nodes)
-		@info "columns" crew_routes.routes_per_crew fire_plans.plans_per_fire
+		@info "number of nodes" node_explored_count length(nodes)
+		@info "columns" sum(crew_routes.routes_per_crew) sum(
+			fire_plans.plans_per_fire,
+		)
+		algo_tracking ?
+		(@info "Time check" time() - start_time) :
+		nothing
 
-		if node_ix > 7
-			println("halted early.")
-            # for g in 1:num_fires
-            #     num_plans = fire_plans.plans_per_fire[g]
-            #     plans = eachrow(fire_plans.crews_present[g, 1:num_plans, :])
-            #     plans = [i for i in plans if sum(i) > 0]
-            #     @info plans
-            #     @assert allunique(plans)
-            # end
+		if algo_tracking
+			push!(explored_nodes, node_explored_count)
+			push!(lbs, lb)
+			push!(ubs, ub)
+			push!(
+				columns,
+				sum(crew_routes.routes_per_crew) + sum(fire_plans.plans_per_fire),
+			)
+			push!(times, time() - start_time)
+		end
 
-            # for c in 1:num_crews
-            #     num_routes = crew_routes.routes_per_crew[c]
-            #     routes = [crew_routes.fires_fought[c, i] for i in 1:num_routes]
-            #     routes = [i for i in routes if sum(i) > 0]
-            #     @info routes
-            #     @assert allunique(routes)
-            # end
-            return
+		unexplored =
+			[i for i in eachindex(nodes) if isnothing(nodes[i].master_problem)]
+		node_lbs = []
+		for i in unexplored
+			if (~isnothing(nodes[i].parent))
+				push!(node_lbs, nodes[i].parent.l_bound)
+			else
+				@warn "Node with no parent" i
+				push!(node_lbs, -Inf)
+			end
 		end
 	end
+
+	return explored_nodes, ubs, lbs, columns, times, time_1
 
 end
 
@@ -133,14 +237,75 @@ function get_command_line_args()
 	return parse_args(arg_parse_settings)
 end
 
+
 args = get_command_line_args()
-io = open("logs_bb_6.txt", "w")
+
+io = open("logs_precompile2.txt", "w")
 if args["debug"] == true
 	global_logger(ConsoleLogger(io, Logging.Debug, show_limited = false))
 else
 	global_logger(ConsoleLogger(io, Logging.Info, show_limited = false))
 end
 
-# branch_and_price(3, 10, 14)
-branch_and_price(6, 20, 14)
+# precompile
+branch_and_price(3, 10, 14, algo_tracking = false)
+# branch_and_price(9, 30, 14, algo_tracking=true, soft_heuristic_time_limit = 90.0, heuristic_cadence=5, gub_cut_limit_per_time = 100000, total_time_limit=1200.0)
+
+Profile.init()
+@profile branch_and_price(6, 20, 14, algo_tracking=true, soft_heuristic_time_limit = 0.0, heuristic_cadence=5, total_time_limit=60.0)
+io2 = open("prof.txt", "w")
+Profile.print(io2, mincount=100)
+close(io2)
 close(io)
+
+error("done")
+sizes = [(3, 10, 14), (6, 20, 14)]
+# sizes = [(3, 10, 14), (6, 20, 14), (9, 30, 14), (12, 40, 14), (15, 50, 14)]
+cut_limits = [10000, 0]
+heuristic_time_limits = [100.0, 0.0]
+out_dir = "data/experiment_outputs/20240321/"
+
+for (problem_size, cut_limit, heuristic_time_limit) ∈ product(sizes, cut_limits, heuristic_time_limits)
+
+	(g, c, t) = problem_size
+	heuristic_enabled = heuristic_time_limit > 0.0
+	file_name = string(c) * "_" * string(cut_limit) * "_heuristic_" * string(heuristic_enabled)
+	local io = open(out_dir * "logs_" * file_name * ".txt", "w")
+	if args["debug"] == true
+		global_logger(ConsoleLogger(io, Logging.Debug, show_limited = false))
+	else
+		global_logger(ConsoleLogger(io, Logging.Info, show_limited = false))
+	end
+	try
+		explored_nodes, ubs, lbs, columns, times, time_1 =
+			branch_and_price(
+				g,
+				c,
+				t,
+				algo_tracking = true,
+				gub_cut_limit_per_time = cut_limit,
+				soft_heuristic_time_limit = heuristic_time_limit,
+				total_time_limit = 120.0
+			)
+		json_name = file_name * ".json"
+		outputs = Dict(
+			"explored_nodes" => explored_nodes,
+			"upper_bounds" => ubs,
+			"lower_bounds" => lbs,
+			"times" => times,
+			"num_columns" => columns,
+			"times" => times,
+			"init_time" => time_1,
+		)
+
+		open(out_dir * json_name, "w") do f
+			JSON.print(f, outputs, 4)
+		end
+	catch e
+		println(e)
+	finally
+		close(io)
+	end
+end
+
+

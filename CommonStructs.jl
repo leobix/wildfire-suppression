@@ -55,6 +55,13 @@ function FirePlanData(
 	)
 end
 
+struct GUBKnapsackCut
+	time_ix::Int64
+	fire_coeffs::Dict{Int64, Vector{Float64}}
+	crew_coeffs::Vector{Float64}
+	rhs::Int64
+end
+
 struct GUBCoverCut
 	time_ix::Int64
 	fire_lower_bounds::Dict{Int64, Tuple{Int64, Int8}} # fire : (allotment : coeff)
@@ -77,31 +84,33 @@ function GUBCoverCut(
 	)
 end
 
-struct GUBCoverCutData
+struct GUBCutData
 
-	cut_dict::Dict{Any, GUBCoverCut}
+	cut_dict::Dict{Any, GUBKnapsackCut}
 	cuts_per_time::Vector{Int64}
-	fire_sp_lookup::Dict{Int64, Dict{Tuple{Int64, Int64}, Dict{Int64, Int8}}}
-	crew_sp_lookup::Dict{Int64, Dict{Tuple{Int64, Int64}, Dict{Int64, Int8}}}
-	fire_mp_lookup::Dict{Tuple{Int64, Int64}, Dict{Tuple{Int64, Int64}, Int8}}
-	crew_mp_lookup::Dict{Tuple{Int64, Int64}, Dict{Tuple{Int64, Int64}, Int8}}
+	fire_sp_lookup::Dict{Int64, Dict{Tuple{Int64, Int64}, Dict{Int64, Float64}}}
+	crew_sp_lookup::Dict{Int64, Dict{Tuple{Int64, Int64}, Dict{Int64, Float64}}}
+	fire_mp_lookup::Dict{Tuple{Int64, Int64}, Dict{Tuple{Int64, Int64}, Float64}}
+	crew_mp_lookup::Dict{Tuple{Int64, Int64}, Dict{Tuple{Int64, Int64}, Float64}}
 end
 
 # constructor
-function GUBCoverCutData(num_crews::Int, num_fires::Int, num_time_periods::Int)
+function GUBCutData(num_crews::Int, num_fires::Int, num_time_periods::Int)
 
-	cut_objects = Dict{Any, GUBCoverCut}()
+	cut_objects = Dict{Any, GUBKnapsackCut}()
 	cuts_per_time = [0 for t ∈ 1:num_time_periods]
-	fire_cut_sp_lookup = Dict{Int64, Dict{Tuple{Int64, Int64}, Dict{Int64, Int8}}}()
-	crew_cut_sp_lookup = Dict{Int64, Dict{Tuple{Int64, Int64}, Dict{Int64, Int8}}}()
+	fire_cut_sp_lookup =
+		Dict{Int64, Dict{Tuple{Int64, Int64}, Dict{Int64, Float64}}}()
+	crew_cut_sp_lookup =
+		Dict{Int64, Dict{Tuple{Int64, Int64}, Dict{Int64, Float64}}}()
 	for fire ∈ 1:num_fires
-		fire_cut_sp_lookup[fire] = Dict{Tuple{Int64, Int64}, Dict{Int64, Int8}}()
+		fire_cut_sp_lookup[fire] = Dict{Tuple{Int64, Int64}, Dict{Int64, Float64}}()
 	end
 	for crew ∈ 1:num_crews
-		crew_cut_sp_lookup[crew] = Dict{Tuple{Int64, Int64}, Dict{Int64, Int8}}()
+		crew_cut_sp_lookup[crew] = Dict{Tuple{Int64, Int64}, Dict{Int64, Float64}}()
 	end
 
-	return GUBCoverCutData(
+	return GUBCutData(
 		cut_objects,
 		cuts_per_time,
 		fire_cut_sp_lookup,
@@ -111,8 +120,30 @@ function GUBCoverCutData(num_crews::Int, num_fires::Int, num_time_periods::Int)
 	)
 end
 
-function restrict_GUBCoverCutData(orig::GUBCoverCutData, ixs)
-	cut_objects = Dict(a => b for (a, b) in orig.cut_objects if a in ixs)
+function first_cut_dominates(cut_1::GUBKnapsackCut, cut_2::GUBKnapsackCut)
+
+	if cut_1.time_ix != cut_2.time_ix
+		return false
+	end
+
+	for fire in keys(cut_2.fire_coeffs)
+		if (fire ∉ keys(cut_1.fire_coeffs)) || (any(
+			(cut_2.fire_coeffs[fire] ./ cut_2.rhs) .>
+			(cut_1.fire_coeffs[fire] ./ cut_1.rhs),
+		))
+			return false
+		end
+	end
+	if any((cut_2.crew_coeffs ./ cut_2.rhs) .> (cut_1.crew_coeffs ./ cut_1.rhs))
+		return false
+	end
+
+	return true
+end
+
+
+function restrict_GUBCutData(orig::GUBCutData, ixs)
+	cut_objects = Dict(a => b for (a, b) in orig.cut_dict if a in ixs)
 	cuts_per_time = orig.cuts_per_time
 	fire_sp_lookup = Dict(
 		a => Dict(b => c for (b, c) in orig.fire_sp_lookup[a] if b ∈ ixs) for
@@ -124,11 +155,11 @@ function restrict_GUBCoverCutData(orig::GUBCoverCutData, ixs)
 	)
 	fire_mp_lookup = Dict(a => b for (a, b) in orig.fire_mp_lookup if a ∈ ixs)
 	crew_mp_lookup = Dict(a => b for (a, b) in orig.crew_mp_lookup if a ∈ ixs)
-	return GUBCoverCutData(
+	return GUBCutData(
 		cut_objects,
 		cuts_per_time,
-		fire_cut_sp_lookup,
-		crew_cut_sp_lookup,
+		fire_sp_lookup,
+		crew_sp_lookup,
 		fire_mp_lookup,
 		crew_mp_lookup)
 end

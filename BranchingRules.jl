@@ -101,14 +101,11 @@ function find_fire_sp_arc_lookup(
 	fire_sp::TimeSpaceNetwork,
 )
 
-	TIME_FROM_ = 3
-	CREWS_PRESENT_ = 6
-
 	exceed_arcs = Int64[]
 	for time_ix ∈ eachindex(allotment_by_time)
 		for arc in 1:length(fire_sp.arc_costs)
-			if (fire_sp.long_arcs[arc, TIME_FROM_] == time_ix) &
-			   (fire_sp.long_arcs[arc, CREWS_PRESENT_] > allotment_by_time[time_ix])
+			if (fire_sp.long_arcs[arc, FM.TIME_FROM] == time_ix) &
+			   (fire_sp.long_arcs[arc, FM.CREWS_PRESENT] > allotment_by_time[time_ix])
 				push!(exceed_arcs, arc)
 			end
 		end

@@ -27,7 +27,7 @@ function initialize_data_structures(
 
 	crew_routes = CrewRouteData(100000, num_fires, num_crews, num_time_periods)
 	fire_plans = FirePlanData(100000, num_fires, num_time_periods)
-	cut_data = GUBCoverCutData(num_crews, num_fires, num_time_periods)
+	cut_data = GUBCutData(num_crews, num_fires, num_time_periods)
 
 	rmp = define_restricted_master_problem(
 		GRB_ENV,

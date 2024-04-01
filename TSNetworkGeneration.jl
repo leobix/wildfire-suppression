@@ -20,7 +20,17 @@ module CrewArcArrayIndices
 
 end
 
+module FireArcArrayIndices
+
+	# indices for each crew arc
+	STATE_FROM = 2
+	TIME_FROM = 3
+	CREWS_PRESENT = 6
+	
+end
+
 const CM = CrewArcArrayIndices
+const FM = FireArcArrayIndices
 
 struct LocationAndRestStatus
 

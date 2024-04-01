@@ -445,7 +445,9 @@ function heuristic_upper_bound!!(
 	crew_subproblems::Vector{TimeSpaceNetwork},
 	fire_subproblems::Vector{TimeSpaceNetwork},
 	gub_cut_limit_per_time::Int64,
-	gurobi_env,
+	gurobi_env;
+	routes_best_sol = nothing,
+	plans_best_sol = nothing
 )
 	start_time = time()
 	@info "Finding heuristic upper bound" explored_bb_node.ix
@@ -467,6 +469,27 @@ function heuristic_upper_bound!!(
 			for j ∈ 1:num_fires
 		]
 
+	# add in columns from best solution
+	if ~isnothing(routes_best_sol)
+		for (crew, route) ∈ eachindex(routes_best_sol)
+			if value(routes_best_sol[(crew, route)]) > 0.99
+				if route ∉ crew_ixs[crew]
+					push!(crew_ixs[crew], route) 
+					@info "pushing route best sol"
+				end
+			end
+		end
+
+		for (fire, plan) ∈ eachindex(plans_best_sol)
+			if value(plans_best_sol[(fire, plan)]) > 0.99
+				if plan ∉ fire_ixs[fire]
+					push!(fire_ixs[fire], plan) 
+					@info "pushing plan best sol"
+				end
+			end
+		end
+	end
+
 	# grab any fire and crew branching rules
 	crew_rules = CrewSupplyBranchingRule[]
 	fire_rules = FireDemandBranchingRule[]
@@ -481,8 +504,8 @@ function heuristic_upper_bound!!(
 	global_rules = GlobalFireAllotmentBranchingRule[]
 	ub = Inf
 	ub_rmp = nothing
-	routes = nothing
-	plans = nothing
+	routes = routes_best_sol
+	plans = plans_best_sol
 	rounds_since_improvement = 0
 
 
@@ -527,7 +550,6 @@ function heuristic_upper_bound!!(
 			deleteat!(fire_ixs[fire], to_delete)
 		end
 
-
 		@debug "entering heuristic round" branching_rule.allotment_matrix
 		rmp = define_restricted_master_problem(
 			gurobi_env,
@@ -554,6 +576,28 @@ function heuristic_upper_bound!!(
 			fire_plans,
 			upper_bound = ub)
 		@info "Price and cut time (heuristic)" t 
+
+		# add in columns from best feasible solution so far
+		if ~isnothing(routes)
+
+			# this should usually be unnecessary since we don't often branch on crews
+			for (crew, route) ∈ eachindex(routes)
+				if (routes[(crew, route)] > 0.99) && ((crew, route) ∉ eachindex(rmp.routes))
+					add_column_to_master_problem!!(rmp, cut_data, crew_routes, crew, route)
+					@warn "Adding crew column to heuristic from best feasible solution, why was it dropped?"
+				end
+			end
+
+			for (fire, plan) ∈ eachindex(plans)
+				if (plans[(fire, plan)] > 0.99) && ((fire, plan) ∉ eachindex(rmp.plans))
+					add_column_to_master_problem!!(rmp, cut_data, fire_plans, global_rules, fire, plan) 
+				end
+			end
+		end
+
+		# remove capacity constraint to allow best feasible solution so far
+		set_normalized_rhs.(rmp.fire_allotment_branches, -10000)
+		optimize!(rmp.model)
 
 		crew_ixs = [[i[1] for i in eachindex(rmp.routes[j, :])] for j ∈ 1:num_crews]
 		fire_ixs = [[i[1] for i in eachindex(rmp.plans[j, :])] for j ∈ 1:num_fires]
@@ -608,7 +652,7 @@ function heuristic_upper_bound!!(
 	end
 	@info "Found heuristic upper bound" ub
 
-	return ub, ub_rmp
+	return ub, ub_rmp, routes, plans
 end
 
 

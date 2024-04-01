@@ -64,6 +64,7 @@ function branch_and_price(
 	crew_routes, fire_plans, crew_models, fire_models, cut_data =
 		initialize_data_structures(num_fires, num_crews, num_time_periods)
 
+
 	algo_tracking ?
 	(@info "Checkpoint after initializing data structures" time() - start_time) :
 	nothing
@@ -83,6 +84,8 @@ function branch_and_price(
 	# initialize global variables to track in branch-and-bound tree
 	ub = Inf
 	ub_ix::Int = -1
+	routes_best_sol = nothing
+	plans_best_sol = nothing
 
 	## breadth-first search for now, can get smarter/add options
 
@@ -131,7 +134,7 @@ function branch_and_price(
 
 		if (node_explored_count % heuristic_cadence == 1) &&
 		   (soft_heuristic_time_limit > 0.0)
-			heuristic_ub, ub_rmp = heuristic_upper_bound!!(
+			heuristic_ub, ub_rmp, routes_best_sol, plans_best_sol = heuristic_upper_bound!!(
 				crew_routes,
 				fire_plans,
 				nodes[node_ix],
@@ -142,6 +145,8 @@ function branch_and_price(
 				fire_models,
 				gub_cut_limit_per_time,
 				GRB_ENV,
+				routes_best_sol = routes_best_sol,
+				plans_best_sol = plans_best_sol
 			)
 
 			if time() - start_time > total_time_limit
@@ -164,8 +169,7 @@ function branch_and_price(
 		# 		ub,
 		# 		1200,
 		# 		4000,
-		# 		1.0,)
-			
+		# 		10.0,)			
 		# @info "restore_integrality" t obj obj_bound
 		# if obj < nodes[node_ix].u_bound
 		# 	nodes[node_ix].u_bound = obj
@@ -245,12 +249,14 @@ end
 
 # precompile
 branch_and_price(3, 10, 14, algo_tracking = false)
-Profile.init()
-@profile branch_and_price(6, 20, 14, algo_tracking=true, soft_heuristic_time_limit = 60.0, total_time_limit=1200.0)
-io2 = open("prof.txt", "w")
-Profile.print(io2, mincount=300)
-close(io2)
-close(io)
+branch_and_price(6, 20, 14, algo_tracking=true, soft_heuristic_time_limit = 30.0, heuristic_cadence=5, total_time_limit=1200.0)
+
+# Profile.init()
+# @profile branch_and_price(6, 20, 14, algo_tracking=true, soft_heuristic_time_limit = 30.0, heuristic_cadence=5, total_time_limit=1200.0)
+# io2 = open("prof.txt", "w")
+# Profile.print(io2, mincount=300)
+# close(io2)
+# close(io)
 
 error("done")
 sizes = [(3, 10, 14), (6, 20, 14)]

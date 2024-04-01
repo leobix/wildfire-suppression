@@ -100,7 +100,7 @@ function cut_generating_LP(gurobi_env,
 	available_for_fires = num_crews - length(inactive_crews)
 
 	# define model
-	m = Model(() -> Gurobi.Optimizer(gurobi_env))
+	m = direct_model(Gurobi.Optimizer(gurobi_env))
 	@objective(m, Max, 0)
 	set_optimizer_attribute(m, "OutputFlag", 0)
 
@@ -429,7 +429,8 @@ function find_knapsack_cuts(
 	fire_plans::FirePlanData,
 	rmp::RestrictedMasterProblem,
 	cut_search_limit_per_time::Int64,
-	general_cuts::Bool,
+	gub_cover_cuts::Bool,
+	general_gub_cuts::Bool,
 	single_fire_cuts::Bool,
 )
 
@@ -514,7 +515,7 @@ function find_knapsack_cuts(
 		error("are you sure you want to do this, this did not help in testing")
 	end
 
-	if general_cuts
+	if gub_cover_cuts
 		for t in 1:num_time_periods
 
 			minimal_cuts =
@@ -572,24 +573,25 @@ function find_knapsack_cuts(
 		end
 	end
 
+	if general_gub_cuts
+		for t in 1:num_time_periods
+			if t ∉ [knapsack_cut.time_ix for knapsack_cut ∈ knapsack_gub_cuts]
+				max_viol_cut = cut_generating_LP(GRB_ENV, t, crew_assign[:, :, t], all_fire_allots[:, t])
+				if ~isnothing(max_viol_cut)
 
-	for t in 1:num_time_periods
-		if t ∉ [knapsack_cut.time_ix for knapsack_cut ∈ knapsack_gub_cuts]
-			max_viol_cut = cut_generating_LP(GRB_ENV, t, crew_assign[:, :, t], all_fire_allots[:, t])
-			if ~isnothing(max_viol_cut)
-
-				# TODO all the domination not needed if we keep this outer if clause
-				incorporate_cut = true
-				for cut ∈ knapsack_gub_cuts
-					if first_cut_dominates(cut, max_viol_cut)
-						@debug "cut dominated" cut max_viol_cut
-						incorporate_cut = false
-						break
+					# TODO all the domination not needed if we keep this outer if clause
+					incorporate_cut = true
+					for cut ∈ knapsack_gub_cuts
+						if first_cut_dominates(cut, max_viol_cut)
+							@debug "cut dominated" cut max_viol_cut
+							incorporate_cut = false
+							break
+						end
 					end
-				end
-				if incorporate_cut
-					push!(knapsack_gub_cuts, max_viol_cut)
-					@debug "pushing max viol cglp cut!" max_viol_cut
+					if incorporate_cut
+						push!(knapsack_gub_cuts, max_viol_cut)
+						@debug "pushing max viol cglp cut!" max_viol_cut
+					end
 				end
 			end
 		end
@@ -737,26 +739,10 @@ function push_cut_to_rmp!!(
 		end
 	end
 
-	# TODO this method of forming JuMP expressions tosses a warning
-	# Warning: The addition operator has been used on JuMP expressions a large number of times. 
-	# This warning is safe to ignore but may indicate that model generation 
-	# is slower than necessary. For performance reasons, you should not 
-	# add expressions in a loop. Instead of x += y, use add_to_expression!(x,y) 
-	# to modify x in place. If y is a single variable, you may also use 
-	# add_to_expression!(x, coef, y) for x += coef*y.
-	# But low priority to fix, not the bottleneck
-
-	lhs = []
-	for ix in eachindex(cut_fire_mp_lookup)
-		push!(lhs, cut_fire_mp_lookup[ix] * rmp.plans[ix])
-	end
-
-	for ix in eachindex(cut_crew_mp_lookup)
-		push!(lhs, cut_crew_mp_lookup[ix] * rmp.routes[ix])
-	end
-
 	# update data structures
-	rmp.gub_cover_cuts[cut_time, ix] = @constraint(rmp.model, -sum(lhs) >= -cut_rhs)
+	rmp.gub_cover_cuts[cut_time, ix] = @constraint(rmp.model, - sum(cut_fire_mp_lookup[ix] * rmp.plans[ix] for ix ∈ eachindex(cut_fire_mp_lookup)) 
+															  - sum(cut_crew_mp_lookup[ix] * rmp.routes[ix] for ix ∈ eachindex(cut_crew_mp_lookup)) 
+															  >= -cut_rhs)
 	cut_data.cut_dict[(cut_time, ix)] = cut
 	cut_data.cuts_per_time[cut_time] = ix
 	cut_data.crew_mp_lookup[(cut_time, ix)] = cut_crew_mp_lookup
@@ -771,7 +757,8 @@ function find_and_incorporate_knapsack_gub_cuts!!(
 	fire_plans::FirePlanData,
 	crew_models,
 	fire_models;
-	general_cuts = true,
+	gub_cover_cuts = true,
+	general_gub_cuts = true,
 	single_fire_cuts = false,
 )
 
@@ -784,7 +771,8 @@ function find_and_incorporate_knapsack_gub_cuts!!(
 			fire_plans,
 			rmp,
 			cut_search_limit_per_time,
-			general_cuts,
+			gub_cover_cuts,
+			general_gub_cuts,
 			single_fire_cuts,
 		)
 		num_cuts_found += length(knapsack_cuts)

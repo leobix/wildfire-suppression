@@ -249,14 +249,14 @@ end
 
 # precompile
 branch_and_price(3, 10, 14, algo_tracking = false)
-branch_and_price(6, 20, 14, algo_tracking=true, soft_heuristic_time_limit = 30.0, heuristic_cadence=5, total_time_limit=1200.0)
+# branch_and_price(9, 30, 14, algo_tracking=true, soft_heuristic_time_limit = 90.0, heuristic_cadence=5, gub_cut_limit_per_time = 100000, total_time_limit=1200.0)
 
-# Profile.init()
-# @profile branch_and_price(6, 20, 14, algo_tracking=true, soft_heuristic_time_limit = 30.0, heuristic_cadence=5, total_time_limit=1200.0)
-# io2 = open("prof.txt", "w")
-# Profile.print(io2, mincount=300)
-# close(io2)
-# close(io)
+Profile.init()
+@profile branch_and_price(6, 20, 14, algo_tracking=true, soft_heuristic_time_limit = 0.0, heuristic_cadence=5, total_time_limit=60.0)
+io2 = open("prof.txt", "w")
+Profile.print(io2, mincount=100)
+close(io2)
+close(io)
 
 error("done")
 sizes = [(3, 10, 14), (6, 20, 14)]

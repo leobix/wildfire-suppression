@@ -191,9 +191,10 @@ function price_and_cut!!(
 
 	loop_ix = 1
 	loop_max = 15
-	last_num_cuts = 0
-	general_cuts = true
+	gub_cover_cuts = true
+	general_gub_cuts = true
 	single_fire_cuts = false
+	most_recent_obj = 0
 
 	while loop_ix < loop_max
 		# run DCG, adding columns as needed
@@ -213,7 +214,15 @@ function price_and_cut!!(
 			@debug "no more cuts needed"
 			break
 		end
-		@info "in cut generation" loop_ix objective_value(rmp.model)
+
+		current_obj = objective_value(rmp.model)
+		@debug "in cut generation" loop_ix current_obj
+		if most_recent_obj / current_obj > 1 - 1e-8
+			@info "halting cut generation early, too small improvement" loop_ix
+			break
+		end
+		most_recent_obj = current_obj
+
 		# add cuts
 		num_cuts = find_and_incorporate_knapsack_gub_cuts!!(
 			cut_data,
@@ -223,11 +232,12 @@ function price_and_cut!!(
 			fire_plans,
 			crew_subproblems,
 			fire_subproblems,
-			general_cuts = general_cuts,
+			gub_cover_cuts = gub_cover_cuts,
+			general_gub_cuts = general_gub_cuts,
 			single_fire_cuts = single_fire_cuts
 		)
 		@debug "after cuts" num_cuts objective_value(rmp.model)
-		if (last_num_cuts == 0) && (num_cuts == 0)
+		if (num_cuts == 0)
 			@debug "No cuts found, breaking" loop_ix
 			break
 		end
@@ -235,19 +245,16 @@ function price_and_cut!!(
 		if num_cuts == 0
 			@debug "No cuts found, breaking" loop_ix
 			break
-			# general_cuts = ~general_cuts
-			# single_fire_cuts = ~single_fire_cuts
+
 		end
 
-		last_num_cuts = num_cuts
 		loop_ix += 1
 
 	end
 
-	@info "cut loops" loop_ix
 	# if we got completely through all the loop of cut generation
 	if loop_ix == loop_max
-		@info "There may be more cuts; one last DCG to have provable lower bound"
+		@info "There may be more cuts; one last DCG to have provable lower bound" loop_ix
 		double_column_generation!(
 			rmp,
 			crew_subproblems,
@@ -262,7 +269,7 @@ function price_and_cut!!(
 		)
 	end
 
-	@info "After price-and-cut" objective_value(rmp.model)
+	@debug "After price-and-cut" objective_value(rmp.model)
 	@debug "Afer price-and-cut" length(eachindex(rmp.routes)) length(
 		eachindex(rmp.plans),
 	) length([i for i in eachindex(rmp.plans) if reduced_cost(rmp.plans[i]) < 1e-2]) length([
@@ -794,13 +801,7 @@ function explore_node!!(
 	branch_and_bound_node.master_problem = rmp
 
 	all_fire_allots, all_crew_allots = extract_usages(crew_routes, fire_plans, rmp)
-	@info "usages" all_fire_allots all_crew_allots
-
-	# fire_alloc, crew_alloc = get_fire_and_crew_incumbent_weighted_average(
-	# 	rmp,
-	# 	crew_routes,
-	# 	fire_plans,
-	# )
+	@debug "usages" all_fire_allots all_crew_allots
 
 	# update the branch-and-bound node to be feasible or not
 	if rmp.termination_status == MOI.INFEASIBLE
@@ -820,7 +821,7 @@ function explore_node!!(
 		route_values = value.(rmp.routes)
 
 		if restore_integrality
-			error("Doing this here messes up heuristic upper bound")
+			error("Doing this here loses rmp duals")
 			# t = @elapsed obj, obj_bound, routes, plans =
 			# 	find_integer_solution(
 			# 		rmp,
@@ -849,6 +850,7 @@ function explore_node!!(
 
 		# TODO think about branching rules
 
+		@info "duals" value.(rmp.supply_demand_linking)
 		# decide the next branching rules
 		branch_type, branch_ix, var_variance, var_mean =
 			max_variance_natural_variable(
@@ -924,15 +926,3 @@ function explore_node!!(
 
 	return used_plans, used_routes, binding_cuts
 end
-
-
-
-
-function test_BranchAndBoundNode()
-
-	bb_node = BranchAndBoundNode(ix = 1, parent = nothing)
-	println(bb_node)
-
-end
-
-# test_BranchAndBoundNode()

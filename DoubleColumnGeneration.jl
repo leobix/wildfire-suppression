@@ -28,7 +28,7 @@ function define_restricted_master_problem(
 	num_crews, _, num_fires, num_time_periods = size(crew_route_data.fires_fought)
 
 	# inititalze JuMP model
-	m = Model(() -> Gurobi.Optimizer(gurobi_env))
+	m = direct_model(Gurobi.Optimizer(gurobi_env))
 	set_optimizer_attribute(m, "OptimalityTol", 1e-9)
 	set_optimizer_attribute(m, "FeasibilityTol", 1e-9)
 	set_optimizer_attribute(m, "OutputFlag", 0)
@@ -737,16 +737,14 @@ function double_column_generation!(
 				end
 			end
 
-			# if no new column added, we have proof of optimality
+		# if no new column added, we have proof of optimality
 		else
+			# re-optimze for JuMP reasons (access attrs) just in case we added a column 
+			# but then stopped due to too small reduced cost improvement
+			optimize!(rmp.model)
 			rmp.termination_status = MOI.LOCALLY_SOLVED
 			@debug "RMP stats with no more columns found" iteration objective_value(
 				rmp.model,
-			)
-			fire_allots, crew_allots = get_fire_and_crew_incumbent_weighted_average(
-				rmp,
-				crew_routes,
-				fire_plans,
 			)
 		end
 	end

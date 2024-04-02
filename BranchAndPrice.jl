@@ -187,13 +187,15 @@ function price_and_cut!!(
 	global_fire_allotment_rules::Vector{GlobalFireAllotmentBranchingRule},
 	crew_routes::CrewRouteData,
 	fire_plans::FirePlanData;
-	upper_bound::Float64 = 1e20)
+	upper_bound::Float64 = 1e20,
+	gub_cover_cuts = true,
+	general_gub_cuts = true,
+	single_fire_cuts = false
+	)
 
 	loop_ix = 1
 	loop_max = 15
-	gub_cover_cuts = true
-	general_gub_cuts = true
-	single_fire_cuts = false
+
 	most_recent_obj = 0
 
 	while loop_ix < loop_max
@@ -675,7 +677,10 @@ function explore_node!!(
 	warm_start_strategy::Union{String, Nothing},
 	gurobi_env;
 	rel_tol = 1e-9,
-	restore_integrality = false)
+	restore_integrality = false,
+	gub_cover_cuts=true,
+	general_gub_cuts=true,
+	single_fire_cuts=false)
 
 	@info "Exploring node" branch_and_bound_node.ix
 
@@ -778,7 +783,11 @@ function explore_node!!(
 		global_rules,
 		crew_routes,
 		fire_plans,
-		upper_bound = current_global_upper_bound)
+		upper_bound = current_global_upper_bound,
+		gub_cover_cuts=gub_cover_cuts,
+		general_gub_cuts=general_gub_cuts,
+		single_fire_cuts=single_fire_cuts)
+
 	@info "Price and cut time (b-and-b)" t
 	@debug "after price and cut" objective_value(rmp.model) crew_routes.routes_per_crew fire_plans.plans_per_fire
 
@@ -850,7 +859,7 @@ function explore_node!!(
 
 		# TODO think about branching rules
 
-		@info "duals" value.(rmp.supply_demand_linking)
+		@debug "duals" value.(rmp.supply_demand_linking)
 		# decide the next branching rules
 		branch_type, branch_ix, var_variance, var_mean =
 			max_variance_natural_variable(

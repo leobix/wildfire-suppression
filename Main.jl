@@ -255,7 +255,7 @@ end
 
 # precompile
 branch_and_price(3, 10, 14, algo_tracking=false)
-branch_and_price(9, 30, 14, algo_tracking=true, soft_heuristic_time_limit=90.0, heuristic_cadence=5, gub_cut_limit_per_time=100000, total_time_limit=120.0)
+# branch_and_price(9, 30, 14, algo_tracking=true, soft_heuristic_time_limit=90.0, heuristic_cadence=5, gub_cut_limit_per_time=100000, total_time_limit=120.0)
 
 # Profile.init()
 # @profile branch_and_price(6, 20, 14, algo_tracking=true, soft_heuristic_time_limit=20.0, heuristic_cadence=5, total_time_limit=60.0)
@@ -265,8 +265,8 @@ branch_and_price(9, 30, 14, algo_tracking=true, soft_heuristic_time_limit=90.0, 
 close(io)
 
 error("done")
-sizes = [(3, 10, 14), (6, 20, 14)]
-# sizes = [(3, 10, 14), (6, 20, 14), (9, 30, 14), (12, 40, 14), (15, 50, 14)]
+# sizes = [(3, 10, 14)]
+sizes = [(3, 10, 14), (6, 20, 14), (9, 30, 14), (12, 40, 14), (15, 50, 14)]
 cut_limits = [10000, 0]
 heuristic_time_limits = [180.0, 0.0]
 cglps = [true, false]
@@ -276,7 +276,7 @@ for (problem_size, cut_limit, heuristic_time_limit, cglp) ∈ product(sizes, cut
 
     (g, c, t) = problem_size
     heuristic_enabled = heuristic_time_limit > 0.0
-    file_name = string(c) * "_" * string(cut_limit) * "_heuristic_" * string(heuristic_enabled)
+    file_name = string(c) * "_" * string(cut_limit) * "_heuristic_" * string(heuristic_enabled) * "_cglp_" * string(cglp)
     local io = open(out_dir * "logs_" * file_name * ".txt", "w")
     if args["debug"] == true
         global_logger(ConsoleLogger(io, Logging.Debug, show_limited=false))

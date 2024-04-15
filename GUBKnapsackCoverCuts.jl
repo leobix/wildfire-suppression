@@ -101,7 +101,8 @@ function cut_generating_LP(gurobi_env,
 
 	# define model
 	m = direct_model(Gurobi.Optimizer(gurobi_env))
-	@objective(m, Max, 0)
+	rhs = @variable(m, x >= 0)
+	@objective(m, Max, -rhs)
 	set_optimizer_attribute(m, "OutputFlag", 0)
 
 	# define decision variables
@@ -125,7 +126,8 @@ function cut_generating_LP(gurobi_env,
 			vars[fire, allot] = @variable(
 				m,
 				base_name = "coeff[$fire,$allot]",
-				lower_bound = 0
+				lower_bound = 0,
+				upper_bound = 1,
 			)
 			set_objective_coefficient(
 				m,
@@ -172,12 +174,16 @@ function cut_generating_LP(gurobi_env,
 						costs[fires_to_consider[ix]][fire_ix],
 					] for (ix, fire_ix) in enumerate(ix_per_fire) if fire_ix > 0
 				) <=
-				1
+				rhs
 			)
 		end
 	end
 	optimize!(m)
-	if has_values(m) && (objective_value(m) > 1 + 1e-2)
+	if has_values(m) && (objective_value(m) > 1e-2)
+		if minimum(value.(vars)) < -1e-2
+			print(value.(vars))
+			error("negative")
+		
 		num_crews_in_cut = length(inactive_crews)
 		crew_coeffs = [j ∈ inactive_crews ? 1.0 : 0.0 for j ∈ 1:num_crews]
 		fire_coeffs = Dict{Int64, Vector{Float64}}()
@@ -198,9 +204,9 @@ function cut_generating_LP(gurobi_env,
 			time_ix,
 			fire_coeffs,
 			crew_coeffs,
-			1 + num_crews_in_cut,
+			value(rhs) + num_crews_in_cut,
 		)
-		@debug "CGLP helped!" cut
+		@info "CGLP helped!" cut
 		return cut
 	end
 	@debug "cglp model" length(cartesian_product)

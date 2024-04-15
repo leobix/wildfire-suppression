@@ -218,7 +218,7 @@ function price_and_cut!!(
 		end
 
 		current_obj = objective_value(rmp.model)
-		@debug "in cut generation" loop_ix current_obj
+		@info "in cut generation" loop_ix current_obj
 		if most_recent_obj / current_obj > 1 - 1e-8
 			@info "halting cut generation early, too small improvement" loop_ix
 			break
@@ -810,7 +810,7 @@ function explore_node!!(
 	branch_and_bound_node.master_problem = rmp
 
 	all_fire_allots, all_crew_allots = extract_usages(crew_routes, fire_plans, rmp)
-	@debug "usages" all_fire_allots all_crew_allots
+	@info "usages" all_fire_allots all_crew_allots
 
 	# update the branch-and-bound node to be feasible or not
 	if rmp.termination_status == MOI.INFEASIBLE

@@ -59,7 +59,7 @@ struct GUBKnapsackCut
 	time_ix::Int64
 	fire_coeffs::Dict{Int64, Vector{Float64}}
 	crew_coeffs::Vector{Float64}
-	rhs::Int64
+	rhs::Union{Int64, Float64}
 end
 
 struct GUBCoverCut

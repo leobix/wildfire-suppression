@@ -255,7 +255,7 @@ end
 
 # precompile
 branch_and_price(3, 10, 14, algo_tracking=false)
-# branch_and_price(9, 30, 14, algo_tracking=true, soft_heuristic_time_limit=90.0, heuristic_cadence=5, gub_cut_limit_per_time=100000, total_time_limit=120.0)
+branch_and_price(6, 20, 14, algo_tracking=true, soft_heuristic_time_limit=0.0, gub_cut_limit_per_time=100000, total_time_limit=60.0)
 
 # Profile.init()
 # @profile branch_and_price(6, 20, 14, algo_tracking=true, soft_heuristic_time_limit=20.0, heuristic_cadence=5, total_time_limit=60.0)

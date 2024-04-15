@@ -75,7 +75,7 @@ function get_adjusted_crew_arc_costs(
 
 	for rule ∈ branching_rules
 		for arc ∈ 1:size(long_arcs)[1]
-			if (long_arcs[arc, CM.TIME_TO] == rule.time_ix) & (long_arcs[i, CM.TO_TYPE] == CM.FIRE_CODE) & (long_arcs[i, CM.LOC_TO] == rule.fire_ix)
+			if (long_arcs[arc, CM.TIME_TO] == rule.time_ix) & (long_arcs[arc, CM.TO_TYPE] == CM.FIRE_CODE) & (long_arcs[arc, CM.LOC_TO] == rule.fire_ix)
 				if ~satisfies_branching_rule(rule, true)
 					prohibited_arcs[arc] = true
 				end

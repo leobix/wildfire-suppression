@@ -62,27 +62,6 @@ struct GUBKnapsackCut
 	rhs::Union{Int64, Float64}
 end
 
-struct GUBCoverCut
-	time_ix::Int64
-	fire_lower_bounds::Dict{Int64, Tuple{Int64, Int8}} # fire : (allotment : coeff)
-	inactive_crews::Vector{Int64}
-	rhs::Int64
-end
-
-function GUBCoverCut(
-	time_ix::Int64,
-	fire_lower_bounds::Dict{Int64, Int64},
-	inactive_crews::Vector{Int64},
-	rhs::Int64,
-)
-
-	return GUBCoverCut(
-		time_ix,
-		Dict(key => (fire_lower_bounds[key], 1) for key in keys(fire_lower_bounds)),
-		inactive_crews,
-		rhs,
-	)
-end
 
 struct GUBCutData
 

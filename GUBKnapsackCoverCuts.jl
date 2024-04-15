@@ -106,7 +106,7 @@ function cut_generating_LP(gurobi_env,
 	set_optimizer_attribute(m, "OutputFlag", 0)
 
 	# define decision variables
-	vars = @variable(m, coeff[fire ∈ 1:1, allot ∈ 1:1; 0 != 0] >= 0)
+	vars = @variable(m, coeff[fire ∈ 1:1, allot ∈ 1:1; 0 != 0])
 	costs = []
 	for fire in eachindex(fire_allots)
 		specific_fire_allots = fire_allots[fire]
@@ -126,7 +126,6 @@ function cut_generating_LP(gurobi_env,
 			vars[fire, allot] = @variable(
 				m,
 				base_name = "coeff[$fire,$allot]",
-				lower_bound = 0,
 				upper_bound = 1,
 			)
 			set_objective_coefficient(
@@ -183,6 +182,7 @@ function cut_generating_LP(gurobi_env,
 		if minimum(value.(vars)) < -1e-2
 			print(value.(vars))
 			error("negative")
+		end
 		
 		num_crews_in_cut = length(inactive_crews)
 		crew_coeffs = [j ∈ inactive_crews ? 1.0 : 0.0 for j ∈ 1:num_crews]
@@ -191,11 +191,11 @@ function cut_generating_LP(gurobi_env,
 			cost = value(vars[fire, allot])
 			if cost > 1e-20
 				if fire ∉ keys(fire_coeffs)
-					fire_coeffs[fire] = zeros(Float64, num_crews)
+					fire_coeffs[fire] = zeros(Float64, num_crews + 1)
 				end
-				for j ∈ eachindex(fire_coeffs[fire])
+				for j ∈ 0:num_crews
 					if j >= allot
-						fire_coeffs[fire][j] = max(cost, fire_coeffs[fire][j])
+						fire_coeffs[fire][j+1] = max(cost, fire_coeffs[fire][j+1])
 					end
 				end
 			end
@@ -490,34 +490,6 @@ function find_knapsack_cuts(
 	end
 
 	if single_fire_cuts
-		# crew_assign = get_crew_incumbent_weighted_average(rmp, crew_routes)
-		# @info "crew_assign" crew_assign
-		# cdf_crew_assign =
-		# 	mapslices(cumsum, mapslices(sort, crew_assign, dims = 1), dims = 1)
-		# argsort_crew_assign = mapslices(sortperm, crew_assign, dims = 1)
-		# cuts = find_single_fire_knapsack_cuts(
-		# 	all_fire_allots,
-		# 	cdf_crew_assign,
-		# 	argsort_crew_assign,
-		# )
-		# for cut in cuts
-		# 	orig_fire_allots = cut[3]
-		# 	unused_crews = cut[4]
-		# 	fire_allot_dict = Dict(
-		# 		ix => orig_fire_allots[ix] for
-		# 		ix in eachindex(orig_fire_allots) if orig_fire_allots[ix] > 0
-		# 	)
-		# 	num_crews_in_cut = length(unused_crews)
-
-		# 	gub_cut = GUBCoverCut(
-		# 		cut[5],
-		# 		fire_allot_dict,
-		# 		unused_crews,
-		# 		length(keys(fire_allot_dict)) + num_crews_in_cut - 1,
-		# 	)
-		# 	push!(knapsack_gub_cuts, gub_cut)
-		# end
-
 		error("are you sure you want to do this, this did not help in testing")
 	end
 
@@ -542,25 +514,25 @@ function find_knapsack_cuts(
 					)
 				fire_allot_dict = Dict(
 					ix => adjusted_cut[ix] for
-					ix in eachindex(orig_fire_allots) if orig_fire_allots[ix] > 0
+					ix in eachindex(orig_fire_allots)
 				)
 				num_crews_in_cut = length(unused_crews)
 
 				crew_coeffs = [j ∈ unused_crews ? 1.0 : 0.0 for j ∈ 1:num_crews]
 				fire_coeffs = Dict(
-					fire => zeros(Float64, num_crews) for
+					fire => zeros(Float64, num_crews + 1) for
 					fire ∈ keys(fire_allot_dict)
 				)
 				for fire in keys(fire_coeffs)
-					for j ∈ 1:num_crews
+					for j ∈ 0:num_crews
 						if j >= fire_allot_dict[fire]
-							fire_coeffs[fire][j] = 1.0
+							fire_coeffs[fire][j+1] = 1.0
 
 							# lift coefficients for fires in special case of 1 fire involved only
 							if length(keys(fire_coeffs)) == 1
 
 								# based on the number of crews involved in the cut, we can lift
-								fire_coeffs[fire][j] +=
+								fire_coeffs[fire][j+1] +=
 									min(j - fire_allot_dict[fire], num_crews_in_cut)
 							end
 						end
@@ -640,12 +612,12 @@ function incorporate_gub_cover_cuts_into_fire_subproblem!(
 							i,
 							FM.CREWS_PRESENT,
 						]
-						if (crews_present > 0) 
-							cost = cut.fire_coeffs[fire][crews_present]
-							if cost > 1e-20
-								costs[i] = cost
-							end
+
+						cost = cut.fire_coeffs[fire][crews_present + 1]
+						if cost > 1e-20
+							costs[i] = cost
 						end
+
 					end
 				end
 			end
@@ -700,9 +672,7 @@ function update_cut_fire_mp_lookup!(
 		cut.time_ix,
 	]
 	cut_coeff = 0.0
-	if crews_present > 0
-		cut_coeff = cut.fire_coeffs[fire][crews_present]
-	end
+	cut_coeff = cut.fire_coeffs[fire][crews_present + 1]
 	if cut_coeff > 1e-20
 		cut_fire_mp_lookup[(fire, plan_ix)] = cut_coeff
 		return true

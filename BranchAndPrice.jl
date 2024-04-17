@@ -213,6 +213,11 @@ function price_and_cut!!(
 
 	while loop_ix < loop_max
 
+		if time() - t > 1200
+			@info "cut time limit"
+			break
+		end
+
 		# run DCG, adding columns as needed
 		double_column_generation!(
 			rmp,

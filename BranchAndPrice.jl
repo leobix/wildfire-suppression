@@ -195,12 +195,16 @@ function price_and_cut!!(
 	upper_bound::Float64 = 1e20,
 	loop_max=15,
 	relative_improvement_cut_req=1e-8,
-	log_times_file = nothing,
+	log_progress_file = nothing,
 	)
 
-	if ~isnothing(log_times_file)
+	if ~isnothing(log_progress_file)
 		ts = []
 		objs = []
+		num_routes = []
+		num_plans = []
+		num_cuts_found = []
+		active_cuts = []
 	end
 
 	t = time()
@@ -228,12 +232,16 @@ function price_and_cut!!(
 		end
 
 		current_obj = objective_value(rmp.model)
-		if ~isnothing(log_times_file)
+		if ~isnothing(log_progress_file)
 			push!(ts, time() - t)
 			push!(objs, current_obj)
+			push!(num_routes, sum(crew_routes.routes_per_crew))
+			push!(num_plans, sum(fire_plans.plans_per_fire))
+			push!(num_cuts_found, sum(cut_data.cuts_per_time))
+			push!(active_cuts, sum([1 for i in eachindex(rmp.gub_cover_cuts) if dual(rmp.gub_cover_cuts[i]) > 1e-4]))
 		end
 
-		@info "in cut generation" loop_ix current_obj
+		@debug "in cut generation" loop_ix current_obj
 		if most_recent_obj / current_obj > 1 - relative_improvement_cut_req
 			@info "halting cut generation early, too small improvement" loop_ix
 			break
@@ -288,18 +296,27 @@ function price_and_cut!!(
 		)
 
 		current_obj = objective_value(rmp.model)
-		if ~isnothing(log_times_file)
+		if ~isnothing(log_progress_file)
 			push!(ts, time() - t)
 			push!(objs, current_obj)
+			push!(num_routes, sum(crew_routes.routes_per_crew))
+			push!(num_plans, sum(fire_plans.plans_per_fire))
+			push!(num_cuts_found, sum(cut_data.cuts_per_time))
+			push!(active_cuts, sum([1 for i in eachindex(rmp.gub_cover_cuts) if dual(rmp.gub_cover_cuts[i]) > 1e-4]))
+
 		end
 	end
 
-	if ~isnothing(log_times_file)
+	if ~isnothing(log_progress_file)
 		outputs = Dict(
 			"times" => ts,
-			"objectives" => objs
+			"objectives" => objs,
+			"num_routes" => num_routes,
+			"num_plans" => num_plans,
+			"num_cuts" => num_cuts_found,
+			"num_active_cuts" => active_cuts
 		)
-		open(log_times_file, "w") do f
+		open(log_progress_file, "w") do f
 			JSON.print(f, outputs, 4)
 		end
 	end
@@ -723,6 +740,7 @@ function explore_node!!(
 	single_fire_cuts,
 	decrease_gub_allots,
 	single_fire_lift,
+	log_cuts_file,
 	rel_tol = 1e-9,
 	restore_integrality=false)
 
@@ -834,7 +852,8 @@ function explore_node!!(
 		general_gub_cuts=general_gub_cuts,
 		single_fire_cuts=single_fire_cuts,
 		decrease_gub_allots=decrease_gub_allots,
-		single_fire_lift=single_fire_lift)
+		single_fire_lift=single_fire_lift,
+		log_progress_file=log_cuts_file)
 
 	@info "Price and cut time (b-and-b)" t
 	@debug "after price and cut" objective_value(rmp.model) crew_routes.routes_per_crew fire_plans.plans_per_fire
@@ -858,7 +877,7 @@ function explore_node!!(
 	branch_and_bound_node.master_problem = rmp
 
 	all_fire_allots, all_crew_allots = extract_usages(crew_routes, fire_plans, rmp)
-	@info "usages" all_fire_allots all_crew_allots
+	@debug "usages" all_fire_allots all_crew_allots
 
 	# update the branch-and-bound node to be feasible or not
 	if rmp.termination_status == MOI.INFEASIBLE

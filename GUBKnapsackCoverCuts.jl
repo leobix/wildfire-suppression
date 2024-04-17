@@ -88,7 +88,8 @@ end
 function cut_generating_LP(gurobi_env,
     time_ix::Int64,
     crew_allots::Matrix{Float64},
-    fire_allots::Vector{Vector{Tuple}})
+    fire_allots::Vector{Vector{Tuple}},
+    gub_cut_limit_per_time::Int64)
 
     crew_usages = vec(mapslices(sum, crew_allots, dims=2))
 
@@ -150,7 +151,7 @@ function cut_generating_LP(gurobi_env,
         push!(allotment_option_ixs, [i for i in 0:length(fire_allots[fire])])
     end
     cartesian_product = product(allotment_option_ixs...)
-    if length(cartesian_product) > 10000
+    if length(cartesian_product) > gub_cut_limit_per_time
         @info "CGLP too big, returning"
         return
     end
@@ -561,7 +562,7 @@ function find_knapsack_cuts(
     if general_gub_cuts
         for t in 1:num_time_periods
             if t ∉ [knapsack_cut.time_ix for knapsack_cut ∈ knapsack_gub_cuts]
-                max_viol_cut = cut_generating_LP(GRB_ENV, t, crew_assign[:, :, t], all_fire_allots[:, t])
+                max_viol_cut = cut_generating_LP(GRB_ENV, t, crew_assign[:, :, t], all_fire_allots[:, t], cut_search_limit_per_time)
                 if ~isnothing(max_viol_cut)
 
                     # TODO all the domination not needed if we keep this outer if clause

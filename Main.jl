@@ -52,23 +52,24 @@ function branch_and_price(
     max_nodes=10000,
     algo_tracking=false,
     gub_cut_limit_per_time=10000,
-    cut_loop_max=20,
-    relative_improvement_cut_req=1e-20,
+    cut_loop_max=15,
+    relative_improvement_cut_req=1e-8,
     soft_heuristic_time_limit=300.0,
     hard_heuristic_iteration_limit=10,
     heuristic_must_improve_rounds=2,
     heuristic_cadence=10,
-    total_time_limit=1200.0,
+    total_time_limit=1800.0,
     bb_node_gub_cover_cuts=true,
     bb_node_general_gub_cuts=true,
     bb_node_single_fire_cuts=false,
-	bb_node_decrease_gub_allots=true,
-	bb_node_single_fire_lift=true,
+    bb_node_decrease_gub_allots=true,
+    bb_node_single_fire_lift=true,
     heuristic_gub_cover_cuts=true,
-	heuristic_general_gub_cuts=true,
-	heuristic_single_fire_cuts=false,
-	heuristic_decrease_gub_allots=true,
-	heuristic_single_fire_lift=true,
+    heuristic_general_gub_cuts=true,
+    heuristic_single_fire_cuts=false,
+    heuristic_decrease_gub_allots=true,
+    heuristic_single_fire_lift=true,
+    price_and_cut_file=nothing
 )
     start_time = time()
 
@@ -144,7 +145,8 @@ function branch_and_price(
             general_gub_cuts=bb_node_general_gub_cuts,
             single_fire_cuts=bb_node_single_fire_cuts,
             decrease_gub_allots=bb_node_decrease_gub_allots,
-            single_fire_lift=bb_node_single_fire_lift
+            single_fire_lift=bb_node_single_fire_lift,
+            log_cuts_file=price_and_cut_file,
         )
 
         if time() - start_time > total_time_limit
@@ -249,8 +251,6 @@ function branch_and_price(
             end
         end
 
-        println(node_explored_count)
-        println(max_nodes)
         if node_explored_count >= max_nodes
             @info "Hit node limit, breaking" node_explored_count
             break
@@ -281,9 +281,63 @@ else
     global_logger(ConsoleLogger(io, Logging.Info, show_limited=false))
 end
 
+##########
+# ROOT NODE CUT EXPERIMENT #
+##########
+
+params = Dict()
+params["gub_only"] = Dict(:bb_node_gub_cover_cuts => true,
+    :bb_node_general_gub_cuts => false,
+    :bb_node_decrease_gub_allots => false,
+    :bb_node_single_fire_lift => false
+)
+params["gub_plus_strengthen"] = Dict(:bb_node_gub_cover_cuts => true,
+    :bb_node_general_gub_cuts => false,
+    :bb_node_decrease_gub_allots => true,
+    :bb_node_single_fire_lift => true
+)
+params["cglp_only"] = Dict(:bb_node_gub_cover_cuts => false,
+    :bb_node_general_gub_cuts => true,
+    :bb_node_decrease_gub_allots => false,
+    :bb_node_single_fire_lift => false
+)
+params["everything"] = Dict(:bb_node_gub_cover_cuts => true,
+    :bb_node_general_gub_cuts => true,
+    :bb_node_decrease_gub_allots => true,
+    :bb_node_single_fire_lift => true
+)
+
 # precompile
 branch_and_price(3, 10, 14, algo_tracking=false)
-branch_and_price(6, 20, 14, algo_tracking=true, soft_heuristic_time_limit=0.0, gub_cut_limit_per_time=100000, total_time_limit=60.0, max_nodes=1)
+for (key, param_set) in params
+    branch_and_price(3, 10, 14, 
+        algo_tracking=true, 
+        soft_heuristic_time_limit=0.0, 
+        gub_cut_limit_per_time=100000, 
+        max_nodes=1, 
+        cut_loop_max=100, 
+        relative_improvement_cut_req=1e-25, 
+        price_and_cut_file="data/experiment_outputs/20240416/" * key * "_cut_progress_precompile.json"; 
+        param_set...)
+end
+
+# experiment
+sizes = [(3, 10, 14), (6, 20, 14), (9, 30, 14), (12, 40, 14), (15, 50, 14)]
+sizes = [(6, 20, 14)]
+for (g, c, t) ∈ sizes
+    for (key, param_set) in params
+        branch_and_price(g, c, t, 
+            algo_tracking=true, 
+            soft_heuristic_time_limit=0.0, 
+            gub_cut_limit_per_time=100000, 
+            max_nodes=1, 
+            cut_loop_max=100, 
+            relative_improvement_cut_req=1e-25, 
+            price_and_cut_file="data/experiment_outputs/20240416/" * key * "_cut_progress_" * string(g) * ".json"; 
+            param_set...)
+    end
+end
+
 
 # Profile.init()
 # @profile branch_and_price(6, 20, 14, algo_tracking=true, soft_heuristic_time_limit=20.0, heuristic_cadence=5, total_time_limit=60.0)

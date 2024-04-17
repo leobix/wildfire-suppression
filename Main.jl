@@ -49,8 +49,11 @@ function branch_and_price(
     num_fires::Int,
     num_crews::Int,
     num_time_periods::Int;
+    max_nodes=10000,
     algo_tracking=false,
     gub_cut_limit_per_time=10000,
+    cut_loop_max=20,
+    relative_improvement_cut_req=1e-20,
     soft_heuristic_time_limit=300.0,
     hard_heuristic_iteration_limit=10,
     heuristic_must_improve_rounds=2,
@@ -59,6 +62,13 @@ function branch_and_price(
     bb_node_gub_cover_cuts=true,
     bb_node_general_gub_cuts=true,
     bb_node_single_fire_cuts=false,
+	bb_node_decrease_gub_allots=true,
+	bb_node_single_fire_lift=true,
+    heuristic_gub_cover_cuts=true,
+	heuristic_general_gub_cuts=true,
+	heuristic_single_fire_cuts=false,
+	heuristic_decrease_gub_allots=true,
+	heuristic_single_fire_lift=true,
 )
     start_time = time()
 
@@ -128,9 +138,13 @@ function branch_and_price(
             nothing,
             GRB_ENV,
             restore_integrality=false,
+            cut_loop_max=cut_loop_max,
+            relative_improvement_cut_req=relative_improvement_cut_req,
             gub_cover_cuts=bb_node_gub_cover_cuts,
             general_gub_cuts=bb_node_general_gub_cuts,
-            single_fire_cuts=bb_node_single_fire_cuts
+            single_fire_cuts=bb_node_single_fire_cuts,
+            decrease_gub_allots=bb_node_decrease_gub_allots,
+            single_fire_lift=bb_node_single_fire_lift
         )
 
         if time() - start_time > total_time_limit
@@ -152,7 +166,14 @@ function branch_and_price(
                 gub_cut_limit_per_time,
                 GRB_ENV,
                 routes_best_sol=routes_best_sol,
-                plans_best_sol=plans_best_sol
+                plans_best_sol=plans_best_sol,
+                cut_loop_max=cut_loop_max,
+                relative_improvement_cut_req=relative_improvement_cut_req,
+                gub_cover_cuts=heuristic_gub_cover_cuts,
+                general_gub_cuts=heuristic_general_gub_cuts,
+                single_fire_cuts=heuristic_single_fire_cuts,
+                decrease_gub_allots=heuristic_decrease_gub_allots,
+                single_fire_lift=heuristic_single_fire_lift
             )
 
             if time() - start_time > total_time_limit
@@ -227,6 +248,13 @@ function branch_and_price(
                 push!(node_lbs, -Inf)
             end
         end
+
+        println(node_explored_count)
+        println(max_nodes)
+        if node_explored_count >= max_nodes
+            @info "Hit node limit, breaking" node_explored_count
+            break
+        end
     end
 
     return explored_nodes, ubs, lbs, columns, times, time_1
@@ -255,7 +283,7 @@ end
 
 # precompile
 branch_and_price(3, 10, 14, algo_tracking=false)
-branch_and_price(6, 20, 14, algo_tracking=true, soft_heuristic_time_limit=0.0, gub_cut_limit_per_time=100000, total_time_limit=60.0)
+branch_and_price(6, 20, 14, algo_tracking=true, soft_heuristic_time_limit=0.0, gub_cut_limit_per_time=100000, total_time_limit=60.0, max_nodes=1)
 
 # Profile.init()
 # @profile branch_and_price(6, 20, 14, algo_tracking=true, soft_heuristic_time_limit=20.0, heuristic_cadence=5, total_time_limit=60.0)

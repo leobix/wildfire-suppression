@@ -2,7 +2,7 @@ include("CommonStructs.jl")
 include("BranchingRules.jl")
 include("GUBKnapsackCoverCuts.jl")
 
-using Gurobi, Statistics
+using Gurobi, Statistics, JSON
 
 mutable struct MutGRBsvec
     len::Cint
@@ -187,18 +187,28 @@ function price_and_cut!!(
 	global_fire_allotment_rules::Vector{GlobalFireAllotmentBranchingRule},
 	crew_routes::CrewRouteData,
 	fire_plans::FirePlanData;
+	gub_cover_cuts,
+	general_gub_cuts,
+	single_fire_cuts,
+	decrease_gub_allots,
+	single_fire_lift,
 	upper_bound::Float64 = 1e20,
-	gub_cover_cuts = true,
-	general_gub_cuts = true,
-	single_fire_cuts = false
+	loop_max=15,
+	relative_improvement_cut_req=1e-8,
+	log_times_file = nothing,
 	)
 
-	loop_ix = 1
-	loop_max = 15
+	if ~isnothing(log_times_file)
+		ts = []
+		objs = []
+	end
 
+	t = time()
+	loop_ix = 1
 	most_recent_obj = 0
 
 	while loop_ix < loop_max
+
 		# run DCG, adding columns as needed
 		double_column_generation!(
 			rmp,
@@ -218,8 +228,13 @@ function price_and_cut!!(
 		end
 
 		current_obj = objective_value(rmp.model)
+		if ~isnothing(log_times_file)
+			push!(ts, time() - t)
+			push!(objs, current_obj)
+		end
+
 		@info "in cut generation" loop_ix current_obj
-		if most_recent_obj / current_obj > 1 - 1e-8
+		if most_recent_obj / current_obj > 1 - relative_improvement_cut_req
 			@info "halting cut generation early, too small improvement" loop_ix
 			break
 		end
@@ -236,7 +251,9 @@ function price_and_cut!!(
 			fire_subproblems,
 			gub_cover_cuts = gub_cover_cuts,
 			general_gub_cuts = general_gub_cuts,
-			single_fire_cuts = single_fire_cuts
+			single_fire_cuts = single_fire_cuts,
+			decrease_gub_allots = decrease_gub_allots,
+			single_fire_lift = single_fire_lift
 		)
 		@debug "after cuts" num_cuts objective_value(rmp.model)
 		if (num_cuts == 0)
@@ -269,16 +286,25 @@ function price_and_cut!!(
 			cut_data,
 			upper_bound = upper_bound,
 		)
+
+		current_obj = objective_value(rmp.model)
+		if ~isnothing(log_times_file)
+			push!(ts, time() - t)
+			push!(objs, current_obj)
+		end
 	end
 
-	@debug "After price-and-cut" objective_value(rmp.model)
-	@debug "Afer price-and-cut" length(eachindex(rmp.routes)) length(
-		eachindex(rmp.plans),
-	) length([i for i in eachindex(rmp.plans) if reduced_cost(rmp.plans[i]) < 1e-2]) length([
-		i for i in eachindex(rmp.routes) if reduced_cost(rmp.routes[i]) < 1e-2
-	]) dual.(rmp.supply_demand_linking) dual.(
-		rmp.fire_allotment_branches
-	) rmp.fire_allotment_branches
+	if ~isnothing(log_times_file)
+		outputs = Dict(
+			"times" => ts,
+			"objectives" => objs
+		)
+		open(log_times_file, "w") do f
+			JSON.print(f, outputs, 4)
+		end
+	end
+
+	@info "After price-and-cut" dual.(rmp.supply_demand_linking)
 
 end
 
@@ -455,6 +481,13 @@ function heuristic_upper_bound!!(
 	fire_subproblems::Vector{TimeSpaceNetwork},
 	gub_cut_limit_per_time::Int64,
 	gurobi_env;
+	cut_loop_max,
+	relative_improvement_cut_req,
+	gub_cover_cuts,
+	general_gub_cuts,
+	single_fire_cuts,
+	decrease_gub_allots,
+	single_fire_lift,
 	routes_best_sol = nothing,
 	plans_best_sol = nothing
 )
@@ -583,6 +616,13 @@ function heuristic_upper_bound!!(
 			global_rules,
 			crew_routes,
 			fire_plans,
+			loop_max=cut_loop_max,
+			relative_improvement_cut_req=relative_improvement_cut_req,
+			gub_cover_cuts=gub_cover_cuts,
+			general_gub_cuts=general_gub_cuts,
+			single_fire_cuts=single_fire_cuts,
+			decrease_gub_allots=decrease_gub_allots,
+			single_fire_lift=single_fire_lift,
 			upper_bound = ub)
 		@info "Price and cut time (heuristic)" t 
 
@@ -676,11 +716,15 @@ function explore_node!!(
 	gub_cut_limit_per_time::Int64,
 	warm_start_strategy::Union{String, Nothing},
 	gurobi_env;
+	cut_loop_max,
+	relative_improvement_cut_req,
+	gub_cover_cuts,
+	general_gub_cuts,
+	single_fire_cuts,
+	decrease_gub_allots,
+	single_fire_lift,
 	rel_tol = 1e-9,
-	restore_integrality = false,
-	gub_cover_cuts=true,
-	general_gub_cuts=true,
-	single_fire_cuts=false)
+	restore_integrality=false)
 
 	@info "Exploring node" branch_and_bound_node.ix
 
@@ -783,10 +827,14 @@ function explore_node!!(
 		global_rules,
 		crew_routes,
 		fire_plans,
+		loop_max=cut_loop_max,
+		relative_improvement_cut_req=relative_improvement_cut_req,
 		upper_bound = current_global_upper_bound,
 		gub_cover_cuts=gub_cover_cuts,
 		general_gub_cuts=general_gub_cuts,
-		single_fire_cuts=single_fire_cuts)
+		single_fire_cuts=single_fire_cuts,
+		decrease_gub_allots=decrease_gub_allots,
+		single_fire_lift=single_fire_lift)
 
 	@info "Price and cut time (b-and-b)" t
 	@debug "after price and cut" objective_value(rmp.model) crew_routes.routes_per_crew fire_plans.plans_per_fire

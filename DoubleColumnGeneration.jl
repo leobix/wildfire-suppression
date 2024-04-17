@@ -19,7 +19,7 @@ function define_restricted_master_problem(
 	crew_avail_ixs::Vector{Vector{Int64}},
 	fire_plan_data::FirePlanData,
 	fire_avail_ixs::Vector{Vector{Int64}},
-	cut_data::GUBCutData,
+	cut_data::CutData,
 	fire_allotment_branching_rules::Vector{GlobalFireAllotmentBranchingRule},
 	dual_warm_start::Union{Nothing, DualWarmStart} = nothing,
 )
@@ -269,7 +269,7 @@ end
 
 function add_column_to_master_problem!!(
 	rmp::RestrictedMasterProblem,
-	cut_data::GUBCutData,
+	cut_data::CutData,
 	crew_routes::CrewRouteData,
 	crew::Int64,
 	ix::Int64,
@@ -331,7 +331,7 @@ end
 
 function add_column_to_master_problem!!(
 	rmp::RestrictedMasterProblem,
-	cut_data::GUBCutData,
+	cut_data::CutData,
 	fire_plans::FirePlanData,
 	fire_allotment_branching_rules::Vector{GlobalFireAllotmentBranchingRule},
 	fire::Int64,
@@ -471,7 +471,7 @@ function double_column_generation!(
 	global_fire_allotment_branching_rules::Vector{GlobalFireAllotmentBranchingRule},
 	crew_routes::CrewRouteData,
 	fire_plans::FirePlanData,
-	cut_data::GUBCutData;
+	cut_data::CutData;
 	upper_bound::Float64,
 	improving_column_abs_tolerance::Float64 = 1e-4,
 	local_gap_rel_tolerance::Float64 = 1e-9)
@@ -727,6 +727,7 @@ function double_column_generation!(
 				crew_duals = crew_duals .* scale
 				linking_duals = linking_duals .* scale
 				cut_duals = cut_duals .* scale
+				global_fire_allot_duals = global_fire_allot_duals .* scale
 			else
 				ub = objective_value(rmp.model)
 				lb = ub + reduced_cost_sum

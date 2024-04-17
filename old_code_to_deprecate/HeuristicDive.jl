@@ -26,7 +26,7 @@ function find_heuristic_upper_bound(
 
 	crew_routes = CrewRouteData(100000, num_fires, num_crews, num_time_periods)
 	fire_plans = FirePlanData(100000, num_fires, num_time_periods)
-	cut_data = GUBCutData(num_crews, num_fires, num_time_periods)
+	cut_data = CutData(num_crews, num_fires, num_time_periods)
 
 	ub = Inf
 

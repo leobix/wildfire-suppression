@@ -55,7 +55,7 @@ function FirePlanData(
 	)
 end
 
-struct GUBKnapsackCut
+struct RobustCut
 	time_ix::Int64
 	fire_coeffs::Dict{Int64, Vector{Float64}}
 	crew_coeffs::Vector{Float64}
@@ -63,9 +63,9 @@ struct GUBKnapsackCut
 end
 
 
-struct GUBCutData
+struct CutData
 
-	cut_dict::Dict{Any, GUBKnapsackCut}
+	cut_dict::Dict{Any, RobustCut}
 	cuts_per_time::Vector{Int64}
 	fire_sp_lookup::Dict{Int64, Dict{Tuple{Int64, Int64}, Dict{Int64, Float64}}}
 	crew_sp_lookup::Dict{Int64, Dict{Tuple{Int64, Int64}, Dict{Int64, Float64}}}
@@ -74,9 +74,9 @@ struct GUBCutData
 end
 
 # constructor
-function GUBCutData(num_crews::Int, num_fires::Int, num_time_periods::Int)
+function CutData(num_crews::Int, num_fires::Int, num_time_periods::Int)
 
-	cut_objects = Dict{Any, GUBKnapsackCut}()
+	cut_objects = Dict{Any, RobustCut}()
 	cuts_per_time = [0 for t ∈ 1:num_time_periods]
 	fire_cut_sp_lookup =
 		Dict{Int64, Dict{Tuple{Int64, Int64}, Dict{Int64, Float64}}}()
@@ -89,7 +89,7 @@ function GUBCutData(num_crews::Int, num_fires::Int, num_time_periods::Int)
 		crew_cut_sp_lookup[crew] = Dict{Tuple{Int64, Int64}, Dict{Int64, Float64}}()
 	end
 
-	return GUBCutData(
+	return CutData(
 		cut_objects,
 		cuts_per_time,
 		fire_cut_sp_lookup,
@@ -99,7 +99,7 @@ function GUBCutData(num_crews::Int, num_fires::Int, num_time_periods::Int)
 	)
 end
 
-function first_cut_dominates(cut_1::GUBKnapsackCut, cut_2::GUBKnapsackCut)
+function first_cut_dominates(cut_1::RobustCut, cut_2::RobustCut)
 
 	if cut_1.time_ix != cut_2.time_ix
 		return false
@@ -121,7 +121,7 @@ function first_cut_dominates(cut_1::GUBKnapsackCut, cut_2::GUBKnapsackCut)
 end
 
 
-function restrict_GUBCutData(orig::GUBCutData, ixs)
+function restrict_CutData(orig::CutData, ixs)
 	cut_objects = Dict(a => b for (a, b) in orig.cut_dict if a in ixs)
 	cuts_per_time = orig.cuts_per_time
 	fire_sp_lookup = Dict(
@@ -134,7 +134,7 @@ function restrict_GUBCutData(orig::GUBCutData, ixs)
 	)
 	fire_mp_lookup = Dict(a => b for (a, b) in orig.fire_mp_lookup if a ∈ ixs)
 	crew_mp_lookup = Dict(a => b for (a, b) in orig.crew_mp_lookup if a ∈ ixs)
-	return GUBCutData(
+	return CutData(
 		cut_objects,
 		cuts_per_time,
 		fire_sp_lookup,

@@ -28,9 +28,6 @@ else
     global_logger(ConsoleLogger(io, Logging.Info, show_limited=false))
 end
 
-##########
-# ROOT NODE CUT EXPERIMENT #
-##########
 
 params = Dict()
 params["gub_only"] = Dict(:bb_node_gub_cover_cuts => true,

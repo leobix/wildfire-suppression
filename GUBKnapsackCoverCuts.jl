@@ -201,7 +201,7 @@ function cut_generating_LP(gurobi_env,
                 end
             end
         end
-        cut = GUBKnapsackCut(
+        cut = RobustCut(
             time_ix,
             fire_coeffs,
             crew_coeffs,
@@ -214,7 +214,7 @@ function cut_generating_LP(gurobi_env,
 end
 
 
-function enumerate_minimal_cuts(
+function enumerate_minimal_GUB_cover_cuts(
     crew_allots::Matrix{Float64},
     fire_allots::Vector{Vector{Tuple}},
     cut_search_limit_per_time::Int64)
@@ -500,7 +500,7 @@ function find_knapsack_cuts(
         for t in 1:num_time_periods
 
             minimal_cuts =
-                enumerate_minimal_cuts(
+                enumerate_minimal_GUB_cover_cuts(
                     crew_assign[:, :, t],
                     all_fire_allots[:, t],
                     cut_search_limit_per_time,
@@ -547,7 +547,7 @@ function find_knapsack_cuts(
                     end
                 end
 
-                cut = GUBKnapsackCut(
+                cut = RobustCut(
                     t,
                     fire_coeffs,
                     crew_coeffs,
@@ -669,7 +669,7 @@ end
 
 function update_cut_fire_mp_lookup!(
     cut_fire_mp_lookup::Dict{Tuple{Int64,Int64},Float64},
-    cut::GUBKnapsackCut,
+    cut::RobustCut,
     fire_plans::FirePlanData,
     fire::Int64,
     plan_ix::Int64,
@@ -691,8 +691,8 @@ end
 
 function push_cut_to_rmp!!(
     rmp::RestrictedMasterProblem,
-    cut_data::GUBCutData,
-    cut::GUBKnapsackCut,
+    cut_data::CutData,
+    cut::RobustCut,
     crew_routes::CrewRouteData,
     fire_plans::FirePlanData,
 )
@@ -736,7 +736,7 @@ function push_cut_to_rmp!!(
 end
 
 function find_and_incorporate_knapsack_gub_cuts!!(
-    gub_cut_data::GUBCutData,
+    gub_cut_data::CutData,
     cut_search_limit_per_time::Int64,
     rmp::RestrictedMasterProblem,
     crew_routes::CrewRouteData,

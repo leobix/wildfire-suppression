@@ -13,7 +13,7 @@ mutable struct BranchAndBoundNode
 	const new_global_fire_allotment_branching_rules::Vector{
 		GlobalFireAllotmentBranchingRule,
 	}
-	const cut_data::GUBCutData
+	const cut_data::CutData
 	children::Vector{BranchAndBoundNode}
 	l_bound::Float64
 	u_bound::Float64
@@ -26,7 +26,7 @@ function BranchAndBoundNode(
 	;
 	ix::Int64,
 	parent::Union{Nothing, BranchAndBoundNode},
-	cut_data::GUBCutData,
+	cut_data::CutData,
 	new_crew_branching_rules::Vector{CrewSupplyBranchingRule} = CrewSupplyBranchingRule[],
 	new_fire_branching_rules::Vector{FireDemandBranchingRule} = FireDemandBranchingRule[],
 	new_global_fire_allotment_branching_rules::Vector{
@@ -295,7 +295,7 @@ function initialize_data_structures(
 
     crew_routes = CrewRouteData(100000, num_fires, num_crews, num_time_periods)
     fire_plans = FirePlanData(100000, num_fires, num_time_periods)
-    cut_data = GUBCutData(num_crews, num_fires, num_time_periods)
+    cut_data = CutData(num_crews, num_fires, num_time_periods)
 
     return crew_routes, fire_plans, crew_models, fire_models, cut_data
 end
@@ -430,7 +430,7 @@ end
 
 function price_and_cut!!(
 	rmp::RestrictedMasterProblem,
-	cut_data::GUBCutData,
+	cut_data::CutData,
 	crew_subproblems::Vector{TimeSpaceNetwork},
 	fire_subproblems::Vector{TimeSpaceNetwork},
 	gub_cut_limit_per_time::Int64,
@@ -845,7 +845,7 @@ function heuristic_upper_bound!!(
 
 		# get rid of past cuts
 		# do we want cuts? lose guarantee of feasibility in next step because we may find a cut later 
-		# cut_data = GUBCutData(num_crews, num_fires, num_time_periods)
+		# cut_data = CutData(num_crews, num_fires, num_time_periods)
 
 		branching_rule =
 			GlobalFireAllotmentBranchingRule(current_allotment,
@@ -1194,7 +1194,7 @@ function explore_node!!(
 			)
 
 		# restrict to used cuts
-		used_cuts = restrict_GUBCutData(cut_data, binding_cuts)
+		used_cuts = restrict_CutData(cut_data, binding_cuts)
 		@debug "cuts" used_cuts.cut_dict
 
 		@assert var_variance > 0 "Cannot branch on variable with no variance, should already be integral"

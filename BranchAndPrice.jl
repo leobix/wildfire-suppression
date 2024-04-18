@@ -1114,7 +1114,7 @@ function explore_node!!(
 		cur_node = cur_node.parent
 
 	end
-	@info "rules" crew_rules fire_rules global_rules
+	@debug "rules" crew_rules fire_rules global_rules
 
 	# define the restricted master problem
 	## TODO how do we handle existing cuts

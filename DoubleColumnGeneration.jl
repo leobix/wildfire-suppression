@@ -96,7 +96,7 @@ function define_restricted_master_problem(
 		m,
 		gub_cover_cuts[
 			t = 1:num_time_periods,
-			u = 1:1000;
+			u = 1:10000;
 			(t, u) ∈ keys(cut_data.cut_dict),
 		],
 		sum(crew_route_coeffs[t, u][i] * route[crew_route_ixs[t, u][i]] for i ∈ eachindex(crew_route_coeffs[t, u])) + 

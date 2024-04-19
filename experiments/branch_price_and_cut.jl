@@ -79,7 +79,7 @@ function run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_li
                 JSON.print(f, outputs, 4)
             end
         catch e
-            @error "Failed branch and price" exception=(e, catch_backtrace())
+            @error "Failed branch and price" e
         finally
             close(io)
         end

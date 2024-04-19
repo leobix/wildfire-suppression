@@ -615,7 +615,7 @@ function price_and_cut!!(
 		end
 	end
 
-	@info "After price-and-cut" dual.(rmp.supply_demand_linking)
+	@debug "After price-and-cut" dual.(rmp.supply_demand_linking)
 
 end
 
@@ -1175,7 +1175,7 @@ function explore_node!!(
 	branch_and_bound_node.master_problem = rmp
 
 	all_fire_allots, all_crew_allots = extract_usages(crew_routes, fire_plans, rmp)
-	@info "usages" all_fire_allots all_crew_allots
+	@debug "usages" all_fire_allots all_crew_allots
 
 	# update the branch-and-bound node to be feasible or not
 	if rmp.termination_status == MOI.INFEASIBLE
@@ -1211,7 +1211,6 @@ function explore_node!!(
 		# TODO think about branching rules
 		branch_type, branch_ix, var_variance, var_mean = nothing, nothing, nothing, nothing
 		if branching_strategy == "linking_dual_max_variance"
-			@info "duals" dual.(rmp.supply_demand_linking)
 			# decide the next branching rules
 			branch_type, branch_ix, var_variance, var_mean =
 				max_variance_natural_variable(

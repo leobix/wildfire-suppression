@@ -79,7 +79,7 @@ function run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_li
                 JSON.print(f, outputs, 4)
             end
         catch e
-            @error "Failed branch and price" e
+            @error "Failed branch and price" exception=(e, catch_backtrace())
         finally
             close(io)
         end
@@ -91,13 +91,10 @@ out_dir = args["directory_output"]
 cuts = [true, false]
 branching_rules = ["linking_dual_max_variance", "max_variance"]
 heuristic_time_limits = [180.0, 0.0]
-cuts = [false]
-branching_rules = ["linking_dual_max_variance"]
-heuristic_time_limits = [0.0]
 
 # precompile
 sizes = [(3, 10, 14)]
-run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_limits, precompile=true, total_time_limit=15.0)
+run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_limits, precompile=true, total_time_limit=5.0)
 
 
 

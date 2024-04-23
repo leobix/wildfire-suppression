@@ -45,52 +45,45 @@ function run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_li
         else
             global_logger(ConsoleLogger(io, Logging.Info, show_limited=false))
         end
-        try
-            explored_nodes, ubs, lbs, columns, times, time_1 =
-                branch_and_price(
-                    g,
-                    c,
-                    t,
-                    algo_tracking=true,
-                    soft_heuristic_time_limit=heuristic_time_limit,
-                    total_time_limit=total_time_limit,
-                    branching_strategy=b_rule,
-                    bb_node_gub_cover_cuts=cut,
-                    bb_node_general_gub_cuts=cut,
-                    bb_node_decrease_gub_allots=cut,
-                    bb_node_single_fire_lift=cut,
-                    heuristic_gub_cover_cuts=cut,
-                    heuristic_general_gub_cuts=cut,
-                    heuristic_decrease_gub_allots=cut,
-                    heuristic_single_fire_lift=cut,
-                )
-            json_name = file_name * ".json"
-            outputs = Dict(
-                "explored_nodes" => explored_nodes,
-                "upper_bounds" => ubs,
-                "lower_bounds" => lbs,
-                "times" => times,
-                "num_columns" => columns,
-                "times" => times,
-                "init_time" => time_1,
+        explored_nodes, ubs, lbs, columns, times, time_1 =
+            branch_and_price(
+                g,
+                c,
+                t,
+                algo_tracking=true,
+                soft_heuristic_time_limit=heuristic_time_limit,
+                total_time_limit=total_time_limit,
+                branching_strategy=b_rule,
+                bb_node_gub_cover_cuts=cut,
+                bb_node_general_gub_cuts=cut,
+                bb_node_decrease_gub_allots=cut,
+                bb_node_single_fire_lift=cut,
+                heuristic_gub_cover_cuts=cut,
+                heuristic_general_gub_cuts=cut,
+                heuristic_decrease_gub_allots=cut,
+                heuristic_single_fire_lift=cut,
             )
+        json_name = file_name * ".json"
+        outputs = Dict(
+            "explored_nodes" => explored_nodes,
+            "upper_bounds" => ubs,
+            "lower_bounds" => lbs,
+            "times" => times,
+            "num_columns" => columns,
+            "times" => times,
+            "init_time" => time_1,
+        )
 
-            open(out_dir * json_name, "w") do f
-                JSON.print(f, outputs, 4)
-            end
-        catch e
-            @error "Failed branch and price" e
-        finally
-            close(io)
+        open(out_dir * json_name, "w") do f
+            JSON.print(f, outputs, 4)
         end
     end
-
 end
 
 out_dir = args["directory_output"]
-cuts = [true, false]
-branching_rules = ["linking_dual_max_variance", "max_variance"]
-heuristic_time_limits = [180.0, 0.0]
+cuts = [false]
+branching_rules = ["linking_dual_max_variance"]
+heuristic_time_limits = [180.0]
 
 # precompile
 sizes = [(3, 10, 14)]
@@ -99,5 +92,5 @@ run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_limits, pre
 
 
 # experiment
-sizes = [(3, 10, 14), (6, 20, 14)]
+sizes = [(6, 20, 14)]
 run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_limits, precompile=false, total_time_limit=1800.0)

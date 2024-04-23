@@ -1203,7 +1203,7 @@ function create_discrete_fire_states(params, agg_prec, passive_states)
         )
         passive_states = passive_states[2:num_passive_states+1] .- 1
         all_states = vcat(aggressive_states, passive_states)
-        all_states = vcat(all_states, 9999999)
+        all_states = vcat(all_states, 1e7)
 
         push!(all_states, start_perim)
 

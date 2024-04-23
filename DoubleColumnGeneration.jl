@@ -29,9 +29,9 @@ function define_restricted_master_problem(
 
 	# inititalze JuMP model
 	m = direct_model(Gurobi.Optimizer(gurobi_env))
+	set_optimizer_attribute(m, "OutputFlag", 0) # put this first so others don't print
 	set_optimizer_attribute(m, "OptimalityTol", 1e-9)
 	set_optimizer_attribute(m, "FeasibilityTol", 1e-9)
-	set_optimizer_attribute(m, "OutputFlag", 0)
 	set_optimizer_attribute(m, "InfUnbdInfo", 1)
 
 
@@ -473,7 +473,7 @@ function double_column_generation!(
 	fire_plans::FirePlanData,
 	cut_data::CutData;
 	upper_bound::Float64,
-	improving_column_abs_tolerance::Float64 = 1e-4,
+	improving_column_abs_tolerance::Float64 = 1e-10,
 	local_gap_rel_tolerance::Float64 = 1e-9)
 
 	# gather global information
@@ -664,6 +664,10 @@ function double_column_generation!(
 					fire,
 					new_plan_ix,
 				)
+
+				if iteration == 1
+					@info "added column first iter" fire crew_demands
+				end
 			end
 		end
 
@@ -673,6 +677,9 @@ function double_column_generation!(
 
 			# TODO dual warm start passed in here
 			optimize!(rmp.model)
+
+			@info "termination status" termination_status(rmp.model)
+
 
 			## TODO FIX THIS LOGIC AND INFEASIBLE LOGIC
 			rmp.termination_status = MOI.ITERATION_LIMIT

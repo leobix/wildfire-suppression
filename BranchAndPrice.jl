@@ -482,7 +482,7 @@ function price_and_cut!!(
 	soft_time_limit,
 	loop_max,
 	relative_improvement_cut_req,
-	upper_bound::Float64 = 1e20,
+	upper_bound::Float64 = 1e10,
 	log_progress_file = nothing,
 	)
 
@@ -666,12 +666,12 @@ function find_integer_solution(
 	max_plan_rc = plan_values[sorted_plan_ixs[fire_column_limit]]
 
 	# if this reduced cost is too high for the upper bound
-	if lp_objective + max_plan_rc > upper_bound + 1e-5
+	if lp_objective + max_plan_rc > upper_bound + 1e-7
 
 		# delete elements of used_plan_ixs
 		to_delete = Int64[]
 		for (i, ix) in enumerate(used_plan_ixs)
-			if lp_objective + plan_values[ix] > upper_bound + 1e-5
+			if lp_objective + plan_values[ix] > upper_bound + 1e-7
 				push!(to_delete, i)
 			end
 		end
@@ -695,12 +695,12 @@ function find_integer_solution(
 	max_route_rc = route_values[sorted_route_ixs[crew_column_limit]]
 
 	# if this reduced cost is too high for the upper bound
-	if lp_objective + max_route_rc > upper_bound + 1e-5
+	if lp_objective + max_route_rc > upper_bound + 1e-7
 
 		# delete elements of used_route_ixs
 		to_delete = Int64[]
 		for (i, ix) in enumerate(used_route_ixs)
-			if lp_objective + route_values[ix] > upper_bound + 1e-5
+			if lp_objective + route_values[ix] > upper_bound + 1e-7
 				push!(to_delete, i)
 			end
 		end
@@ -903,7 +903,13 @@ function heuristic_upper_bound!!(
 			deleteat!(fire_ixs[fire], to_delete)
 		end
 
-		@debug "entering heuristic round" branching_rule.allotment_matrix
+		@info "entering heuristic round" branching_rule.allotment_matrix 
+		for rule in crew_rules 
+			@info "crew rule" rule
+		end
+		for rule in fire_rules 
+			@info "fire rule" rule
+		end
 		rmp = define_restricted_master_problem(
 			gurobi_env,
 			crew_routes,
@@ -1114,7 +1120,7 @@ function explore_node!!(
 		cur_node = cur_node.parent
 
 	end
-	@debug "rules" crew_rules fire_rules global_rules
+	@info "rules" crew_rules fire_rules global_rules
 
 	# define the restricted master problem
 	## TODO how do we handle existing cuts

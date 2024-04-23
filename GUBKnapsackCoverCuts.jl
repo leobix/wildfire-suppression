@@ -232,7 +232,7 @@ function enumerate_minimal_GUB_cover_cuts(
     # end
 
     crew_usages = vec(mapslices(sum, crew_allots, dims=2))
-    inactive_crews = vec(findall(x -> x < 1e-5, crew_usages))
+    inactive_crews = vec(findall(x -> x < 1e-7, crew_usages))
     # for now, assume that these crews were inactive for a "good" reason and force those to be part of any cover
     available_for_fires = length(crew_usages) - length(inactive_crews)
 

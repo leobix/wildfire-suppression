@@ -664,10 +664,6 @@ function double_column_generation!(
 					fire,
 					new_plan_ix,
 				)
-
-				if iteration == 1
-					@info "added column first iter" fire crew_demands
-				end
 			end
 		end
 
@@ -678,7 +674,9 @@ function double_column_generation!(
 			# TODO dual warm start passed in here
 			optimize!(rmp.model)
 
-			@info "termination status" termination_status(rmp.model)
+			if termination_status(rmp.model) != MOI.OPTIMAL
+				@info "non optimal termination status" termination_status(rmp.model)
+			end
 
 
 			## TODO FIX THIS LOGIC AND INFEASIBLE LOGIC

@@ -1,0 +1,798 @@
+[ Info: Initializing data structures
+┌ Info: Checkpoint after initializing data structures
+└   time() - start_time = 0.22900009155273438
+┌ Warning: Node with no parent
+│   i = 1
+└ @ Main C:\Users\jacob\Coding\MIT\ihc_routing\BranchAndPrice.jl:127
+┌ Info: Exploring node
+└   branch_and_bound_node.ix = 1
+┌ Info: rules
+│   crew_rules = CrewSupplyBranchingRule[]
+│   fire_rules = FireDemandBranchingRule[]
+└   global_rules = GlobalFireAllotmentBranchingRule[]
+┌ Info: Define rmp time (b-and-b)
+└   t = 0.0093378
+┌ Info: Price and cut time (b-and-b)
+└   t = 0.4524337
+┌ Info: branching rules
+│   left_branching_rule = FireDemandBranchingRule(1, 2, 1, "less_than_or_equal")
+└   right_branching_rule = FireDemandBranchingRule(1, 2, 2, "greater_than_or_equal")
+┌ Info: current bounds
+│   node_ix = 1
+│   lb = 1.1388005347712324
+└   ub = Inf
+┌ Info: number of nodes
+│   node_explored_count = 1
+└   length(nodes) = 3
+┌ Info: columns
+│   sum(crew_routes.routes_per_crew) = 352
+└   sum(fire_plans.plans_per_fire) = 122
+┌ Info: Time check
+└   time() - start_time = 0.6919999122619629
+┌ Info: Exploring node
+└   branch_and_bound_node.ix = 2
+┌ Info: rules
+│   crew_rules = CrewSupplyBranchingRule[]
+│   fire_rules =
+│    1-element Vector{FireDemandBranchingRule}:
+│     FireDemandBranchingRule(1, 2, 1, "less_than_or_equal")
+└   global_rules = GlobalFireAllotmentBranchingRule[]
+┌ Info: Define rmp time (b-and-b)
+└   t = 0.0138325
+┌ Info: Price and cut time (b-and-b)
+└   t = 0.0714864
+┌ Info: branching rules
+│   left_branching_rule = FireDemandBranchingRule(1, 3, 1, "less_than_or_equal")
+└   right_branching_rule = FireDemandBranchingRule(1, 3, 2, "greater_than_or_equal")
+┌ Info: current bounds
+│   node_ix = 2
+│   lb = 1.1388005347712324
+└   ub = Inf
+┌ Info: number of nodes
+│   node_explored_count = 2
+└   length(nodes) = 5
+┌ Info: columns
+│   sum(crew_routes.routes_per_crew) = 389
+└   sum(fire_plans.plans_per_fire) = 130
+┌ Info: Time check
+└   time() - start_time = 0.7890000343322754
+┌ Info: Exploring node
+└   branch_and_bound_node.ix = 3
+┌ Info: rules
+│   crew_rules = CrewSupplyBranchingRule[]
+│   fire_rules =
+│    1-element Vector{FireDemandBranchingRule}:
+│     FireDemandBranchingRule(1, 2, 2, "greater_than_or_equal")
+└   global_rules = GlobalFireAllotmentBranchingRule[]
+┌ Info: Define rmp time (b-and-b)
+└   t = 0.0118942
+┌ Info: Price and cut time (b-and-b)
+└   t = 0.2717753
+┌ Info: branching rules
+│   left_branching_rule = FireDemandBranchingRule(2, 2, 7, "less_than_or_equal")
+└   right_branching_rule = FireDemandBranchingRule(2, 2, 8, "greater_than_or_equal")
+┌ Info: current bounds
+│   node_ix = 3
+│   lb = 1.1400936508941035
+└   ub = Inf
+┌ Info: number of nodes
+│   node_explored_count = 3
+└   length(nodes) = 7
+┌ Info: columns
+│   sum(crew_routes.routes_per_crew) = 446
+└   sum(fire_plans.plans_per_fire) = 176
+┌ Info: Time check
+└   time() - start_time = 1.0729999542236328
+┌ Info: Exploring node
+└   branch_and_bound_node.ix = 4
+┌ Info: rules
+│   crew_rules = CrewSupplyBranchingRule[]
+│   fire_rules =
+│    2-element Vector{FireDemandBranchingRule}:
+│     FireDemandBranchingRule(1, 2, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 3, 1, "less_than_or_equal")
+└   global_rules = GlobalFireAllotmentBranchingRule[]
+┌ Info: Define rmp time (b-and-b)
+└   t = 0.0119367
+┌ Info: Price and cut time (b-and-b)
+└   t = 0.0505931
+┌ Info: branching rules
+│   left_branching_rule = FireDemandBranchingRule(1, 5, 3, "less_than_or_equal")
+└   right_branching_rule = FireDemandBranchingRule(1, 5, 4, "greater_than_or_equal")
+┌ Info: current bounds
+│   node_ix = 4
+│   lb = 1.1400936508941035
+└   ub = Inf
+┌ Info: number of nodes
+│   node_explored_count = 4
+└   length(nodes) = 9
+┌ Info: columns
+│   sum(crew_routes.routes_per_crew) = 466
+└   sum(fire_plans.plans_per_fire) = 185
+┌ Info: Time check
+└   time() - start_time = 1.1459999084472656
+┌ Info: Exploring node
+└   branch_and_bound_node.ix = 5
+┌ Info: rules
+│   crew_rules = CrewSupplyBranchingRule[]
+│   fire_rules =
+│    2-element Vector{FireDemandBranchingRule}:
+│     FireDemandBranchingRule(1, 2, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 3, 2, "greater_than_or_equal")
+└   global_rules = GlobalFireAllotmentBranchingRule[]
+┌ Info: Define rmp time (b-and-b)
+└   t = 0.0097278
+┌ Info: Price and cut time (b-and-b)
+└   t = 0.2484194
+┌ Info: branching rules
+│   left_branching_rule = FireDemandBranchingRule(2, 3, 7, "less_than_or_equal")
+└   right_branching_rule = FireDemandBranchingRule(2, 3, 8, "greater_than_or_equal")
+┌ Info: current bounds
+│   node_ix = 5
+│   lb = 1.143212179170231
+└   ub = Inf
+┌ Info: number of nodes
+│   node_explored_count = 5
+└   length(nodes) = 11
+┌ Info: columns
+│   sum(crew_routes.routes_per_crew) = 509
+└   sum(fire_plans.plans_per_fire) = 220
+┌ Info: Time check
+└   time() - start_time = 1.4089999198913574
+┌ Info: Exploring node
+└   branch_and_bound_node.ix = 8
+┌ Info: rules
+│   crew_rules = CrewSupplyBranchingRule[]
+│   fire_rules =
+│    3-element Vector{FireDemandBranchingRule}:
+│     FireDemandBranchingRule(1, 2, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 3, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 5, 3, "less_than_or_equal")
+└   global_rules = GlobalFireAllotmentBranchingRule[]
+┌ Info: Define rmp time (b-and-b)
+└   t = 0.009766
+┌ Info: Price and cut time (b-and-b)
+└   t = 0.0777592
+┌ Info: branching rules
+│   left_branching_rule = FireDemandBranchingRule(1, 4, 1, "less_than_or_equal")
+└   right_branching_rule = FireDemandBranchingRule(1, 4, 2, "greater_than_or_equal")
+┌ Info: current bounds
+│   node_ix = 8
+│   lb = 1.143212179170231
+└   ub = Inf
+┌ Info: number of nodes
+│   node_explored_count = 6
+└   length(nodes) = 13
+┌ Info: columns
+│   sum(crew_routes.routes_per_crew) = 535
+└   sum(fire_plans.plans_per_fire) = 233
+┌ Info: Time check
+└   time() - start_time = 1.502000093460083
+┌ Info: Exploring node
+└   branch_and_bound_node.ix = 9
+┌ Info: rules
+│   crew_rules = CrewSupplyBranchingRule[]
+│   fire_rules =
+│    3-element Vector{FireDemandBranchingRule}:
+│     FireDemandBranchingRule(1, 2, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 3, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 5, 4, "greater_than_or_equal")
+└   global_rules = GlobalFireAllotmentBranchingRule[]
+┌ Info: Define rmp time (b-and-b)
+└   t = 0.0116203
+┌ Info: Price and cut time (b-and-b)
+└   t = 0.2146704
+┌ Info: branching rules
+│   left_branching_rule = FireDemandBranchingRule(2, 5, 0, "less_than_or_equal")
+└   right_branching_rule = FireDemandBranchingRule(2, 5, 1, "greater_than_or_equal")
+┌ Info: current bounds
+│   node_ix = 9
+│   lb = 1.1438914394442756
+└   ub = Inf
+┌ Info: number of nodes
+│   node_explored_count = 7
+└   length(nodes) = 15
+┌ Info: columns
+│   sum(crew_routes.routes_per_crew) = 605
+└   sum(fire_plans.plans_per_fire) = 267
+┌ Info: Time check
+└   time() - start_time = 1.7230000495910645
+┌ Info: Exploring node
+└   branch_and_bound_node.ix = 6
+┌ Info: rules
+│   crew_rules = CrewSupplyBranchingRule[]
+│   fire_rules =
+│    2-element Vector{FireDemandBranchingRule}:
+│     FireDemandBranchingRule(1, 2, 2, "greater_than_or_equal")
+│     FireDemandBranchingRule(2, 2, 7, "less_than_or_equal")
+└   global_rules = GlobalFireAllotmentBranchingRule[]
+┌ Info: Define rmp time (b-and-b)
+└   t = 0.0151849
+┌ Info: Price and cut time (b-and-b)
+└   t = 0.1207902
+┌ Info: branching rules
+│   left_branching_rule = FireDemandBranchingRule(2, 4, 8, "less_than_or_equal")
+└   right_branching_rule = FireDemandBranchingRule(2, 4, 9, "greater_than_or_equal")
+┌ Info: current bounds
+│   node_ix = 6
+│   lb = 1.1438914394442756
+└   ub = Inf
+┌ Info: number of nodes
+│   node_explored_count = 8
+└   length(nodes) = 17
+┌ Info: columns
+│   sum(crew_routes.routes_per_crew) = 649
+└   sum(fire_plans.plans_per_fire) = 289
+┌ Info: Time check
+└   time() - start_time = 1.8640000820159912
+┌ Info: Exploring node
+└   branch_and_bound_node.ix = 7
+┌ Info: rules
+│   crew_rules = CrewSupplyBranchingRule[]
+│   fire_rules =
+│    2-element Vector{FireDemandBranchingRule}:
+│     FireDemandBranchingRule(1, 2, 2, "greater_than_or_equal")
+│     FireDemandBranchingRule(2, 2, 8, "greater_than_or_equal")
+└   global_rules = GlobalFireAllotmentBranchingRule[]
+┌ Info: Define rmp time (b-and-b)
+└   t = 0.0117753
+┌ Info: Price and cut time (b-and-b)
+└   t = 0.2315643
+┌ Info: branching rules
+│   left_branching_rule = FireDemandBranchingRule(2, 4, 7, "less_than_or_equal")
+└   right_branching_rule = FireDemandBranchingRule(2, 4, 8, "greater_than_or_equal")
+┌ Info: current bounds
+│   node_ix = 7
+│   lb = 1.1442668743284943
+└   ub = Inf
+┌ Info: number of nodes
+│   node_explored_count = 9
+└   length(nodes) = 19
+┌ Info: columns
+│   sum(crew_routes.routes_per_crew) = 756
+└   sum(fire_plans.plans_per_fire) = 335
+┌ Info: Time check
+└   time() - start_time = 2.121000051498413
+┌ Info: Exploring node
+└   branch_and_bound_node.ix = 12
+┌ Info: rules
+│   crew_rules = CrewSupplyBranchingRule[]
+│   fire_rules =
+│    4-element Vector{FireDemandBranchingRule}:
+│     FireDemandBranchingRule(1, 2, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 3, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 5, 3, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 4, 1, "less_than_or_equal")
+└   global_rules = GlobalFireAllotmentBranchingRule[]
+┌ Info: Define rmp time (b-and-b)
+└   t = 0.0100853
+┌ Info: Price and cut time (b-and-b)
+└   t = 0.0974358
+┌ Info: branching rules
+│   left_branching_rule = FireDemandBranchingRule(1, 7, 8, "less_than_or_equal")
+└   right_branching_rule = FireDemandBranchingRule(1, 7, 9, "greater_than_or_equal")
+┌ Info: current bounds
+│   node_ix = 12
+│   lb = 1.1442668743284943
+└   ub = Inf
+┌ Info: number of nodes
+│   node_explored_count = 10
+└   length(nodes) = 21
+┌ Info: columns
+│   sum(crew_routes.routes_per_crew) = 780
+└   sum(fire_plans.plans_per_fire) = 347
+┌ Info: Time check
+└   time() - start_time = 2.2350001335144043
+┌ Info: Exploring node
+└   branch_and_bound_node.ix = 13
+┌ Info: rules
+│   crew_rules = CrewSupplyBranchingRule[]
+│   fire_rules =
+│    4-element Vector{FireDemandBranchingRule}:
+│     FireDemandBranchingRule(1, 2, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 3, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 5, 3, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 4, 2, "greater_than_or_equal")
+└   global_rules = GlobalFireAllotmentBranchingRule[]
+┌ Info: Define rmp time (b-and-b)
+└   t = 0.0102347
+┌ Info: Price and cut time (b-and-b)
+└   t = 0.1623915
+┌ Info: branching rules
+│   left_branching_rule = FireDemandBranchingRule(2, 4, 6, "less_than_or_equal")
+└   right_branching_rule = FireDemandBranchingRule(2, 4, 7, "greater_than_or_equal")
+┌ Info: current bounds
+│   node_ix = 13
+│   lb = 1.1448912481861853
+└   ub = Inf
+┌ Info: number of nodes
+│   node_explored_count = 11
+└   length(nodes) = 23
+┌ Info: columns
+│   sum(crew_routes.routes_per_crew) = 851
+└   sum(fire_plans.plans_per_fire) = 375
+┌ Info: Time check
+└   time() - start_time = 2.4030001163482666
+┌ Info: Exploring node
+└   branch_and_bound_node.ix = 20
+┌ Info: rules
+│   crew_rules = CrewSupplyBranchingRule[]
+│   fire_rules =
+│    5-element Vector{FireDemandBranchingRule}:
+│     FireDemandBranchingRule(1, 2, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 3, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 5, 3, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 4, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 7, 8, "less_than_or_equal")
+└   global_rules = GlobalFireAllotmentBranchingRule[]
+┌ Info: Define rmp time (b-and-b)
+└   t = 0.0162655
+┌ Info: Price and cut time (b-and-b)
+└   t = 0.2408452
+┌ Info: branching rules
+│   left_branching_rule = FireDemandBranchingRule(1, 8, 8, "less_than_or_equal")
+└   right_branching_rule = FireDemandBranchingRule(1, 8, 9, "greater_than_or_equal")
+┌ Info: current bounds
+│   node_ix = 20
+│   lb = 1.1448912481861853
+└   ub = Inf
+┌ Info: number of nodes
+│   node_explored_count = 12
+└   length(nodes) = 25
+┌ Info: columns
+│   sum(crew_routes.routes_per_crew) = 885
+└   sum(fire_plans.plans_per_fire) = 408
+┌ Info: Time check
+└   time() - start_time = 2.6630001068115234
+┌ Info: Exploring node
+└   branch_and_bound_node.ix = 21
+┌ Info: rules
+│   crew_rules = CrewSupplyBranchingRule[]
+│   fire_rules =
+│    5-element Vector{FireDemandBranchingRule}:
+│     FireDemandBranchingRule(1, 2, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 3, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 5, 3, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 4, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 7, 9, "greater_than_or_equal")
+└   global_rules = GlobalFireAllotmentBranchingRule[]
+┌ Info: Define rmp time (b-and-b)
+└   t = 0.0103383
+┌ Info: Price and cut time (b-and-b)
+└   t = 0.0987991
+┌ Info: branching rules
+│   left_branching_rule = FireDemandBranchingRule(1, 6, 7, "less_than_or_equal")
+└   right_branching_rule = FireDemandBranchingRule(1, 6, 8, "greater_than_or_equal")
+┌ Info: current bounds
+│   node_ix = 21
+│   lb = 1.14505920939623
+└   ub = Inf
+┌ Info: number of nodes
+│   node_explored_count = 13
+└   length(nodes) = 27
+┌ Info: columns
+│   sum(crew_routes.routes_per_crew) = 911
+└   sum(fire_plans.plans_per_fire) = 421
+┌ Info: Time check
+└   time() - start_time = 2.7829999923706055
+┌ Info: Exploring node
+└   branch_and_bound_node.ix = 10
+┌ Info: rules
+│   crew_rules = CrewSupplyBranchingRule[]
+│   fire_rules =
+│    3-element Vector{FireDemandBranchingRule}:
+│     FireDemandBranchingRule(1, 2, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 3, 2, "greater_than_or_equal")
+│     FireDemandBranchingRule(2, 3, 7, "less_than_or_equal")
+└   global_rules = GlobalFireAllotmentBranchingRule[]
+┌ Info: Define rmp time (b-and-b)
+└   t = 0.0127716
+┌ Info: Price and cut time (b-and-b)
+└   t = 0.1877363
+┌ Info: branching rules
+│   left_branching_rule = FireDemandBranchingRule(2, 4, 8, "less_than_or_equal")
+└   right_branching_rule = FireDemandBranchingRule(2, 4, 9, "greater_than_or_equal")
+┌ Info: current bounds
+│   node_ix = 10
+│   lb = 1.14505920939623
+└   ub = Inf
+┌ Info: number of nodes
+│   node_explored_count = 14
+└   length(nodes) = 29
+┌ Info: columns
+│   sum(crew_routes.routes_per_crew) = 958
+└   sum(fire_plans.plans_per_fire) = 451
+┌ Info: Time check
+└   time() - start_time = 2.9839999675750732
+┌ Info: Exploring node
+└   branch_and_bound_node.ix = 11
+┌ Info: rules
+│   crew_rules = CrewSupplyBranchingRule[]
+│   fire_rules =
+│    3-element Vector{FireDemandBranchingRule}:
+│     FireDemandBranchingRule(1, 2, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 3, 2, "greater_than_or_equal")
+│     FireDemandBranchingRule(2, 3, 8, "greater_than_or_equal")
+└   global_rules = GlobalFireAllotmentBranchingRule[]
+┌ Info: Define rmp time (b-and-b)
+└   t = 0.0099661
+┌ Info: Price and cut time (b-and-b)
+└   t = 0.1599638
+┌ Info: branching rules
+│   left_branching_rule = FireDemandBranchingRule(2, 4, 6, "less_than_or_equal")
+└   right_branching_rule = FireDemandBranchingRule(2, 4, 7, "greater_than_or_equal")
+┌ Info: current bounds
+│   node_ix = 11
+│   lb = 1.145506977671166
+└   ub = Inf
+┌ Info: number of nodes
+│   node_explored_count = 15
+└   length(nodes) = 31
+┌ Info: columns
+│   sum(crew_routes.routes_per_crew) = 1044
+└   sum(fire_plans.plans_per_fire) = 481
+┌ Info: Time check
+└   time() - start_time = 3.1640000343322754
+┌ Info: Exploring node
+└   branch_and_bound_node.ix = 16
+┌ Info: rules
+│   crew_rules = CrewSupplyBranchingRule[]
+│   fire_rules =
+│    3-element Vector{FireDemandBranchingRule}:
+│     FireDemandBranchingRule(1, 2, 2, "greater_than_or_equal")
+│     FireDemandBranchingRule(2, 2, 7, "less_than_or_equal")
+│     FireDemandBranchingRule(2, 4, 8, "less_than_or_equal")
+└   global_rules = GlobalFireAllotmentBranchingRule[]
+┌ Info: Define rmp time (b-and-b)
+└   t = 0.0151651
+┌ Info: Price and cut time (b-and-b)
+└   t = 0.1590404
+┌ Info: branching rules
+│   left_branching_rule = FireDemandBranchingRule(2, 5, 5, "less_than_or_equal")
+└   right_branching_rule = FireDemandBranchingRule(2, 5, 6, "greater_than_or_equal")
+┌ Info: current bounds
+│   node_ix = 16
+│   lb = 1.145506977671166
+└   ub = Inf
+┌ Info: number of nodes
+│   node_explored_count = 16
+└   length(nodes) = 33
+┌ Info: columns
+│   sum(crew_routes.routes_per_crew) = 1091
+└   sum(fire_plans.plans_per_fire) = 511
+┌ Info: Time check
+└   time() - start_time = 3.3450000286102295
+┌ Info: Exploring node
+└   branch_and_bound_node.ix = 17
+┌ Info: rules
+│   crew_rules = CrewSupplyBranchingRule[]
+│   fire_rules =
+│    3-element Vector{FireDemandBranchingRule}:
+│     FireDemandBranchingRule(1, 2, 2, "greater_than_or_equal")
+│     FireDemandBranchingRule(2, 2, 7, "less_than_or_equal")
+│     FireDemandBranchingRule(2, 4, 9, "greater_than_or_equal")
+└   global_rules = GlobalFireAllotmentBranchingRule[]
+┌ Info: Define rmp time (b-and-b)
+└   t = 0.0100884
+┌ Info: Price and cut time (b-and-b)
+└   t = 0.0581486
+┌ Info: branching rules
+│   left_branching_rule = FireDemandBranchingRule(2, 2, 4, "less_than_or_equal")
+└   right_branching_rule = FireDemandBranchingRule(2, 2, 5, "greater_than_or_equal")
+┌ Info: current bounds
+│   node_ix = 17
+│   lb = 1.1457049738100973
+└   ub = Inf
+┌ Info: number of nodes
+│   node_explored_count = 17
+└   length(nodes) = 35
+┌ Info: columns
+│   sum(crew_routes.routes_per_crew) = 1121
+└   sum(fire_plans.plans_per_fire) = 517
+┌ Info: Time check
+└   time() - start_time = 3.4149999618530273
+┌ Info: Exploring node
+└   branch_and_bound_node.ix = 24
+┌ Info: rules
+│   crew_rules = CrewSupplyBranchingRule[]
+│   fire_rules =
+│    6-element Vector{FireDemandBranchingRule}:
+│     FireDemandBranchingRule(1, 2, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 3, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 5, 3, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 4, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 7, 8, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 8, 8, "less_than_or_equal")
+└   global_rules = GlobalFireAllotmentBranchingRule[]
+┌ Info: Define rmp time (b-and-b)
+└   t = 0.0132434
+┌ Info: Price and cut time (b-and-b)
+└   t = 0.1613201
+┌ Info: branching rules
+│   left_branching_rule = FireDemandBranchingRule(2, 4, 8, "less_than_or_equal")
+└   right_branching_rule = FireDemandBranchingRule(2, 4, 9, "greater_than_or_equal")
+┌ Info: current bounds
+│   node_ix = 24
+│   lb = 1.1457049738100973
+└   ub = Inf
+┌ Info: number of nodes
+│   node_explored_count = 18
+└   length(nodes) = 37
+┌ Info: columns
+│   sum(crew_routes.routes_per_crew) = 1141
+└   sum(fire_plans.plans_per_fire) = 538
+┌ Info: Time check
+└   time() - start_time = 3.5920000076293945
+┌ Info: Exploring node
+└   branch_and_bound_node.ix = 25
+┌ Info: rules
+│   crew_rules = CrewSupplyBranchingRule[]
+│   fire_rules =
+│    6-element Vector{FireDemandBranchingRule}:
+│     FireDemandBranchingRule(1, 2, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 3, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 5, 3, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 4, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 7, 8, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 8, 9, "greater_than_or_equal")
+└   global_rules = GlobalFireAllotmentBranchingRule[]
+┌ Info: Define rmp time (b-and-b)
+└   t = 0.0159622
+┌ Info: Price and cut time (b-and-b)
+└   t = 0.1433149
+┌ Info: branching rules
+│   left_branching_rule = FireDemandBranchingRule(1, 6, 6, "less_than_or_equal")
+└   right_branching_rule = FireDemandBranchingRule(1, 6, 7, "greater_than_or_equal")
+┌ Info: current bounds
+│   node_ix = 25
+│   lb = 1.1457752868779694
+└   ub = Inf
+┌ Info: number of nodes
+│   node_explored_count = 19
+└   length(nodes) = 39
+┌ Info: columns
+│   sum(crew_routes.routes_per_crew) = 1164
+└   sum(fire_plans.plans_per_fire) = 557
+┌ Info: Time check
+└   time() - start_time = 3.759999990463257
+┌ Info: Exploring node
+└   branch_and_bound_node.ix = 22
+┌ Info: rules
+│   crew_rules = CrewSupplyBranchingRule[]
+│   fire_rules =
+│    5-element Vector{FireDemandBranchingRule}:
+│     FireDemandBranchingRule(1, 2, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 3, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 5, 3, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 4, 2, "greater_than_or_equal")
+│     FireDemandBranchingRule(2, 4, 6, "less_than_or_equal")
+└   global_rules = GlobalFireAllotmentBranchingRule[]
+┌ Info: Define rmp time (b-and-b)
+└   t = 0.0152669
+┌ Info: Price and cut time (b-and-b)
+└   t = 0.072199
+┌ Info: branching rules
+│   left_branching_rule = FireDemandBranchingRule(1, 4, 2, "less_than_or_equal")
+└   right_branching_rule = FireDemandBranchingRule(1, 4, 3, "greater_than_or_equal")
+┌ Info: current bounds
+│   node_ix = 22
+│   lb = 1.1457752868779694
+└   ub = Inf
+┌ Info: number of nodes
+│   node_explored_count = 20
+└   length(nodes) = 41
+┌ Info: columns
+│   sum(crew_routes.routes_per_crew) = 1184
+└   sum(fire_plans.plans_per_fire) = 568
+┌ Info: Time check
+└   time() - start_time = 3.8580000400543213
+┌ Info: Exploring node
+└   branch_and_bound_node.ix = 23
+┌ Info: rules
+│   crew_rules = CrewSupplyBranchingRule[]
+│   fire_rules =
+│    5-element Vector{FireDemandBranchingRule}:
+│     FireDemandBranchingRule(1, 2, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 3, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 5, 3, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 4, 2, "greater_than_or_equal")
+│     FireDemandBranchingRule(2, 4, 7, "greater_than_or_equal")
+└   global_rules = GlobalFireAllotmentBranchingRule[]
+┌ Info: Define rmp time (b-and-b)
+└   t = 0.0101082
+┌ Info: Price and cut time (b-and-b)
+└   t = 0.2655801
+┌ Info: branching rules
+│   left_branching_rule = FireDemandBranchingRule(2, 2, 8, "less_than_or_equal")
+└   right_branching_rule = FireDemandBranchingRule(2, 2, 9, "greater_than_or_equal")
+┌ Info: current bounds
+│   node_ix = 23
+│   lb = 1.1459003084834622
+└   ub = Inf
+┌ Info: number of nodes
+│   node_explored_count = 21
+└   length(nodes) = 43
+┌ Info: columns
+│   sum(crew_routes.routes_per_crew) = 1256
+└   sum(fire_plans.plans_per_fire) = 618
+┌ Info: Time check
+└   time() - start_time = 4.140000104904175
+┌ Info: Exploring node
+└   branch_and_bound_node.ix = 36
+┌ Info: rules
+│   crew_rules = CrewSupplyBranchingRule[]
+│   fire_rules =
+│    7-element Vector{FireDemandBranchingRule}:
+│     FireDemandBranchingRule(1, 2, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 3, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 5, 3, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 4, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 7, 8, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 8, 8, "less_than_or_equal")
+│     FireDemandBranchingRule(2, 4, 8, "less_than_or_equal")
+└   global_rules = GlobalFireAllotmentBranchingRule[]
+┌ Info: Define rmp time (b-and-b)
+└   t = 0.0105858
+┌ Info: Price and cut time (b-and-b)
+└   t = 0.1658625
+┌ Info: branching rules
+│   left_branching_rule = FireDemandBranchingRule(1, 10, 6, "less_than_or_equal")
+└   right_branching_rule = FireDemandBranchingRule(1, 10, 7, "greater_than_or_equal")
+┌ Info: current bounds
+│   node_ix = 36
+│   lb = 1.1459003084834622
+└   ub = Inf
+┌ Info: number of nodes
+│   node_explored_count = 22
+└   length(nodes) = 45
+┌ Info: columns
+│   sum(crew_routes.routes_per_crew) = 1294
+└   sum(fire_plans.plans_per_fire) = 650
+┌ Info: Time check
+└   time() - start_time = 4.306999921798706
+┌ Info: Exploring node
+└   branch_and_bound_node.ix = 37
+┌ Info: rules
+│   crew_rules = CrewSupplyBranchingRule[]
+│   fire_rules =
+│    7-element Vector{FireDemandBranchingRule}:
+│     FireDemandBranchingRule(1, 2, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 3, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 5, 3, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 4, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 7, 8, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 8, 8, "less_than_or_equal")
+│     FireDemandBranchingRule(2, 4, 9, "greater_than_or_equal")
+└   global_rules = GlobalFireAllotmentBranchingRule[]
+┌ Info: Define rmp time (b-and-b)
+└   t = 0.0104599
+┌ Info: Price and cut time (b-and-b)
+└   t = 0.0663842
+┌ Info: branching rules
+│   left_branching_rule = FireDemandBranchingRule(2, 2, 7, "less_than_or_equal")
+└   right_branching_rule = FireDemandBranchingRule(2, 2, 8, "greater_than_or_equal")
+┌ Info: current bounds
+│   node_ix = 37
+│   lb = 1.145955397893692
+└   ub = Inf
+┌ Info: number of nodes
+│   node_explored_count = 23
+└   length(nodes) = 47
+┌ Info: columns
+│   sum(crew_routes.routes_per_crew) = 1306
+└   sum(fire_plans.plans_per_fire) = 659
+┌ Info: Time check
+└   time() - start_time = 4.4019999504089355
+┌ Info: Exploring node
+└   branch_and_bound_node.ix = 14
+┌ Info: rules
+│   crew_rules = CrewSupplyBranchingRule[]
+│   fire_rules =
+│    4-element Vector{FireDemandBranchingRule}:
+│     FireDemandBranchingRule(1, 2, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 3, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 5, 4, "greater_than_or_equal")
+│     FireDemandBranchingRule(2, 5, 0, "less_than_or_equal")
+└   global_rules = GlobalFireAllotmentBranchingRule[]
+┌ Info: Define rmp time (b-and-b)
+└   t = 0.0114858
+┌ Info: Price and cut time (b-and-b)
+└   t = 0.0840361
+┌ Info: branching rules
+│   left_branching_rule = FireDemandBranchingRule(2, 4, 8, "less_than_or_equal")
+└   right_branching_rule = FireDemandBranchingRule(2, 4, 9, "greater_than_or_equal")
+┌ Info: current bounds
+│   node_ix = 14
+│   lb = 1.145955397893692
+└   ub = Inf
+┌ Info: number of nodes
+│   node_explored_count = 24
+└   length(nodes) = 49
+┌ Info: columns
+│   sum(crew_routes.routes_per_crew) = 1325
+└   sum(fire_plans.plans_per_fire) = 671
+┌ Info: Time check
+└   time() - start_time = 4.502000093460083
+┌ Info: Exploring node
+└   branch_and_bound_node.ix = 15
+┌ Info: rules
+│   crew_rules = CrewSupplyBranchingRule[]
+│   fire_rules =
+│    4-element Vector{FireDemandBranchingRule}:
+│     FireDemandBranchingRule(1, 2, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 3, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 5, 4, "greater_than_or_equal")
+│     FireDemandBranchingRule(2, 5, 1, "greater_than_or_equal")
+└   global_rules = GlobalFireAllotmentBranchingRule[]
+┌ Info: Define rmp time (b-and-b)
+└   t = 0.0117639
+┌ Info: Price and cut time (b-and-b)
+└   t = 0.2067753
+┌ Info: branching rules
+│   left_branching_rule = FireDemandBranchingRule(1, 6, 6, "less_than_or_equal")
+└   right_branching_rule = FireDemandBranchingRule(1, 6, 7, "greater_than_or_equal")
+┌ Info: current bounds
+│   node_ix = 15
+│   lb = 1.146295130002316
+└   ub = Inf
+┌ Info: number of nodes
+│   node_explored_count = 25
+└   length(nodes) = 51
+┌ Info: columns
+│   sum(crew_routes.routes_per_crew) = 1364
+└   sum(fire_plans.plans_per_fire) = 710
+┌ Info: Time check
+└   time() - start_time = 4.7209999561309814
+┌ Info: Exploring node
+└   branch_and_bound_node.ix = 40
+┌ Info: rules
+│   crew_rules = CrewSupplyBranchingRule[]
+│   fire_rules =
+│    6-element Vector{FireDemandBranchingRule}:
+│     FireDemandBranchingRule(1, 2, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 3, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 5, 3, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 4, 2, "greater_than_or_equal")
+│     FireDemandBranchingRule(2, 4, 6, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 4, 2, "less_than_or_equal")
+└   global_rules = GlobalFireAllotmentBranchingRule[]
+┌ Info: Define rmp time (b-and-b)
+└   t = 0.0134052
+┌ Info: Price and cut time (b-and-b)
+└   t = 0.0761315
+┌ Info: branching rules
+│   left_branching_rule = FireDemandBranchingRule(1, 1, 0, "less_than_or_equal")
+└   right_branching_rule = FireDemandBranchingRule(1, 1, 1, "greater_than_or_equal")
+┌ Info: current bounds
+│   node_ix = 40
+│   lb = 1.146295130002316
+└   ub = Inf
+┌ Info: number of nodes
+│   node_explored_count = 26
+└   length(nodes) = 53
+┌ Info: columns
+│   sum(crew_routes.routes_per_crew) = 1376
+└   sum(fire_plans.plans_per_fire) = 721
+┌ Info: Time check
+└   time() - start_time = 4.822999954223633
+┌ Info: Exploring node
+└   branch_and_bound_node.ix = 41
+┌ Info: rules
+│   crew_rules = CrewSupplyBranchingRule[]
+│   fire_rules =
+│    6-element Vector{FireDemandBranchingRule}:
+│     FireDemandBranchingRule(1, 2, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 3, 1, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 5, 3, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 4, 2, "greater_than_or_equal")
+│     FireDemandBranchingRule(2, 4, 6, "less_than_or_equal")
+│     FireDemandBranchingRule(1, 4, 3, "greater_than_or_equal")
+└   global_rules = GlobalFireAllotmentBranchingRule[]
+┌ Info: Define rmp time (b-and-b)
+└   t = 0.0125634
+┌ Info: Price and cut time (b-and-b)
+└   t = 0.2262517
+┌ Info: branching rules
+│   left_branching_rule = FireDemandBranchingRule(2, 4, 5, "less_than_or_equal")
+└   right_branching_rule = FireDemandBranchingRule(2, 4, 6, "greater_than_or_equal")
+[ Info: Full time limit reached

@@ -2,13 +2,7 @@ include("CommonStructs.jl")
 include("BranchingRules.jl")
 include("GUBKnapsackCoverCuts.jl")
 
-using Gurobi, Statistics
-
-mutable struct MutGRBsvec
-    len::Cint
-    ind::Ptr{Cint}
-    val::Ptr{Cdouble}
-end
+using Gurobi, Statistics, JSON
 
 mutable struct BranchAndBoundNode
 
@@ -19,7 +13,7 @@ mutable struct BranchAndBoundNode
 	const new_global_fire_allotment_branching_rules::Vector{
 		GlobalFireAllotmentBranchingRule,
 	}
-	const cut_data::GUBCutData
+	const cut_data::CutData
 	children::Vector{BranchAndBoundNode}
 	l_bound::Float64
 	u_bound::Float64
@@ -32,7 +26,7 @@ function BranchAndBoundNode(
 	;
 	ix::Int64,
 	parent::Union{Nothing, BranchAndBoundNode},
-	cut_data::GUBCutData,
+	cut_data::CutData,
 	new_crew_branching_rules::Vector{CrewSupplyBranchingRule} = CrewSupplyBranchingRule[],
 	new_fire_branching_rules::Vector{FireDemandBranchingRule} = FireDemandBranchingRule[],
 	new_global_fire_allotment_branching_rules::Vector{
@@ -63,11 +57,286 @@ end
 
 ###############
 
+function branch_and_price(
+    num_fires::Int,
+    num_crews::Int,
+    num_time_periods::Int;
+    max_nodes=10000,
+    algo_tracking=false,
+	branching_strategy="linking_dual_max_variance",
+    gub_cut_limit_per_time=100000,
+    cut_loop_max=25,
+	price_and_cut_soft_time_limit=180.0,
+    relative_improvement_cut_req=1e-10,
+    soft_heuristic_time_limit=300.0,
+    hard_heuristic_iteration_limit=10,
+    heuristic_must_improve_rounds=2,
+    heuristic_cadence=5,
+    total_time_limit=1800.0,
+    bb_node_gub_cover_cuts=true,
+    bb_node_general_gub_cuts=true,
+    bb_node_single_fire_cuts=false,
+    bb_node_decrease_gub_allots=true,
+    bb_node_single_fire_lift=true,
+    heuristic_gub_cover_cuts=true,
+    heuristic_general_gub_cuts=true,
+    heuristic_single_fire_cuts=false,
+    heuristic_decrease_gub_allots=true,
+    heuristic_single_fire_lift=true,
+    price_and_cut_file=nothing
+)
+    start_time = time()
+
+    @info "Initializing data structures"
+    # initialize input data
+    crew_routes, fire_plans, crew_models, fire_models, cut_data =
+        initialize_data_structures(num_fires, num_crews, num_time_periods)
+
+
+    algo_tracking ?
+    (@info "Checkpoint after initializing data structures" time() - start_time) :
+    nothing
+
+    explored_nodes = []
+    ubs = []
+    lbs = []
+    columns = []
+    times = []
+    time_1 = time() - start_time
+
+    # initialize nodes list with the root node
+    nodes = BranchAndBoundNode[]
+    first_node = BranchAndBoundNode(ix=1, parent=nothing, cut_data=cut_data)
+    push!(nodes, first_node)
+
+    # initialize global variables to track in branch-and-bound tree
+    ub = Inf
+	lb = 0
+    ub_ix::Int = -1
+    routes_best_sol = nothing
+    plans_best_sol = nothing
+
+    ## breadth-first search for now, can get smarter/add options
+
+    unexplored = [i for i in eachindex(nodes) if isnothing(nodes[i].master_problem)]
+    node_lbs = []
+    for i in unexplored
+        if (~isnothing(nodes[i].parent))
+            push!(node_lbs, nodes[i].parent.l_bound)
+        else
+            @warn "Node with no parent" i
+            push!(node_lbs, 0)
+        end
+    end
+
+    node_explored_count = 0
+    # while there are more nodes to explore
+    while length(unexplored) > 0
+
+        node_explored_count += 1
+
+        ### breadth first ###
+        # node_ix = unexplored[1]
+
+        ### raise lb ###
+		min_lb = findmin(node_lbs)[1]
+		node_ix = unexplored[findmin(node_lbs)[2]]
+
+		# break early if we are close enough to solved
+		if min_lb / ub > 1 - 1e-8
+			@info "Solved to tolerance" min_lb ub
+			break
+		end
+
+        # else explore the next node
+        explore_node!!(
+            nodes[node_ix],
+            nodes,
+            ub,
+            crew_routes,
+            fire_plans,
+            crew_models,
+            fire_models,
+            gub_cut_limit_per_time,
+            nothing,
+            GRB_ENV,
+			price_and_cut_soft_time_limit=price_and_cut_soft_time_limit,
+            cut_loop_max=cut_loop_max,
+            relative_improvement_cut_req=relative_improvement_cut_req,
+            gub_cover_cuts=bb_node_gub_cover_cuts,
+            general_gub_cuts=bb_node_general_gub_cuts,
+            single_fire_cuts=bb_node_single_fire_cuts,
+            decrease_gub_allots=bb_node_decrease_gub_allots,
+            single_fire_lift=bb_node_single_fire_lift,
+            log_cuts_file=price_and_cut_file,
+			branching_strategy=branching_strategy
+        )
+
+        if time() - start_time > total_time_limit
+            @info "Full time limit reached"
+            break
+        end
+
+        if (node_explored_count % heuristic_cadence == 1) &&
+           (soft_heuristic_time_limit > 0.0) && (lb / ub < 1 - 1e-3) # gurobi has 1e-4 tol I can't fix
+            heuristic_ub, ub_rmp, routes_best_sol, plans_best_sol = heuristic_upper_bound!!(
+                crew_routes,
+                fire_plans,
+                nodes[node_ix],
+                hard_heuristic_iteration_limit,
+                soft_heuristic_time_limit,
+                heuristic_must_improve_rounds,
+                crew_models,
+                fire_models,
+                gub_cut_limit_per_time,
+                GRB_ENV,
+                routes_best_sol=routes_best_sol,
+                plans_best_sol=plans_best_sol,
+				price_and_cut_soft_time_limit=price_and_cut_soft_time_limit,
+                cut_loop_max=cut_loop_max,
+                relative_improvement_cut_req=relative_improvement_cut_req,
+                gub_cover_cuts=heuristic_gub_cover_cuts,
+                general_gub_cuts=heuristic_general_gub_cuts,
+                single_fire_cuts=heuristic_single_fire_cuts,
+                decrease_gub_allots=heuristic_decrease_gub_allots,
+                single_fire_lift=heuristic_single_fire_lift
+            )
+
+            if time() - start_time > total_time_limit
+                @info "Full time limit reached"
+                break
+            end
+
+            nodes[node_ix].heuristic_found_master_problem = ub_rmp
+
+            if heuristic_ub < nodes[node_ix].u_bound
+                nodes[node_ix].u_bound = heuristic_ub
+            end
+        end
+
+        ## now that we have done the heuristic, can mess up rmp and lose duals
+
+		# if (ub / nodes[node_ix].l_bound < 1.001) 
+		# 	t = @elapsed obj, obj_bound, routes, plans =
+		# 		find_integer_solution(
+		# 			nodes[node_ix].master_problem,
+		# 			ub,
+		# 			12000,
+		# 			40000,
+		# 			10.0,)			
+		# 	@info "restore_integrality" t obj obj_bound
+		# 	if obj < nodes[node_ix].u_bound
+		# 		nodes[node_ix].u_bound = obj
+		# 	end
+		# end
+
+
+        # if this node has an integer solution, check if we have found 
+        # a better solution than the incumbent
+        # TODO keep track if it comes from heurisitc or no
+        if nodes[node_ix].u_bound < ub
+            ub = nodes[node_ix].u_bound
+            ub_ix = node_ix
+        end
+
+        # calculate the best current lower bound by considering all nodes with
+        # fully explored children 
+        lb = find_lower_bound(nodes[1])
+
+        # print progress
+        @info "current bounds" node_ix lb ub
+		println(lb)
+		println(ub)
+        # go to the next node
+        @info "number of nodes" node_explored_count length(nodes)
+        @info "columns" sum(crew_routes.routes_per_crew) sum(
+            fire_plans.plans_per_fire,
+        )
+        algo_tracking ?
+        (@info "Time check" time() - start_time) :
+        nothing
+
+        if algo_tracking
+            push!(explored_nodes, node_explored_count)
+            push!(lbs, lb)
+            push!(ubs, ub)
+            push!(
+                columns,
+                sum(crew_routes.routes_per_crew) + sum(fire_plans.plans_per_fire),
+            )
+            push!(times, time() - start_time)
+        end
+
+        unexplored =
+            [i for i in eachindex(nodes) if isnothing(nodes[i].master_problem)]
+        node_lbs = []
+        for i in unexplored
+            if (~isnothing(nodes[i].parent))
+                push!(node_lbs, nodes[i].parent.l_bound)
+            else
+                @warn "Node with no parent" i
+                push!(node_lbs, -Inf)
+            end
+        end
+
+        if node_explored_count >= max_nodes
+            @info "Hit node limit, breaking" node_explored_count
+            break
+        end
+    end
+
+    return explored_nodes, ubs, lbs, columns, times, time_1
+
+end
+
+function initialize_data_structures(
+    num_fires::Int64,
+    num_crews::Int64,
+    num_time_periods::Int64,
+)
+    crew_models = build_crew_models(
+        "data/raw/big_fire",
+        num_fires,
+        num_crews,
+        num_time_periods,
+    )
+
+    fire_models = build_fire_models(
+        "data/raw/big_fire",
+        num_fires,
+        num_crews,
+        num_time_periods,
+    )
+
+
+    crew_routes = CrewRouteData(100000, num_fires, num_crews, num_time_periods)
+    fire_plans = FirePlanData(100000, num_fires, num_time_periods)
+    cut_data = CutData(num_crews, num_fires, num_time_periods)
+
+    return crew_routes, fire_plans, crew_models, fire_models, cut_data
+end
+
+# TODO if this is a bottleneck, can cache lower bounds
+# in a new field in branch and bound node
+function find_lower_bound(node::BranchAndBoundNode)
+
+    # child.l_bound = -Inf if unexplored
+    child_lbs = [find_lower_bound(child) for child in node.children]
+
+    if length(child_lbs) > 0
+        return max(minimum(child_lbs), node.l_bound)
+    else
+        return node.l_bound
+    end
+
+end
+
 function max_variance_natural_variable(
 	crew_routes::CrewRouteData,
 	fire_plans::FirePlanData,
 	route_values::JuMP.Containers.SparseAxisArray,
 	plan_values::JuMP.Containers.SparseAxisArray,
+	linking_duals::Union{Nothing, Matrix{Float64}}
 )
 	# gather global information
 	num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)
@@ -94,6 +363,24 @@ function max_variance_natural_variable(
 			plan_values[ix] * (fire_plans.crews_present[fire, plan, :] .^ 2)
 	end
 	fire_variances = fire_sq_means - (fire_means .^ 2)
+
+	# dual-adjust variances, increasing focus on high-leverage fire/times
+	if ~isnothing(linking_duals)
+		for j ∈ 1:num_crews
+			for g ∈ 1:num_fires
+				for t ∈ 1:num_time_periods
+					crew_variances[j, g, t] *= ((linking_duals[g, t]) ^ 2)
+				end
+			end
+		end
+
+		for g ∈ 1:num_fires
+			for t ∈ 1:num_time_periods
+				fire_variances[g, t] *= ((linking_duals[g, t]) ^ 2)
+			end
+		end
+	end
+
 	@debug "Variances" fire_variances # crew_variances
 	# get the max variance for each natural variable type
 	crew_max_var, crew_max_ix = findmax(crew_variances)
@@ -178,7 +465,7 @@ end
 
 function price_and_cut!!(
 	rmp::RestrictedMasterProblem,
-	cut_data::GUBCutData,
+	cut_data::CutData,
 	crew_subproblems::Vector{TimeSpaceNetwork},
 	fire_subproblems::Vector{TimeSpaceNetwork},
 	gub_cut_limit_per_time::Int64,
@@ -187,18 +474,33 @@ function price_and_cut!!(
 	global_fire_allotment_rules::Vector{GlobalFireAllotmentBranchingRule},
 	crew_routes::CrewRouteData,
 	fire_plans::FirePlanData;
-	upper_bound::Float64 = 1e20,
-	gub_cover_cuts = true,
-	general_gub_cuts = true,
-	single_fire_cuts = false
+	gub_cover_cuts,
+	general_gub_cuts,
+	single_fire_cuts,
+	decrease_gub_allots,
+	single_fire_lift,
+	soft_time_limit,
+	loop_max,
+	relative_improvement_cut_req,
+	upper_bound::Float64 = 1e10,
+	log_progress_file = nothing,
 	)
 
-	loop_ix = 1
-	loop_max = 15
+	if ~isnothing(log_progress_file)
+		ts = []
+		objs = []
+		num_routes = []
+		num_plans = []
+		num_cuts_found = []
+		active_cuts = []
+	end
 
+	t = time()
+	loop_ix = 1
 	most_recent_obj = 0
 
 	while loop_ix < loop_max
+
 		# run DCG, adding columns as needed
 		double_column_generation!(
 			rmp,
@@ -218,12 +520,26 @@ function price_and_cut!!(
 		end
 
 		current_obj = objective_value(rmp.model)
+		if ~isnothing(log_progress_file)
+			push!(ts, time() - t)
+			push!(objs, current_obj)
+			push!(num_routes, sum(crew_routes.routes_per_crew))
+			push!(num_plans, sum(fire_plans.plans_per_fire))
+			push!(num_cuts_found, sum(cut_data.cuts_per_time))
+			push!(active_cuts, sum([1 for i in eachindex(rmp.gub_cover_cuts) if dual(rmp.gub_cover_cuts[i]) > 1e-4]))
+		end
+
 		@debug "in cut generation" loop_ix current_obj
-		if most_recent_obj / current_obj > 1 - 1e-8
+		if most_recent_obj / current_obj > 1 - relative_improvement_cut_req
 			@info "halting cut generation early, too small improvement" loop_ix
 			break
 		end
 		most_recent_obj = current_obj
+
+		if time() - t > soft_time_limit
+			@info "cut time limit" soft_time_limit
+			break
+		end
 
 		# add cuts
 		num_cuts = find_and_incorporate_knapsack_gub_cuts!!(
@@ -236,7 +552,9 @@ function price_and_cut!!(
 			fire_subproblems,
 			gub_cover_cuts = gub_cover_cuts,
 			general_gub_cuts = general_gub_cuts,
-			single_fire_cuts = single_fire_cuts
+			single_fire_cuts = single_fire_cuts,
+			decrease_gub_allots = decrease_gub_allots,
+			single_fire_lift = single_fire_lift
 		)
 		@debug "after cuts" num_cuts objective_value(rmp.model)
 		if (num_cuts == 0)
@@ -255,6 +573,7 @@ function price_and_cut!!(
 	end
 
 	# if we got completely through all the loop of cut generation
+	# TODO can skip if time limit hit before cuts, should not really matter
 	if loop_ix == loop_max
 		@info "There may be more cuts; one last DCG to have provable lower bound" loop_ix
 		double_column_generation!(
@@ -269,16 +588,34 @@ function price_and_cut!!(
 			cut_data,
 			upper_bound = upper_bound,
 		)
+
+		current_obj = objective_value(rmp.model)
+		if ~isnothing(log_progress_file)
+			push!(ts, time() - t)
+			push!(objs, current_obj)
+			push!(num_routes, sum(crew_routes.routes_per_crew))
+			push!(num_plans, sum(fire_plans.plans_per_fire))
+			push!(num_cuts_found, sum(cut_data.cuts_per_time))
+			push!(active_cuts, sum([1 for i in eachindex(rmp.gub_cover_cuts) if dual(rmp.gub_cover_cuts[i]) > 1e-4]))
+
+		end
 	end
 
-	@debug "After price-and-cut" objective_value(rmp.model)
-	@debug "Afer price-and-cut" length(eachindex(rmp.routes)) length(
-		eachindex(rmp.plans),
-	) length([i for i in eachindex(rmp.plans) if reduced_cost(rmp.plans[i]) < 1e-2]) length([
-		i for i in eachindex(rmp.routes) if reduced_cost(rmp.routes[i]) < 1e-2
-	]) dual.(rmp.supply_demand_linking) dual.(
-		rmp.fire_allotment_branches
-	) rmp.fire_allotment_branches
+	if ~isnothing(log_progress_file)
+		outputs = Dict(
+			"times" => ts,
+			"objectives" => objs,
+			"num_routes" => num_routes,
+			"num_plans" => num_plans,
+			"num_cuts" => num_cuts_found,
+			"num_active_cuts" => active_cuts
+		)
+		open(log_progress_file, "w") do f
+			JSON.print(f, outputs, 4)
+		end
+	end
+
+	@debug "After price-and-cut" dual.(rmp.supply_demand_linking)
 
 end
 
@@ -329,12 +666,12 @@ function find_integer_solution(
 	max_plan_rc = plan_values[sorted_plan_ixs[fire_column_limit]]
 
 	# if this reduced cost is too high for the upper bound
-	if lp_objective + max_plan_rc > upper_bound + 1e-5
+	if lp_objective + max_plan_rc > upper_bound + 1e-7
 
 		# delete elements of used_plan_ixs
 		to_delete = Int64[]
 		for (i, ix) in enumerate(used_plan_ixs)
-			if lp_objective + plan_values[ix] > upper_bound + 1e-5
+			if lp_objective + plan_values[ix] > upper_bound + 1e-7
 				push!(to_delete, i)
 			end
 		end
@@ -358,12 +695,12 @@ function find_integer_solution(
 	max_route_rc = route_values[sorted_route_ixs[crew_column_limit]]
 
 	# if this reduced cost is too high for the upper bound
-	if lp_objective + max_route_rc > upper_bound + 1e-5
+	if lp_objective + max_route_rc > upper_bound + 1e-7
 
 		# delete elements of used_route_ixs
 		to_delete = Int64[]
 		for (i, ix) in enumerate(used_route_ixs)
-			if lp_objective + route_values[ix] > upper_bound + 1e-5
+			if lp_objective + route_values[ix] > upper_bound + 1e-7
 				push!(to_delete, i)
 			end
 		end
@@ -424,7 +761,6 @@ function find_integer_solution(
 	# set time TimeLimit and MIPFocus
 	set_optimizer_attribute(solved_rmp.model, "TimeLimit", time_limit)
 	set_optimizer_attribute(solved_rmp.model, "OutputFlag", 1)
-
 	# solve
 	optimize!(solved_rmp.model)
 
@@ -455,6 +791,14 @@ function heuristic_upper_bound!!(
 	fire_subproblems::Vector{TimeSpaceNetwork},
 	gub_cut_limit_per_time::Int64,
 	gurobi_env;
+	price_and_cut_soft_time_limit,
+	cut_loop_max,
+	relative_improvement_cut_req,
+	gub_cover_cuts,
+	general_gub_cuts,
+	single_fire_cuts,
+	decrease_gub_allots,
+	single_fire_lift,
 	routes_best_sol = nothing,
 	plans_best_sol = nothing
 )
@@ -538,7 +882,7 @@ function heuristic_upper_bound!!(
 
 		# get rid of past cuts
 		# do we want cuts? lose guarantee of feasibility in next step because we may find a cut later 
-		# cut_data = GUBCutData(num_crews, num_fires, num_time_periods)
+		# cut_data = CutData(num_crews, num_fires, num_time_periods)
 
 		branching_rule =
 			GlobalFireAllotmentBranchingRule(current_allotment,
@@ -559,7 +903,13 @@ function heuristic_upper_bound!!(
 			deleteat!(fire_ixs[fire], to_delete)
 		end
 
-		@debug "entering heuristic round" branching_rule.allotment_matrix
+		@info "entering heuristic round" branching_rule.allotment_matrix 
+		for rule in crew_rules 
+			@info "crew rule" rule
+		end
+		for rule in fire_rules 
+			@info "fire rule" rule
+		end
 		rmp = define_restricted_master_problem(
 			gurobi_env,
 			crew_routes,
@@ -583,6 +933,14 @@ function heuristic_upper_bound!!(
 			global_rules,
 			crew_routes,
 			fire_plans,
+			soft_time_limit=price_and_cut_soft_time_limit,
+			loop_max=cut_loop_max,
+			relative_improvement_cut_req=relative_improvement_cut_req,
+			gub_cover_cuts=gub_cover_cuts,
+			general_gub_cuts=general_gub_cuts,
+			single_fire_cuts=single_fire_cuts,
+			decrease_gub_allots=decrease_gub_allots,
+			single_fire_lift=single_fire_lift,
 			upper_bound = ub)
 		@info "Price and cut time (heuristic)" t 
 
@@ -676,11 +1034,17 @@ function explore_node!!(
 	gub_cut_limit_per_time::Int64,
 	warm_start_strategy::Union{String, Nothing},
 	gurobi_env;
-	rel_tol = 1e-9,
-	restore_integrality = false,
-	gub_cover_cuts=true,
-	general_gub_cuts=true,
-	single_fire_cuts=false)
+	branching_strategy,
+	price_and_cut_soft_time_limit,
+	cut_loop_max,
+	relative_improvement_cut_req,
+	gub_cover_cuts,
+	general_gub_cuts,
+	single_fire_cuts,
+	decrease_gub_allots,
+	single_fire_lift,
+	log_cuts_file,
+	rel_tol = 1e-9)
 
 	@info "Exploring node" branch_and_bound_node.ix
 
@@ -756,6 +1120,7 @@ function explore_node!!(
 		cur_node = cur_node.parent
 
 	end
+	@info "rules" crew_rules fire_rules global_rules
 
 	# define the restricted master problem
 	## TODO how do we handle existing cuts
@@ -783,10 +1148,16 @@ function explore_node!!(
 		global_rules,
 		crew_routes,
 		fire_plans,
+		soft_time_limit=price_and_cut_soft_time_limit,
+		loop_max=cut_loop_max,
+		relative_improvement_cut_req=relative_improvement_cut_req,
 		upper_bound = current_global_upper_bound,
 		gub_cover_cuts=gub_cover_cuts,
 		general_gub_cuts=general_gub_cuts,
-		single_fire_cuts=single_fire_cuts)
+		single_fire_cuts=single_fire_cuts,
+		decrease_gub_allots=decrease_gub_allots,
+		single_fire_lift=single_fire_lift,
+		log_progress_file=log_cuts_file)
 
 	@info "Price and cut time (b-and-b)" t
 	@debug "after price and cut" objective_value(rmp.model) crew_routes.routes_per_crew fire_plans.plans_per_fire
@@ -829,26 +1200,12 @@ function explore_node!!(
 		plan_values = value.(rmp.plans)
 		route_values = value.(rmp.routes)
 
-		if restore_integrality
-			error("Doing this here loses rmp duals")
-			# t = @elapsed obj, obj_bound, routes, plans =
-			# 	find_integer_solution(
-			# 		rmp,
-			# 		current_global_upper_bound,
-			# 		300,
-			# 		1000,
-			# 		0.5,
-			# 	)
-			# branch_and_bound_node.u_bound = obj
-			# @debug "after restoring integrality" t obj obj_bound
-		else
-			tolerance = 1e-8
-			integer =
-				all((plan_values .< tolerance) .|| (plan_values .> 1 - tolerance)) &&
-				all((route_values .< tolerance) .|| (route_values .> 1 - tolerance))
-			if integer
-				branch_and_bound_node.u_bound = branch_and_bound_node.l_bound
-			end
+		tolerance = 1e-8
+		integer =
+			all((plan_values .< tolerance) .|| (plan_values .> 1 - tolerance)) &&
+			all((route_values .< tolerance) .|| (route_values .> 1 - tolerance))
+		if integer
+			branch_and_bound_node.u_bound = branch_and_bound_node.l_bound
 		end
 	end
 
@@ -858,19 +1215,32 @@ function explore_node!!(
 	   (branch_and_bound_node.l_bound / current_global_upper_bound < 1 - rel_tol)
 
 		# TODO think about branching rules
-
-		@debug "duals" value.(rmp.supply_demand_linking)
-		# decide the next branching rules
-		branch_type, branch_ix, var_variance, var_mean =
+		branch_type, branch_ix, var_variance, var_mean = nothing, nothing, nothing, nothing
+		if branching_strategy == "linking_dual_max_variance"
+			# decide the next branching rules
+			branch_type, branch_ix, var_variance, var_mean =
+				max_variance_natural_variable(
+					crew_routes,
+					fire_plans,
+					route_values,
+					plan_values,
+					dual.(rmp.supply_demand_linking) .+ 1e-5
+				)
+		elseif branching_strategy == "max_variance"
+			branch_type, branch_ix, var_variance, var_mean =
 			max_variance_natural_variable(
 				crew_routes,
 				fire_plans,
 				route_values,
 				plan_values,
+				nothing
 			)
+		else
+			error("branching strategy not implemented")
+		end
 
 		# restrict to used cuts
-		used_cuts = restrict_GUBCutData(cut_data, binding_cuts)
+		used_cuts = restrict_CutData(cut_data, binding_cuts)
 		@debug "cuts" used_cuts.cut_dict
 
 		@assert var_variance > 0 "Cannot branch on variable with no variance, should already be integral"
@@ -930,7 +1300,7 @@ function explore_node!!(
 			branch_and_bound_node.children = [left_child, right_child]
 
 		end
-		@debug "branching rules" left_branching_rule right_branching_rule
+		@info "branching rules" left_branching_rule right_branching_rule
 	end
 
 	return used_plans, used_routes, binding_cuts

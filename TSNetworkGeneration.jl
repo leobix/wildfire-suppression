@@ -289,7 +289,7 @@ function get_static_crew_arc_costs(gd, arcs, cost_param_dict)
 			]
 	end
 
-	return copy(costs)
+	return copy(costs) ./ 1e6 # divide by 1e-6 because Gurobi tolerance
 end
 
 function crew_data_from_path(path)
@@ -473,7 +473,7 @@ function build_crew_models(
 		num_crews,
 		num_time_periods,
 		crew_status.rest_by,
-		1e25,
+		1e10,
 		positive,
 	)
 	ALPHA = 200
@@ -543,7 +543,7 @@ function create_discrete_fire_states(
 			)
 		passive_states = passive_states[2:num_passive_states+1] .- 1
 		all_states = vcat(aggressive_states, passive_states)
-		all_states = vcat(all_states, 9999999)
+		all_states = vcat(all_states, 1e7)
 
 		push!(all_states, start_perim)
 
@@ -822,9 +822,9 @@ function discretize_fire_model(
 		arc_array =
 			hcat(convert.(Int, zeros(length(arc_array[:, 1]))) .- 1, arc_array)
 
-
 		fire_arc_costs_dict[key] =
 			[state_costs[arc_array[i, 5], arc_array[i, 4]] for i in 1:n_arcs]
+		fire_arc_costs_dict[key] = fire_arc_costs_dict[key] ./ 1e6 # scale for Gurobi numerical tolerance
 		arc_arrays[key] = copy(arc_array)
 
 		n_states = size(states)[1]

@@ -1,7 +1,6 @@
 *
 !.gitignore
 !*/
-!**/branch_price_and_cut/*
 !*.jl
 !**/*.toml
 **/.ipynb_checkpoints/*

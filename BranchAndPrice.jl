@@ -480,7 +480,7 @@ function price_and_cut!!(
 	decrease_gub_allots,
 	single_fire_lift,
 	soft_time_limit,
-	loop_max,
+	loop_max::Int,
 	relative_improvement_cut_req,
 	upper_bound::Float64 = 1e10,
 	log_progress_file = nothing,
@@ -496,10 +496,10 @@ function price_and_cut!!(
 	end
 
 	t = time()
-	loop_ix = 1
+	loop_ix = 0
 	most_recent_obj = 0
 
-	while loop_ix < loop_max
+	while true
 
 		# run DCG, adding columns as needed
 		double_column_generation!(
@@ -529,7 +529,13 @@ function price_and_cut!!(
 			push!(active_cuts, sum([1 for i in eachindex(rmp.gub_cover_cuts) if dual(rmp.gub_cover_cuts[i]) > 1e-4]))
 		end
 
-		@debug "in cut generation" loop_ix current_obj
+		loop_ix += 1
+		
+		if loop_ix > loop_max
+			@info "halting cut generation early, hit max loops" loop_ix loop_max
+			break
+		end
+
 		if most_recent_obj / current_obj > 1 - relative_improvement_cut_req
 			@info "halting cut generation early, too small improvement" loop_ix
 			break
@@ -537,7 +543,7 @@ function price_and_cut!!(
 		most_recent_obj = current_obj
 
 		if time() - t > soft_time_limit
-			@info "cut time limit" soft_time_limit
+			@info "halting cut generation early, reached cut time limit" soft_time_limit
 			break
 		end
 
@@ -565,38 +571,6 @@ function price_and_cut!!(
 		if num_cuts == 0
 			@debug "No cuts found, breaking" loop_ix
 			break
-
-		end
-
-		loop_ix += 1
-
-	end
-
-	# if we got completely through all the loop of cut generation
-	# TODO can skip if time limit hit before cuts, should not really matter
-	if loop_ix == loop_max
-		@info "There may be more cuts; one last DCG to have provable lower bound" loop_ix
-		double_column_generation!(
-			rmp,
-			crew_subproblems,
-			fire_subproblems,
-			crew_rules,
-			fire_rules,
-			global_fire_allotment_rules,
-			crew_routes,
-			fire_plans,
-			cut_data,
-			upper_bound = upper_bound,
-		)
-
-		current_obj = objective_value(rmp.model)
-		if ~isnothing(log_progress_file)
-			push!(ts, time() - t)
-			push!(objs, current_obj)
-			push!(num_routes, sum(crew_routes.routes_per_crew))
-			push!(num_plans, sum(fire_plans.plans_per_fire))
-			push!(num_cuts_found, sum(cut_data.cuts_per_time))
-			push!(active_cuts, sum([1 for i in eachindex(rmp.gub_cover_cuts) if dual(rmp.gub_cover_cuts[i]) > 1e-4]))
 
 		end
 	end

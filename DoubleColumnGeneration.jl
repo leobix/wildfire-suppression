@@ -14,7 +14,7 @@ using JuMP
 end
 
 """
-Perform double column generation to solve the restricted master problem `rmp` 
+Perform double column generation to solve the (relaxed) restricted master problem `rmp` 
 by iteratively adding columns to model feasible fire suppression plans and crew routes. 
 This function optimizes suppression plans and routes simultaneously to satisfy 
 supply-demand constraints and minimize costs.
@@ -23,7 +23,7 @@ supply-demand constraints and minimize costs.
 - `rmp::RestrictedMasterProblem`: The restricted master problem instance representing the optimization problem.
 - `crew_subproblems::Vector{TimeSpaceNetwork}`: Vector of data structures containing all static info about crew subproblems.
 - `fire_subproblems::Vector{TimeSpaceNetwork}`: Vector of data structures containing all static info about fire subproblems.
-- `crew_branching_rules::Vector{CrewSupplyBranchingRule}`: Vector of branching rules that indicate whether crew j suppresses fire g at time t.
+- `crew_branching_rules::Vector{CrewAssignmentBranchingRule}`: Vector of branching rules that indicate whether crew j suppresses fire g at time t.
 - `fire_branching_rules::Vector{FireDemandBranchingRule}`: Vector of branching rules that indicate whether fire g demands <=d crews or >d crews at time t.
 - `global_fire_allotment_branching_rules::Vector{GlobalFireAllotmentBranchingRule}`: Vector of branching rules that may place a cap on demand across all fires and times
 - `crew_routes::CrewRouteData`: Data structure containing information (cost, assignments) about all generated crew routes.
@@ -32,13 +32,12 @@ supply-demand constraints and minimize costs.
 - `upper_bound::Float64`: Global upper bound given by the best feasible solution we have to the integer problem.
 - `improving_column_abs_tolerance::Float64`: Absolute improvement needed (using reduced cost bound) to add a column (default: 1e-10).
 - `local_gap_rel_tolerance::Float64`: Relative tolerance (using Lagrangian bound) needed to accept solution as optimal (default: 1e-9).
-
 """
 function double_column_generation!(
     rmp::RestrictedMasterProblem,
     crew_subproblems::Vector{TimeSpaceNetwork},
     fire_subproblems::Vector{TimeSpaceNetwork},
-    crew_branching_rules::Vector{CrewSupplyBranchingRule},
+    crew_branching_rules::Vector{CrewAssignmentBranchingRule},
     fire_branching_rules::Vector{FireDemandBranchingRule},
     global_fire_allotment_branching_rules::Vector{GlobalFireAllotmentBranchingRule},
     crew_routes::CrewRouteData,

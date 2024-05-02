@@ -1,6 +1,6 @@
 include("CommonStructs.jl")
 include("BranchingRules.jl")
-include("GUBKnapsackCoverCuts.jl")
+include("CuttingPlanes.jl")
 
 using Gurobi, Statistics, JSON
 

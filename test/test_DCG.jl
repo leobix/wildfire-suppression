@@ -1,6 +1,6 @@
 include("../BranchAndPrice.jl")
 include("../DoubleColumnGeneration.jl")
-include("../GUBKnapsackCoverCuts.jl")
+include("../CuttingPlanes.jl")
 
 using JuMP, Gurobi, Profile
 const GRB_ENV = Gurobi.Env()

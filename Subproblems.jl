@@ -54,7 +54,7 @@ end
 function get_adjusted_crew_arc_costs(
 	long_arcs::Matrix{Int64},
 	linking_duals::Matrix{Float64},
-	branching_rules::Vector{CrewSupplyBranchingRule},
+	branching_rules::Vector{CrewAssignmentBranchingRule},
 )
 
 	time_periods = size(linking_duals)[2]

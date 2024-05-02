@@ -1,6 +1,6 @@
 include("CommonStructs.jl")
 
-struct CrewSupplyBranchingRule
+struct CrewAssignmentBranchingRule
 
 	crew_ix::Int64
 	fire_ix::Int64
@@ -17,7 +17,7 @@ struct FireDemandBranchingRule
 end
 
 function satisfies_branching_rule(
-	b_rule::CrewSupplyBranchingRule,
+	b_rule::CrewAssignmentBranchingRule,
 	fires_fought::BitArray{2},
 )
 
@@ -26,7 +26,7 @@ function satisfies_branching_rule(
 end
 
 function satisfies_branching_rule(
-	b_rule::CrewSupplyBranchingRule,
+	b_rule::CrewAssignmentBranchingRule,
 	fire_fought::Bool,
 )
 

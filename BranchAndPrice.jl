@@ -8,7 +8,7 @@ mutable struct BranchAndBoundNode
 
 	const ix::Int64
 	const parent::Union{Nothing, BranchAndBoundNode}
-	const new_crew_branching_rules::Vector{CrewSupplyBranchingRule}
+	const new_crew_branching_rules::Vector{CrewAssignmentBranchingRule}
 	const new_fire_branching_rules::Vector{FireDemandBranchingRule}
 	const new_global_fire_allotment_branching_rules::Vector{
 		GlobalFireAllotmentBranchingRule,
@@ -27,7 +27,7 @@ function BranchAndBoundNode(
 	ix::Int64,
 	parent::Union{Nothing, BranchAndBoundNode},
 	cut_data::CutData,
-	new_crew_branching_rules::Vector{CrewSupplyBranchingRule} = CrewSupplyBranchingRule[],
+	new_crew_branching_rules::Vector{CrewAssignmentBranchingRule} = CrewAssignmentBranchingRule[],
 	new_fire_branching_rules::Vector{FireDemandBranchingRule} = FireDemandBranchingRule[],
 	new_global_fire_allotment_branching_rules::Vector{
 		GlobalFireAllotmentBranchingRule,
@@ -399,7 +399,7 @@ end
 function apply_branching_rule(
 	crew_avail_ixs::Vector{Vector{Int64}},
 	crew_routes::CrewRouteData,
-	branching_rule::CrewSupplyBranchingRule)
+	branching_rule::CrewAssignmentBranchingRule)
 
 	output = [Int64[] for fire in 1:size(crew_avail_ixs)[1]]
 	for crew in 1:size(crew_avail_ixs)[1]
@@ -469,7 +469,7 @@ function price_and_cut!!(
 	crew_subproblems::Vector{TimeSpaceNetwork},
 	fire_subproblems::Vector{TimeSpaceNetwork},
 	gub_cut_limit_per_time::Int64,
-	crew_rules::Vector{CrewSupplyBranchingRule},
+	crew_rules::Vector{CrewAssignmentBranchingRule},
 	fire_rules::Vector{FireDemandBranchingRule},
 	global_fire_allotment_rules::Vector{GlobalFireAllotmentBranchingRule},
 	crew_routes::CrewRouteData,
@@ -480,7 +480,7 @@ function price_and_cut!!(
 	decrease_gub_allots,
 	single_fire_lift,
 	soft_time_limit,
-	loop_max,
+	loop_max::Int,
 	relative_improvement_cut_req,
 	upper_bound::Float64 = 1e10,
 	log_progress_file = nothing,
@@ -496,10 +496,10 @@ function price_and_cut!!(
 	end
 
 	t = time()
-	loop_ix = 1
+	loop_ix = 0
 	most_recent_obj = 0
 
-	while loop_ix < loop_max
+	while true
 
 		# run DCG, adding columns as needed
 		double_column_generation!(
@@ -529,7 +529,13 @@ function price_and_cut!!(
 			push!(active_cuts, sum([1 for i in eachindex(rmp.gub_cover_cuts) if dual(rmp.gub_cover_cuts[i]) > 1e-4]))
 		end
 
-		@debug "in cut generation" loop_ix current_obj
+		loop_ix += 1
+		
+		if loop_ix > loop_max
+			@info "halting cut generation early, exceeded max loops" loop_ix loop_max
+			break
+		end
+
 		if most_recent_obj / current_obj > 1 - relative_improvement_cut_req
 			@info "halting cut generation early, too small improvement" loop_ix
 			break
@@ -537,7 +543,7 @@ function price_and_cut!!(
 		most_recent_obj = current_obj
 
 		if time() - t > soft_time_limit
-			@info "cut time limit" soft_time_limit
+			@info "halting cut generation early, reached cut time limit" soft_time_limit
 			break
 		end
 
@@ -565,38 +571,6 @@ function price_and_cut!!(
 		if num_cuts == 0
 			@debug "No cuts found, breaking" loop_ix
 			break
-
-		end
-
-		loop_ix += 1
-
-	end
-
-	# if we got completely through all the loop of cut generation
-	# TODO can skip if time limit hit before cuts, should not really matter
-	if loop_ix == loop_max
-		@info "There may be more cuts; one last DCG to have provable lower bound" loop_ix
-		double_column_generation!(
-			rmp,
-			crew_subproblems,
-			fire_subproblems,
-			crew_rules,
-			fire_rules,
-			global_fire_allotment_rules,
-			crew_routes,
-			fire_plans,
-			cut_data,
-			upper_bound = upper_bound,
-		)
-
-		current_obj = objective_value(rmp.model)
-		if ~isnothing(log_progress_file)
-			push!(ts, time() - t)
-			push!(objs, current_obj)
-			push!(num_routes, sum(crew_routes.routes_per_crew))
-			push!(num_plans, sum(fire_plans.plans_per_fire))
-			push!(num_cuts_found, sum(cut_data.cuts_per_time))
-			push!(active_cuts, sum([1 for i in eachindex(rmp.gub_cover_cuts) if dual(rmp.gub_cover_cuts[i]) > 1e-4]))
 
 		end
 	end
@@ -844,7 +818,7 @@ function heuristic_upper_bound!!(
 	end
 
 	# grab any fire and crew branching rules
-	crew_rules = CrewSupplyBranchingRule[]
+	crew_rules = CrewAssignmentBranchingRule[]
 	fire_rules = FireDemandBranchingRule[]
 	cur_node = explored_bb_node
 	while ~isnothing(cur_node)
@@ -1106,7 +1080,7 @@ function explore_node!!(
 
 
 	# get the branching rules
-	crew_rules = CrewSupplyBranchingRule[]
+	crew_rules = CrewAssignmentBranchingRule[]
 	fire_rules = FireDemandBranchingRule[]
 	global_rules = GlobalFireAllotmentBranchingRule[]
 
@@ -1275,11 +1249,11 @@ function explore_node!!(
 
 
 		else
-			left_branching_rule = CrewSupplyBranchingRule(
+			left_branching_rule = CrewAssignmentBranchingRule(
 				Tuple(branch_ix)...,
 				false,
 			)
-			right_branching_rule = CrewSupplyBranchingRule(
+			right_branching_rule = CrewAssignmentBranchingRule(
 				Tuple(branch_ix)...,
 				true,
 			)

@@ -64,29 +64,29 @@ rmp with additional columns, cuts, and a solution that certifies a lower bound t
 integer problem (or an infeasibility certificate). 
 
 # Arguments
-- `rmp::RestrictedMasterProblem`: The restricted master problem instance representing the optimization problem.
-- `cut_data::CutData`: Data structure containing information about cuts, including lookups to incorporate into subproblems.
+- `rmp::RestrictedMasterProblem` (modified): The restricted master problem instance representing the optimization problem.
+- `crew_routes::CrewRouteData` (modified): Data structure containing information (cost, assignments) about all generated crew routes.
+- `fire_plans::FirePlanData` (modified): Data structure containing information (cost, demands) about all generated fire plans.
+- `cut_data::CutData` (modified): Data structure containing information about cuts, including lookups to incorporate coeffs into master problem and subproblems.
 - `crew_subproblems::Vector{TimeSpaceNetwork}`: Vector of data structures containing all static info about crew subproblems.
 - `fire_subproblems::Vector{TimeSpaceNetwork}`: Vector of data structures containing all static info about fire subproblems.
 -  gub_cut_limit_per_time::{Int64}: Enumeration limit for cut generation search, which can theoretically grow exponentially large
 - `crew_rules::Vector{CrewAssignmentBranchingRule}`: Vector of active branching rules that indicate whether crew j suppresses fire g at time t.
 - `fire_rules::Vector{FireDemandBranchingRule}`: Vector of active branching rules that indicate whether fire g demands <=d crews or >d crews at time t.
 - `global_fire_allotment_branching_rules::Vector{GlobalFireAllotmentBranchingRule}`: Vector of active branching rules that may place a cap on demand across all fires and times
-- `crew_routes::CrewRouteData`: Data structure containing information (cost, assignments) about all generated crew routes.
-- `fire_plans::FirePlanData`: Data structure containing information (cost, demands) about all generated fire plans.
 - TODO finish this
 """
-function price_and_cut!!(
+function price_and_cut!!!!(
     rmp::RestrictedMasterProblem,
+    crew_routes::CrewRouteData,
+    fire_plans::FirePlanData,
     cut_data::CutData,
     crew_subproblems::Vector{TimeSpaceNetwork},
     fire_subproblems::Vector{TimeSpaceNetwork},
     gub_cut_limit_per_time::Int64,
     crew_rules::Vector{CrewAssignmentBranchingRule},
     fire_rules::Vector{FireDemandBranchingRule},
-    global_fire_allotment_rules::Vector{GlobalFireAllotmentBranchingRule},
-    crew_routes::CrewRouteData,
-    fire_plans::FirePlanData;
+    global_fire_allotment_rules::Vector{GlobalFireAllotmentBranchingRule};
     gub_cover_cuts::Bool,
     general_gub_cuts::Bool,
     single_fire_cuts::Bool,
@@ -115,16 +115,16 @@ function price_and_cut!!(
     while true
 
         # run DCG, adding columns as needed
-        double_column_generation!(
+        double_column_generation!!!!(
             rmp,
+            crew_routes,
+            fire_plans,
+            cut_data,
             crew_subproblems,
             fire_subproblems,
             crew_rules,
             fire_rules,
             global_fire_allotment_rules,
-            crew_routes,
-            fire_plans,
-            cut_data,
             upper_bound=upper_bound,
         )
         if rmp.termination_status == MOI.OBJECTIVE_LIMIT
@@ -915,8 +915,10 @@ function heuristic_upper_bound!!(
 
 
         # TODO consider cut management
-        t = @elapsed price_and_cut!!(
+        t = @elapsed price_and_cut!!!!(
             rmp,
+            crew_routes,
+            fire_plans,
             cut_data,
             crew_subproblems,
             fire_subproblems,
@@ -924,8 +926,6 @@ function heuristic_upper_bound!!(
             crew_rules,
             fire_rules,
             global_rules,
-            crew_routes,
-            fire_plans,
             soft_time_limit=price_and_cut_soft_time_limit,
             loop_max=cut_loop_max,
             relative_improvement_cut_req=relative_improvement_cut_req,
@@ -1130,8 +1130,10 @@ function explore_node!!(
     )
     @info "Define rmp time (b-and-b)" t
 
-    t = @elapsed price_and_cut!!(
+    t = @elapsed price_and_cut!!!!(
         rmp,
+        crew_routes,
+        fire_plans,
         cut_data,
         crew_subproblems,
         fire_subproblems,
@@ -1139,8 +1141,6 @@ function explore_node!!(
         crew_rules,
         fire_rules,
         global_rules,
-        crew_routes,
-        fire_plans,
         soft_time_limit=price_and_cut_soft_time_limit,
         loop_max=cut_loop_max,
         relative_improvement_cut_req=relative_improvement_cut_req,

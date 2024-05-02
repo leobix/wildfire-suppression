@@ -57,6 +57,155 @@ end
 
 ###############
 
+"""
+Perform price-and-cut algorithm to solve the (relaxed) restricted master problem `rmp`.
+This algorithm alternates between column generation and cut generation phases and returns
+rmp with additional columns, cuts, and a solution that certifies a lower bound to the 
+integer problem (or an infeasibility certificate). 
+
+# Arguments
+- `rmp::RestrictedMasterProblem`: The restricted master problem instance representing the optimization problem.
+- `cut_data::CutData`: Data structure containing information about cuts, including lookups to incorporate into subproblems.
+- `crew_subproblems::Vector{TimeSpaceNetwork}`: Vector of data structures containing all static info about crew subproblems.
+- `fire_subproblems::Vector{TimeSpaceNetwork}`: Vector of data structures containing all static info about fire subproblems.
+-  gub_cut_limit_per_time::{Int64}: Enumeration limit for cut generation search, which can theoretically grow exponentially large
+- `crew_rules::Vector{CrewAssignmentBranchingRule}`: Vector of active branching rules that indicate whether crew j suppresses fire g at time t.
+- `fire_rules::Vector{FireDemandBranchingRule}`: Vector of active branching rules that indicate whether fire g demands <=d crews or >d crews at time t.
+- `global_fire_allotment_branching_rules::Vector{GlobalFireAllotmentBranchingRule}`: Vector of active branching rules that may place a cap on demand across all fires and times
+- `crew_routes::CrewRouteData`: Data structure containing information (cost, assignments) about all generated crew routes.
+- `fire_plans::FirePlanData`: Data structure containing information (cost, demands) about all generated fire plans.
+- TODO finish this
+"""
+function price_and_cut!!(
+    rmp::RestrictedMasterProblem,
+    cut_data::CutData,
+    crew_subproblems::Vector{TimeSpaceNetwork},
+    fire_subproblems::Vector{TimeSpaceNetwork},
+    gub_cut_limit_per_time::Int64,
+    crew_rules::Vector{CrewAssignmentBranchingRule},
+    fire_rules::Vector{FireDemandBranchingRule},
+    global_fire_allotment_rules::Vector{GlobalFireAllotmentBranchingRule},
+    crew_routes::CrewRouteData,
+    fire_plans::FirePlanData;
+    gub_cover_cuts::Bool,
+    general_gub_cuts::Bool,
+    single_fire_cuts::Bool,
+    decrease_gub_allots::Bool,
+    single_fire_lift::Bool,
+    soft_time_limit::Float64,
+    loop_max::Int,
+    relative_improvement_cut_req::Float64,
+    upper_bound::Float64=1e10,
+    log_progress_file=nothing,
+)
+
+    if ~isnothing(log_progress_file)
+        ts = []
+        objs = []
+        num_routes = []
+        num_plans = []
+        num_cuts_found = []
+        active_cuts = []
+    end
+
+    t = time()
+    loop_ix = 0
+    most_recent_obj = 0
+
+    while true
+
+        # run DCG, adding columns as needed
+        double_column_generation!(
+            rmp,
+            crew_subproblems,
+            fire_subproblems,
+            crew_rules,
+            fire_rules,
+            global_fire_allotment_rules,
+            crew_routes,
+            fire_plans,
+            cut_data,
+            upper_bound=upper_bound,
+        )
+        if rmp.termination_status == MOI.OBJECTIVE_LIMIT
+            @debug "no more cuts needed"
+            break
+        end
+
+        current_obj = objective_value(rmp.model)
+        if ~isnothing(log_progress_file)
+            push!(ts, time() - t)
+            push!(objs, current_obj)
+            push!(num_routes, sum(crew_routes.routes_per_crew))
+            push!(num_plans, sum(fire_plans.plans_per_fire))
+            push!(num_cuts_found, sum(cut_data.cuts_per_time))
+            push!(active_cuts, sum([1 for i in eachindex(rmp.gub_cover_cuts) if dual(rmp.gub_cover_cuts[i]) > 1e-4]))
+        end
+
+        loop_ix += 1
+
+        if loop_ix > loop_max
+            @info "halting cut generation early, exceeded max loops" loop_ix loop_max
+            break
+        end
+
+        if most_recent_obj / current_obj > 1 - relative_improvement_cut_req
+            @info "halting cut generation early, too small improvement" loop_ix
+            break
+        end
+        most_recent_obj = current_obj
+
+        if time() - t > soft_time_limit
+            @info "halting cut generation early, reached cut time limit" soft_time_limit
+            break
+        end
+
+        # add cuts
+        num_cuts = find_and_incorporate_knapsack_gub_cuts!!(
+            cut_data,
+            gub_cut_limit_per_time,
+            rmp,
+            crew_routes,
+            fire_plans,
+            crew_subproblems,
+            fire_subproblems,
+            gub_cover_cuts=gub_cover_cuts,
+            general_gub_cuts=general_gub_cuts,
+            single_fire_cuts=single_fire_cuts,
+            decrease_gub_allots=decrease_gub_allots,
+            single_fire_lift=single_fire_lift
+        )
+        @debug "after cuts" num_cuts objective_value(rmp.model)
+        if (num_cuts == 0)
+            @debug "No cuts found, breaking" loop_ix
+            break
+        end
+
+        if num_cuts == 0
+            @debug "No cuts found, breaking" loop_ix
+            break
+
+        end
+    end
+
+    if ~isnothing(log_progress_file)
+        outputs = Dict(
+            "times" => ts,
+            "objectives" => objs,
+            "num_routes" => num_routes,
+            "num_plans" => num_plans,
+            "num_cuts" => num_cuts_found,
+            "num_active_cuts" => active_cuts
+        )
+        open(log_progress_file, "w") do f
+            JSON.print(f, outputs, 4)
+        end
+    end
+
+    @debug "After price-and-cut" dual.(rmp.supply_demand_linking)
+
+end
+
 function branch_and_price(
     num_fires::Int,
     num_crews::Int,
@@ -460,136 +609,6 @@ function apply_branching_rule(
 
 
     return output
-
-end
-
-function price_and_cut!!(
-    rmp::RestrictedMasterProblem,
-    cut_data::CutData,
-    crew_subproblems::Vector{TimeSpaceNetwork},
-    fire_subproblems::Vector{TimeSpaceNetwork},
-    gub_cut_limit_per_time::Int64,
-    crew_rules::Vector{CrewAssignmentBranchingRule},
-    fire_rules::Vector{FireDemandBranchingRule},
-    global_fire_allotment_rules::Vector{GlobalFireAllotmentBranchingRule},
-    crew_routes::CrewRouteData,
-    fire_plans::FirePlanData;
-    gub_cover_cuts,
-    general_gub_cuts,
-    single_fire_cuts,
-    decrease_gub_allots,
-    single_fire_lift,
-    soft_time_limit,
-    loop_max::Int,
-    relative_improvement_cut_req,
-    upper_bound::Float64=1e10,
-    log_progress_file=nothing,
-)
-
-    if ~isnothing(log_progress_file)
-        ts = []
-        objs = []
-        num_routes = []
-        num_plans = []
-        num_cuts_found = []
-        active_cuts = []
-    end
-
-    t = time()
-    loop_ix = 0
-    most_recent_obj = 0
-
-    while true
-
-        # run DCG, adding columns as needed
-        double_column_generation!(
-            rmp,
-            crew_subproblems,
-            fire_subproblems,
-            crew_rules,
-            fire_rules,
-            global_fire_allotment_rules,
-            crew_routes,
-            fire_plans,
-            cut_data,
-            upper_bound=upper_bound,
-        )
-        if rmp.termination_status == MOI.OBJECTIVE_LIMIT
-            @debug "no more cuts needed"
-            break
-        end
-
-        current_obj = objective_value(rmp.model)
-        if ~isnothing(log_progress_file)
-            push!(ts, time() - t)
-            push!(objs, current_obj)
-            push!(num_routes, sum(crew_routes.routes_per_crew))
-            push!(num_plans, sum(fire_plans.plans_per_fire))
-            push!(num_cuts_found, sum(cut_data.cuts_per_time))
-            push!(active_cuts, sum([1 for i in eachindex(rmp.gub_cover_cuts) if dual(rmp.gub_cover_cuts[i]) > 1e-4]))
-        end
-
-        loop_ix += 1
-
-        if loop_ix > loop_max
-            @info "halting cut generation early, exceeded max loops" loop_ix loop_max
-            break
-        end
-
-        if most_recent_obj / current_obj > 1 - relative_improvement_cut_req
-            @info "halting cut generation early, too small improvement" loop_ix
-            break
-        end
-        most_recent_obj = current_obj
-
-        if time() - t > soft_time_limit
-            @info "halting cut generation early, reached cut time limit" soft_time_limit
-            break
-        end
-
-        # add cuts
-        num_cuts = find_and_incorporate_knapsack_gub_cuts!!(
-            cut_data,
-            gub_cut_limit_per_time,
-            rmp,
-            crew_routes,
-            fire_plans,
-            crew_subproblems,
-            fire_subproblems,
-            gub_cover_cuts=gub_cover_cuts,
-            general_gub_cuts=general_gub_cuts,
-            single_fire_cuts=single_fire_cuts,
-            decrease_gub_allots=decrease_gub_allots,
-            single_fire_lift=single_fire_lift
-        )
-        @debug "after cuts" num_cuts objective_value(rmp.model)
-        if (num_cuts == 0)
-            @debug "No cuts found, breaking" loop_ix
-            break
-        end
-
-        if num_cuts == 0
-            @debug "No cuts found, breaking" loop_ix
-            break
-
-        end
-    end
-
-    if ~isnothing(log_progress_file)
-        outputs = Dict(
-            "times" => ts,
-            "objectives" => objs,
-            "num_routes" => num_routes,
-            "num_plans" => num_plans,
-            "num_cuts" => num_cuts_found,
-            "num_active_cuts" => active_cuts
-        )
-        open(log_progress_file, "w") do f
-            JSON.print(f, outputs, 4)
-        end
-    end
-
-    @debug "After price-and-cut" dual.(rmp.supply_demand_linking)
 
 end
 

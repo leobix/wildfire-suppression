@@ -1,6 +1,6 @@
 include("../BranchAndPrice.jl")
 include("../DoubleColumnGeneration.jl")
-include("../GUBKnapsackCoverCuts.jl")
+include("../CuttingPlanes.jl")
 
 using JuMP, Gurobi, Profile
 const GRB_ENV = Gurobi.Env()
@@ -46,15 +46,16 @@ s = @elapsed crew_routes, fire_plans, crew_models, fire_models, rmp, cut_data =
     initialize_data_structures(3, 10, 14)
 
 
-t = @elapsed double_column_generation!(
+t = @elapsed double_column_generation!!!!(
     rmp,
+	crew_routes,
+    fire_plans,
+	cut_data,
     crew_models,
     fire_models,
     CrewAssignmentBranchingRule[],
     FireDemandBranchingRule[],
-    crew_routes,
-    fire_plans,
-	cut_data
+	GlobalFireAllotmentBranchingRule[]
 )
 
 println(s)
@@ -64,15 +65,16 @@ s = @elapsed crew_routes, fire_plans, crew_models, fire_models, rmp, cut_data =
     initialize_data_structures(3, 10, 14)
 
 Profile.init()
-t = @profile @elapsed double_column_generation!(
+t = @profile @elapsed double_column_generation!!!!(
     rmp,
+	crew_routes,
+    fire_plans,
+	cut_data,
     crew_models,
     fire_models,
     CrewAssignmentBranchingRule[],
     FireDemandBranchingRule[],
-    crew_routes,
-    fire_plans,
-	cut_data
+	GlobalFireAllotmentBranchingRule[]
 )
 
 println(s)

@@ -20,34 +20,32 @@ This function optimizes suppression plans and routes simultaneously to satisfy
 supply-demand constraints and minimize costs.
 
 # Arguments
-- `rmp::RestrictedMasterProblem`: The restricted master problem instance representing the optimization problem.
+- `rmp::RestrictedMasterProblem` (modified): The restricted master problem instance representing the optimization problem.
+- `crew_routes::CrewRouteData` (modified): Data structure containing information (cost, assignments) about all generated crew routes.
+- `fire_plans::FirePlanData` (modified): Data structure containing information (cost, demands) about all generated fire plans.
+- `cut_data::CutData` (modified): Data structure containing information about cuts, including lookups to incorporate coeffs into master problem and subproblems.
 - `crew_subproblems::Vector{TimeSpaceNetwork}`: Vector of data structures containing all static info about crew subproblems.
 - `fire_subproblems::Vector{TimeSpaceNetwork}`: Vector of data structures containing all static info about fire subproblems.
 - `crew_branching_rules::Vector{CrewAssignmentBranchingRule}`: Vector of branching rules that indicate whether crew j suppresses fire g at time t.
 - `fire_branching_rules::Vector{FireDemandBranchingRule}`: Vector of branching rules that indicate whether fire g demands <=d crews or >d crews at time t.
 - `global_fire_allotment_branching_rules::Vector{GlobalFireAllotmentBranchingRule}`: Vector of branching rules that may place a cap on demand across all fires and times
-- `crew_routes::CrewRouteData`: Data structure containing information (cost, assignments) about all generated crew routes.
-- `fire_plans::FirePlanData`: Data structure containing information (cost, demands) about all generated fire plans.
-- `cut_data::CutData`: Data structure containing information about cuts, including lookups to incorporate into subproblems.
 - `upper_bound::Float64`: Global upper bound given by the best feasible solution we have to the integer problem.
 - `improving_column_abs_tolerance::Float64`: Absolute improvement needed (using reduced cost bound) to add a column (default: 1e-10).
 - `local_gap_rel_tolerance::Float64`: Relative tolerance (using Lagrangian bound) needed to accept solution as optimal (default: 1e-9).
 """
-function double_column_generation!(
+function double_column_generation!!!!(
     rmp::RestrictedMasterProblem,
+    crew_routes::CrewRouteData,
+    fire_plans::FirePlanData,
+    cut_data::CutData,
     crew_subproblems::Vector{TimeSpaceNetwork},
     fire_subproblems::Vector{TimeSpaceNetwork},
     crew_branching_rules::Vector{CrewAssignmentBranchingRule},
     fire_branching_rules::Vector{FireDemandBranchingRule},
-    global_fire_allotment_branching_rules::Vector{GlobalFireAllotmentBranchingRule},
-    crew_routes::CrewRouteData,
-    fire_plans::FirePlanData,
-    cut_data::CutData;
+    global_fire_allotment_branching_rules::Vector{GlobalFireAllotmentBranchingRule};
     upper_bound::Float64,
     improving_column_abs_tolerance::Float64=1e-10,
     local_gap_rel_tolerance::Float64=1e-9)
-
-
 
     # gather global information
     num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)

@@ -30,26 +30,26 @@ end
 
 
 params = Dict()
-params["gub_only"] = Dict(:bb_node_gub_cover_cuts => true,
-    :bb_node_general_gub_cuts => false,
-    :bb_node_decrease_gub_allots => false,
-    :bb_node_single_fire_lift => false
-)
-params["gub_plus_strengthen"] = Dict(:bb_node_gub_cover_cuts => true,
-    :bb_node_general_gub_cuts => false,
-    :bb_node_decrease_gub_allots => true,
-    :bb_node_single_fire_lift => true
-)
+# params["gub_only"] = Dict(:bb_node_gub_cover_cuts => true,
+#     :bb_node_general_gub_cuts => "none",
+#     :bb_node_decrease_gub_allots => false,
+#     :bb_node_single_fire_lift => false
+# )
+# params["gub_plus_strengthen"] = Dict(:bb_node_gub_cover_cuts => true,
+#     :bb_node_general_gub_cuts => "none",
+#     :bb_node_decrease_gub_allots => true,
+#     :bb_node_single_fire_lift => true
+# )
 params["cglp_only"] = Dict(:bb_node_gub_cover_cuts => false,
-    :bb_node_general_gub_cuts => true,
+    :bb_node_general_gub_cuts => "cutting_plane",
     :bb_node_decrease_gub_allots => false,
     :bb_node_single_fire_lift => false
 )
-params["everything"] = Dict(:bb_node_gub_cover_cuts => true,
-    :bb_node_general_gub_cuts => true,
-    :bb_node_decrease_gub_allots => true,
-    :bb_node_single_fire_lift => true
-)
+# params["everything"] = Dict(:bb_node_gub_cover_cuts => true,
+#     :bb_node_general_gub_cuts => "cutting_plane",
+#     :bb_node_decrease_gub_allots => true,
+#     :bb_node_single_fire_lift => true
+# )
 
 # precompile
 for (key, param_set) in params
@@ -67,6 +67,8 @@ end
 
 # experiment
 sizes = [(3, 10, 14), (6, 20, 14), (9, 30, 14), (12, 40, 14), (15, 50, 14)]
+sizes = [(6, 20, 14)]
+
 for (g, c, t) ∈ sizes
     for (key, param_set) in params
         branch_and_price(g, c, t, 

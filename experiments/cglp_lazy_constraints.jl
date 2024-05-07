@@ -30,5 +30,5 @@ end
 branch_and_price(3, 10, 14, algo_tracking=false)
 branch_and_price(3, 10, 14, algo_tracking=false, bb_node_general_gub_cuts="enumerate")
 
-branch_and_price(12, 40, 14, algo_tracking=true, bb_node_gub_cover_cuts=false, max_nodes=1, cut_loop_max=15, total_time_limit=1200.0, soft_heuristic_time_limit=0.0)
-branch_and_price(12, 40, 14, algo_tracking=true, bb_node_gub_cover_cuts=false, bb_node_general_gub_cuts="enumerate", max_nodes=1, cut_loop_max=15, total_time_limit=1200.0, soft_heuristic_time_limit=0.0)
+branch_and_price(3, 10, 14, algo_tracking=true, bb_node_gub_cover_cuts=false, max_nodes=1, cut_loop_max=15, total_time_limit=1200.0, soft_heuristic_time_limit=0.0)
+branch_and_price(3, 10, 14, algo_tracking=true, bb_node_gub_cover_cuts=false, bb_node_general_gub_cuts="enumerate", max_nodes=1, cut_loop_max=15, total_time_limit=1200.0, soft_heuristic_time_limit=0.0)

@@ -99,13 +99,17 @@ function price_and_cut!!!!(
     log_progress_file=nothing,
 )
 
-    if ~isnothing(log_progress_file)
+    log_flag = ~isnothing(log_progress_file)
+
+    if log_flag
         ts = []
+        dcg_logs = []
         objs = []
         num_routes = []
         num_plans = []
         num_cuts_found = []
         active_cuts = []
+        cut_times = []
     end
 
     t = time()
@@ -115,7 +119,7 @@ function price_and_cut!!!!(
     while true
 
         # run DCG, adding columns as needed
-        double_column_generation!!!!(
+        dcg_times = double_column_generation!!!!(
             rmp,
             crew_routes,
             fire_plans,
@@ -125,6 +129,7 @@ function price_and_cut!!!!(
             crew_rules,
             fire_rules,
             global_fire_allotment_rules,
+            timing=log_flag,
             upper_bound=upper_bound,
         )
         if rmp.termination_status == MOI.OBJECTIVE_LIMIT
@@ -133,8 +138,9 @@ function price_and_cut!!!!(
         end
 
         current_obj = objective_value(rmp.model)
-        if ~isnothing(log_progress_file)
+        if log_flag
             push!(ts, time() - t)
+            push!(dcg_logs, dcg_times)
             push!(objs, current_obj)
             push!(num_routes, sum(crew_routes.routes_per_crew))
             push!(num_plans, sum(fire_plans.plans_per_fire))
@@ -161,7 +167,7 @@ function price_and_cut!!!!(
         end
 
         # add cuts
-        num_cuts = find_and_incorporate_knapsack_gub_cuts!!(
+        t2 = @elapsed num_cuts = find_and_incorporate_knapsack_gub_cuts!!(
             cut_data,
             gub_cut_limit_per_time,
             rmp,
@@ -175,6 +181,11 @@ function price_and_cut!!!!(
             decrease_gub_allots=decrease_gub_allots,
             single_fire_lift=single_fire_lift
         )
+
+        if log_flag
+            push!(cut_times, t2)
+        end
+
         @debug "after cuts" num_cuts objective_value(rmp.model)
         if (num_cuts == 0)
             @debug "No cuts found, breaking" loop_ix
@@ -188,14 +199,16 @@ function price_and_cut!!!!(
         end
     end
 
-    if ~isnothing(log_progress_file)
+    if log_flag
         outputs = Dict(
             "times" => ts,
+            "dcg_times" => dcg_logs,
             "objectives" => objs,
             "num_routes" => num_routes,
             "num_plans" => num_plans,
             "num_cuts" => num_cuts_found,
-            "num_active_cuts" => active_cuts
+            "num_active_cuts" => active_cuts,
+            "cut_times" => cut_times
         )
         open(log_progress_file, "w") do f
             JSON.print(f, outputs, 4)

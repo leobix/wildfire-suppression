@@ -30,6 +30,7 @@ supply-demand constraints and minimize costs.
 - `fire_branching_rules::Vector{FireDemandBranchingRule}`: Vector of branching rules that indicate whether fire g demands <=d crews or >d crews at time t.
 - `global_fire_allotment_branching_rules::Vector{GlobalFireAllotmentBranchingRule}`: Vector of branching rules that may place a cap on demand across all fires and times
 - `upper_bound::Float64`: Global upper bound given by the best feasible solution we have to the integer problem.
+- `timing::Bool`: Flag for whether we will track and return detailed timings
 - `improving_column_abs_tolerance::Float64`: Absolute improvement needed (using reduced cost bound) to add a column (default: 1e-10).
 - `local_gap_rel_tolerance::Float64`: Relative tolerance (using Lagrangian bound) needed to accept solution as optimal (default: 1e-9).
 """
@@ -44,8 +45,16 @@ function double_column_generation!!!!(
     fire_branching_rules::Vector{FireDemandBranchingRule},
     global_fire_allotment_branching_rules::Vector{GlobalFireAllotmentBranchingRule};
     upper_bound::Float64,
+    timing::Bool,
     improving_column_abs_tolerance::Float64=1e-10,
     local_gap_rel_tolerance::Float64=1e-9)
+
+    # initialize timing dictionary
+    details = Dict{String, Float64}()
+    details["master_problem"] = 0.0
+    details["fire_subproblems"] = 0.0
+    details["crew_subproblems"] = 0.0
+    t = time()
 
     # gather global information
     num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)
@@ -75,6 +84,10 @@ function double_column_generation!!!!(
 
         iteration += 1
         reduced_cost_sum = 0
+
+        if timing
+            t = time()
+        end
 
         # Not for any good reason, the crew subproblems all access the 
         # same set of arcs in matrix form, and each runs its subproblem 
@@ -154,6 +167,11 @@ function double_column_generation!!!!(
                     new_route_ix,
                 )
             end
+        end
+
+        if timing
+            details["crew_subproblems"] += time() - t
+            t = time()
         end
 
         # for each fire
@@ -238,12 +256,22 @@ function double_column_generation!!!!(
             end
         end
 
+        if timing
+            details["fire_subproblems"] += time() - t
+        end
+
         continue_iterating =
             (iteration == 1) || (-reduced_cost_sum / ub > local_gap_rel_tolerance)
         if continue_iterating
 
             # TODO dual warm start passed in here
+            if timing
+                t = time()
+            end
             optimize!(rmp.model)
+            if timing
+                details["master_problem"] += (time() - t)
+            end
 
             if termination_status(rmp.model) != MOI.OPTIMAL
                 @info "non optimal termination status" termination_status(rmp.model)
@@ -318,13 +346,22 @@ function double_column_generation!!!!(
         else
             # re-optimze for JuMP reasons (access attrs) just in case we added a column 
             # but then stopped due to too small reduced cost improvement
+            if timing
+                t = time()
+            end
             optimize!(rmp.model)
+            if timing
+                details["master_problem"] += (time() - t)
+            end
             rmp.termination_status = MOI.LOCALLY_SOLVED
             @debug "RMP stats with no more columns found" iteration objective_value(
                 rmp.model,
             )
         end
     end
+
+    details["iteration"] = Float64(iteration)
+    return details
 end
 
 

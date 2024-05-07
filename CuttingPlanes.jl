@@ -89,10 +89,11 @@ function cut_generating_LP(gurobi_env,
     time_ix::Int64,
     crew_allots::Matrix{Float64},
     fire_allots::Vector{Vector{Tuple}},
-    gub_cut_limit_per_time::Int64)
+    gub_cut_limit_per_time::Int64,
+    cutting_plane_method::Bool)
 
     crew_usages = vec(mapslices(sum, crew_allots, dims=2))
-
+    @info "cglp" fire_allots
     inactive_crews = vec(findall(x -> x < 1e-20, crew_usages))
 
     # for now, assume that these crews were inactive for a "good" reason and force those to be part of any cover
@@ -100,9 +101,17 @@ function cut_generating_LP(gurobi_env,
     num_crews = length(crew_usages)
     available_for_fires = num_crews - length(inactive_crews)
 
+    # find constraints
+    fires_to_consider =
+    [fire for fire in eachindex(fire_allots) if length(fire_allots[fire]) > 0]
+    if length(fires_to_consider) < 1
+        # For now only consider cuts with >= 1 fires
+        return
+    end
+
     # define model
     m = direct_model(Gurobi.Optimizer(gurobi_env))
-    rhs = @variable(m, x >= 0)
+    rhs = @variable(m, k >= 0)
     @objective(m, Max, -rhs)
     set_optimizer_attribute(m, "OutputFlag", 0)
 
@@ -113,72 +122,107 @@ function cut_generating_LP(gurobi_env,
         specific_fire_allots = fire_allots[fire]
         push!(costs, [j[1] for j in specific_fire_allots])
 
-        # turn survival function into CDFs
-        current_weights = [j[2] for j in specific_fire_allots]
-        for i in eachindex(current_weights)
-            if i == length(current_weights)
-                current_weights[i] = 1 - current_weights[i]
-            else
-                current_weights[i] = current_weights[i+1] - current_weights[i]
+        if fire ∈ fires_to_consider
+
+            # turn survival function into CDFs
+            current_weights = [j[2] for j in specific_fire_allots]
+            for i in eachindex(current_weights)
+                if i == length(current_weights)
+                    current_weights[i] = 1 - current_weights[i]
+                else
+                    current_weights[i] = current_weights[i+1] - current_weights[i]
+                end
+            end
+            for ix in eachindex(costs[fire])
+                allot = costs[fire][ix]
+                vars[fire, allot] = @variable(
+                    m,
+                    base_name = "coeff[$fire,$allot]",
+                    upper_bound = 1,
+                )
+                set_objective_coefficient(
+                    m,
+                    vars[fire, allot],
+                    current_weights[ix],
+                )
             end
         end
-        for ix in eachindex(costs[fire])
-            allot = costs[fire][ix]
-            vars[fire, allot] = @variable(
-                m,
-                base_name = "coeff[$fire,$allot]",
-                upper_bound = 1,
-            )
-            set_objective_coefficient(
-                m,
-                vars[fire, allot],
-                current_weights[ix],
-            )
-        end
     end
 
-    # find constraints
-    fires_to_consider =
-        [fire for fire in eachindex(fire_allots) if length(fire_allots[fire]) > 0]
-    if length(fires_to_consider) < 2
-        # For now only consider cuts with >= 2 fires
-        return
+    if cutting_plane_method
+        solved = false
+
+        cutting_plane_ip = direct_model(Gurobi.Optimizer(gurobi_env))
+        set_optimizer_attribute(cutting_plane_ip, "OutputFlag", 0)
+        set_optimizer_attribute(cutting_plane_ip, "OptimalityTol", 1e-9)
+        set_optimizer_attribute(cutting_plane_ip, "FeasibilityTol", 1e-9)
+        
+        @objective(cutting_plane_ip, Max, 0)
+        x = @variable(cutting_plane_ip, [i ∈ eachindex(fire_allots), j ∈ 1:num_crews; (i, j) ∈ eachindex(vars)], Bin)
+        for fire ∈ eachindex(fires_to_consider)
+            @constraint(cutting_plane_ip, sum(x[fire, :]) <= 1)
+        end
+        @constraint(cutting_plane_ip, sum(x[fire, allot] * allot for (fire, allot) ∈ eachindex(x)) <= available_for_fires)
+
+        while ~solved
+            optimize!(m)
+            for (fire, allot) ∈ eachindex(vars)
+                set_objective_coefficient(cutting_plane_ip, x[fire, allot], value(vars[fire, allot]))
+            end
+
+            optimize!(cutting_plane_ip)
+            if has_values(cutting_plane_ip) && (objective_value(cutting_plane_ip) >= value(rhs) + 1e-9)
+                cnstr = @constraint(
+                    m,
+                    sum(
+                        vars[fire, allot] for (fire, allot) in eachindex(vars) if value(x[fire, allot]) > 0.5
+                    ) <=
+                    rhs
+                )
+                @debug "Found valid inequality CGLP" cnstr
+            else
+                solved = true
+            end
+        end
+    
+    else
+
+        allotment_option_ixs = []
+        for ix in eachindex(fires_to_consider)
+            fire = fires_to_consider[ix]
+            push!(allotment_option_ixs, [i for i in 0:length(fire_allots[fire])])
+        end
+        cartesian_product = product(allotment_option_ixs...)
+        if length(cartesian_product) > gub_cut_limit_per_time
+            @info "CGLP too big, returning"
+            return
+        end
+
+        for ix_per_fire in cartesian_product
+            if sum(ix_per_fire) == 0
+                continue
+            end
+            allots_per_fire =
+                [
+                    fire_ix == 0 ? 0 : costs[fires_to_consider[ix]][fire_ix] for
+                    (ix, fire_ix) in enumerate(ix_per_fire)
+                ]
+            if sum(allots_per_fire) <= available_for_fires
+                a = @constraint(
+                    m,
+                    sum(
+                        vars[
+                            fires_to_consider[ix],
+                            costs[fires_to_consider[ix]][fire_ix],
+                        ] for (ix, fire_ix) in enumerate(ix_per_fire) if fire_ix > 0
+                    ) <=
+                    rhs
+                )
+            end
+        end
+        optimize!(m)
     end
 
-    allotment_option_ixs = []
-    for ix in eachindex(fires_to_consider)
-        fire = fires_to_consider[ix]
-        push!(allotment_option_ixs, [i for i in 0:length(fire_allots[fire])])
-    end
-    cartesian_product = product(allotment_option_ixs...)
-    if length(cartesian_product) > gub_cut_limit_per_time
-        @info "CGLP too big, returning"
-        return
-    end
-
-    for ix_per_fire in cartesian_product
-        if sum(ix_per_fire) == 0
-            continue
-        end
-        allots_per_fire =
-            [
-                fire_ix == 0 ? 0 : costs[fires_to_consider[ix]][fire_ix] for
-                (ix, fire_ix) in enumerate(ix_per_fire)
-            ]
-        if sum(allots_per_fire) <= available_for_fires
-            a = @constraint(
-                m,
-                sum(
-                    vars[
-                        fires_to_consider[ix],
-                        costs[fires_to_consider[ix]][fire_ix],
-                    ] for (ix, fire_ix) in enumerate(ix_per_fire) if fire_ix > 0
-                ) <=
-                rhs
-            )
-        end
-    end
-    optimize!(m)
     if has_values(m) && (objective_value(m) > 1e-2)
         if minimum(value.(vars)) < -1e-2
             print(value.(vars))
@@ -207,7 +251,7 @@ function cut_generating_LP(gurobi_env,
             crew_coeffs,
             value(rhs) + num_crews_in_cut,
         )
-        @debug "CGLP helped!" cut
+        @info "CGLP helped!" cut
         return cut
     end
     @debug "cglp model" length(cartesian_product)
@@ -437,7 +481,7 @@ function find_knapsack_cuts(
     rmp::RestrictedMasterProblem,
     cut_search_limit_per_time::Int64,
     gub_cover_cuts::Bool,
-    general_gub_cuts::Bool,
+    general_gub_cuts::String,
     single_fire_cuts::Bool,
     decrease_gub_allots::Bool,
     single_fire_lift::Bool,
@@ -559,10 +603,13 @@ function find_knapsack_cuts(
         end
     end
 
-    if general_gub_cuts
+    if general_gub_cuts != "none"
+        cutting_plane_method = (general_gub_cuts == "cutting_plane")
+        @assert cutting_plane_method || (general_gub_cuts == "enumerate") "invalid general_gub_cuts"
+
         for t in 1:num_time_periods
             if t ∉ [knapsack_cut.time_ix for knapsack_cut ∈ knapsack_gub_cuts]
-                max_viol_cut = cut_generating_LP(GRB_ENV, t, crew_assign[:, :, t], all_fire_allots[:, t], cut_search_limit_per_time)
+                max_viol_cut = cut_generating_LP(GRB_ENV, t, crew_assign[:, :, t], all_fire_allots[:, t], cut_search_limit_per_time, cutting_plane_method)
                 if ~isnothing(max_viol_cut)
 
                     # TODO all the domination not needed if we keep this outer if clause

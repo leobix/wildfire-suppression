@@ -93,7 +93,7 @@ function cut_generating_LP(gurobi_env,
     cutting_plane_method::Bool)
 
     crew_usages = vec(mapslices(sum, crew_allots, dims=2))
-    @info "cglp" fire_allots
+    @debug "cglp" fire_allots crew_usages
     inactive_crews = vec(findall(x -> x < 1e-20, crew_usages))
 
     # for now, assume that these crews were inactive for a "good" reason and force those to be part of any cover
@@ -112,7 +112,8 @@ function cut_generating_LP(gurobi_env,
     # define model
     m = direct_model(Gurobi.Optimizer(gurobi_env))
     rhs = @variable(m, k >= 0)
-    @objective(m, Max, -rhs)
+    ε = 1e-3
+    @objective(m, Max, -(1 - ε) * rhs)
     set_optimizer_attribute(m, "OutputFlag", 0)
 
     # define decision variables
@@ -159,7 +160,7 @@ function cut_generating_LP(gurobi_env,
         
         @objective(cutting_plane_ip, Max, 0)
         x = @variable(cutting_plane_ip, [i ∈ eachindex(fire_allots), j ∈ 1:num_crews; (i, j) ∈ eachindex(vars)], Bin)
-        for fire ∈ eachindex(fires_to_consider)
+        for fire ∈ unique([i for (i, j) ∈ eachindex(vars)])
             @constraint(cutting_plane_ip, sum(x[fire, :]) <= 1)
         end
         @constraint(cutting_plane_ip, sum(x[fire, allot] * allot for (fire, allot) ∈ eachindex(x)) <= available_for_fires)
@@ -182,7 +183,9 @@ function cut_generating_LP(gurobi_env,
                 @debug "Found valid inequality CGLP" cnstr
             else
                 solved = true
+                @debug "obj" objective_function(m) value.(vars) value(rhs)
             end
+            
         end
     
     else
@@ -223,7 +226,7 @@ function cut_generating_LP(gurobi_env,
         optimize!(m)
     end
 
-    if has_values(m) && (objective_value(m) > 1e-2)
+    if has_values(m) && (objective_value(m) - ε * value(rhs) > 1e-2)
         if minimum(value.(vars)) < -1e-2
             print(value.(vars))
             error("negative")
@@ -251,7 +254,7 @@ function cut_generating_LP(gurobi_env,
             crew_coeffs,
             value(rhs) + num_crews_in_cut,
         )
-        @info "CGLP helped!" cut
+        @debug "CGLP helped!" cut
         return cut
     end
     @debug "cglp model" length(cartesian_product)

@@ -70,7 +70,7 @@ integer problem (or an infeasibility certificate).
 - `cut_data::CutData` (modified): Data structure containing information about cuts, including lookups to incorporate coeffs into master problem and subproblems.
 - `crew_subproblems::Vector{TimeSpaceNetwork}`: Vector of data structures containing all static info about crew subproblems.
 - `fire_subproblems::Vector{TimeSpaceNetwork}`: Vector of data structures containing all static info about fire subproblems.
--  gub_cut_limit_per_time::{Int64}: Enumeration limit for cut generation search, which can theoretically grow exponentially large
+-  cut_search_enumeration_limit::{Int64}: Enumeration limit for cut generation search, which can theoretically grow exponentially large
 - `crew_rules::Vector{CrewAssignmentBranchingRule}`: Vector of active branching rules that indicate whether crew j suppresses fire g at time t.
 - `fire_rules::Vector{FireDemandBranchingRule}`: Vector of active branching rules that indicate whether fire g demands <=d crews or >d crews at time t.
 - `global_fire_allotment_branching_rules::Vector{GlobalFireAllotmentBranchingRule}`: Vector of active branching rules that may place a cap on demand across all fires and times
@@ -83,7 +83,7 @@ function price_and_cut!!!!(
     cut_data::CutData,
     crew_subproblems::Vector{TimeSpaceNetwork},
     fire_subproblems::Vector{TimeSpaceNetwork},
-    gub_cut_limit_per_time::Int64,
+    cut_search_enumeration_limit::Int64,
     crew_rules::Vector{CrewAssignmentBranchingRule},
     fire_rules::Vector{FireDemandBranchingRule},
     global_fire_allotment_rules::Vector{GlobalFireAllotmentBranchingRule};
@@ -169,7 +169,7 @@ function price_and_cut!!!!(
         # add cuts
         t2 = @elapsed num_cuts = find_and_incorporate_knapsack_gub_cuts!!(
             cut_data,
-            gub_cut_limit_per_time,
+            cut_search_enumeration_limit,
             rmp,
             crew_routes,
             fire_plans,
@@ -226,7 +226,7 @@ function branch_and_price(
     max_nodes=10000,
     algo_tracking=false,
     branching_strategy="linking_dual_max_variance",
-    gub_cut_limit_per_time=100000,
+    cut_search_enumeration_limit=10000,
     cut_loop_max=25,
     price_and_cut_soft_time_limit=180.0,
     relative_improvement_cut_req=1e-10,
@@ -236,12 +236,12 @@ function branch_and_price(
     heuristic_cadence=5,
     total_time_limit=1800.0,
     bb_node_gub_cover_cuts=true,
-    bb_node_general_gub_cuts="cutting_plane",
+    bb_node_general_gub_cuts="adaptive",
     bb_node_single_fire_cuts=false,
     bb_node_decrease_gub_allots=true,
     bb_node_single_fire_lift=true,
     heuristic_gub_cover_cuts=true,
-    heuristic_general_gub_cuts="cutting_plane",
+    heuristic_general_gub_cuts="adaptive",
     heuristic_single_fire_cuts=false,
     heuristic_decrease_gub_allots=true,
     heuristic_single_fire_lift=true,
@@ -319,7 +319,7 @@ function branch_and_price(
             fire_plans,
             crew_models,
             fire_models,
-            gub_cut_limit_per_time,
+            cut_search_enumeration_limit,
             nothing,
             GRB_ENV,
             price_and_cut_soft_time_limit=price_and_cut_soft_time_limit,
@@ -350,7 +350,7 @@ function branch_and_price(
                 heuristic_must_improve_rounds,
                 crew_models,
                 fire_models,
-                gub_cut_limit_per_time,
+                cut_search_enumeration_limit,
                 GRB_ENV,
                 routes_best_sol=routes_best_sol,
                 plans_best_sol=plans_best_sol,
@@ -795,7 +795,7 @@ function heuristic_upper_bound!!(
     kill_if_no_improvement_rounds::Int64,
     crew_subproblems::Vector{TimeSpaceNetwork},
     fire_subproblems::Vector{TimeSpaceNetwork},
-    gub_cut_limit_per_time::Int64,
+    cut_search_enumeration_limit::Int64,
     gurobi_env;
     price_and_cut_soft_time_limit,
     cut_loop_max,
@@ -935,7 +935,7 @@ function heuristic_upper_bound!!(
             cut_data,
             crew_subproblems,
             fire_subproblems,
-            gub_cut_limit_per_time,
+            cut_search_enumeration_limit,
             crew_rules,
             fire_rules,
             global_rules,
@@ -1037,7 +1037,7 @@ function explore_node!!(
     fire_plans::FirePlanData,
     crew_subproblems::Vector{TimeSpaceNetwork},
     fire_subproblems::Vector{TimeSpaceNetwork},
-    gub_cut_limit_per_time::Int64,
+    cut_search_enumeration_limit::Int64,
     warm_start_strategy::Union{String,Nothing},
     gurobi_env;
     branching_strategy,
@@ -1150,7 +1150,7 @@ function explore_node!!(
         cut_data,
         crew_subproblems,
         fire_subproblems,
-        gub_cut_limit_per_time,
+        cut_search_enumeration_limit,
         crew_rules,
         fire_rules,
         global_rules,

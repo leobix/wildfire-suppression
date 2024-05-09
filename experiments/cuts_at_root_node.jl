@@ -30,26 +30,44 @@ end
 
 
 params = Dict()
-# params["gub_only"] = Dict(:bb_node_gub_cover_cuts => true,
-#     :bb_node_general_gub_cuts => "none",
-#     :bb_node_decrease_gub_allots => false,
-#     :bb_node_single_fire_lift => false
-# )
-# params["gub_plus_strengthen"] = Dict(:bb_node_gub_cover_cuts => true,
-#     :bb_node_general_gub_cuts => "none",
-#     :bb_node_decrease_gub_allots => true,
-#     :bb_node_single_fire_lift => true
-# )
-params["cglp_only"] = Dict(:bb_node_gub_cover_cuts => false,
+params["gub_only"] = Dict(:bb_node_gub_cover_cuts => true,
+    :bb_node_general_gub_cuts => "none",
+    :bb_node_decrease_gub_allots => false,
+    :bb_node_single_fire_lift => false,
+    :cut_search_enumeration_limit => 100000
+)
+params["gub_plus_strengthen"] = Dict(:bb_node_gub_cover_cuts => true,
+    :bb_node_general_gub_cuts => "none",
+    :bb_node_decrease_gub_allots => true,
+    :bb_node_single_fire_lift => true,
+    :cut_search_enumeration_limit => 100000
+)
+params["cglp_cutting_plane"] = Dict(:bb_node_gub_cover_cuts => false,
     :bb_node_general_gub_cuts => "cutting_plane",
     :bb_node_decrease_gub_allots => false,
-    :bb_node_single_fire_lift => false
+    :bb_node_single_fire_lift => false,
+    :cut_search_enumeration_limit => 100000
 )
-# params["everything"] = Dict(:bb_node_gub_cover_cuts => true,
-#     :bb_node_general_gub_cuts => "cutting_plane",
-#     :bb_node_decrease_gub_allots => true,
-#     :bb_node_single_fire_lift => true
-# )
+
+params["cglp_enumerate"] = Dict(:bb_node_gub_cover_cuts => false,
+    :bb_node_general_gub_cuts => "enumerate",
+    :bb_node_decrease_gub_allots => false,
+    :bb_node_single_fire_lift => false,
+    :cut_search_enumeration_limit => 100000
+)
+
+params["cglp_adaptive"] = Dict(:bb_node_gub_cover_cuts => false,
+    :bb_node_general_gub_cuts => "adaptive",
+    :bb_node_decrease_gub_allots => false,
+    :bb_node_single_fire_lift => false,
+    :cut_search_enumeration_limit => 10000
+)
+params["everything"] = Dict(:bb_node_gub_cover_cuts => true,
+    :bb_node_general_gub_cuts => "adaptive",
+    :bb_node_decrease_gub_allots => true,
+    :bb_node_single_fire_lift => true,
+    :cut_search_enumeration_limit => 10000
+)
 
 # precompile
 for (key, param_set) in params
@@ -57,9 +75,8 @@ for (key, param_set) in params
         algo_tracking=true, 
         soft_heuristic_time_limit=0.0, 
         price_and_cut_soft_time_limit=1200.0,
-        gub_cut_limit_per_time=100000, 
         max_nodes=1, 
-        cut_loop_max=100, 
+        cut_loop_max=25, 
         relative_improvement_cut_req=1e-25, 
         price_and_cut_file=args["directory_output"] * key * "_cut_progress_precompile.json"; 
         param_set...)
@@ -67,7 +84,7 @@ end
 
 # experiment
 sizes = [(3, 10, 14), (6, 20, 14), (9, 30, 14), (12, 40, 14), (15, 50, 14)]
-sizes = [(6, 20, 14)]
+sizes = [(3, 10, 14), (6, 20, 14)]
 
 for (g, c, t) ∈ sizes
     for (key, param_set) in params
@@ -75,9 +92,8 @@ for (g, c, t) ∈ sizes
             algo_tracking=true, 
             soft_heuristic_time_limit=0.0, 
             price_and_cut_soft_time_limit=1200.0,
-            gub_cut_limit_per_time=100000, 
             max_nodes=1, 
-            cut_loop_max=100, 
+            cut_loop_max=25, 
             relative_improvement_cut_req=1e-25, 
             price_and_cut_file=args["directory_output"] * key * "_cut_progress_" * string(g) * ".json"; 
             param_set...)

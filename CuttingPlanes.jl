@@ -89,8 +89,8 @@ function cut_generating_LP(gurobi_env,
     time_ix::Int64,
     crew_allots::Matrix{Float64},
     fire_allots::Vector{Vector{Tuple}},
-    gub_cut_limit_per_time::Int64,
-    cutting_plane_method::Bool)
+    cut_search_enumeration_limit::Int64,
+    method::String)
 
     crew_usages = vec(mapslices(sum, crew_allots, dims=2))
     @debug "cglp" fire_allots crew_usages
@@ -150,7 +150,49 @@ function cut_generating_LP(gurobi_env,
         end
     end
 
-    if cutting_plane_method
+    do_cutting_planes = (method == "cutting_plane")
+    if method ∈ ["enumerate", "adaptive"]
+
+        allotment_option_ixs = []
+        for ix in eachindex(fires_to_consider)
+            fire = fires_to_consider[ix]
+            push!(allotment_option_ixs, [i for i in 0:length(fire_allots[fire])])
+        end
+        cartesian_product = product(allotment_option_ixs...)
+        if length(cartesian_product) > cut_search_enumeration_limit
+            @info "CGLP too big for enumeration"
+            if method == "adaptive"
+                do_cutting_planes = true
+            end
+        else
+            for ix_per_fire in cartesian_product
+                if sum(ix_per_fire) == 0
+                    continue
+                end
+                allots_per_fire =
+                    [
+                        fire_ix == 0 ? 0 : costs[fires_to_consider[ix]][fire_ix] for
+                        (ix, fire_ix) in enumerate(ix_per_fire)
+                    ]
+                if sum(allots_per_fire) <= available_for_fires
+                    a = @constraint(
+                        m,
+                        sum(
+                            vars[
+                                fires_to_consider[ix],
+                                costs[fires_to_consider[ix]][fire_ix],
+                            ] for (ix, fire_ix) in enumerate(ix_per_fire) if fire_ix > 0
+                        ) <=
+                        rhs
+                    )
+                end
+            end
+            optimize!(m)
+        end
+    end
+
+    if do_cutting_planes
+
         solved = false
 
         cutting_plane_ip = direct_model(Gurobi.Optimizer(gurobi_env))
@@ -187,43 +229,6 @@ function cut_generating_LP(gurobi_env,
             end
             
         end
-    
-    else
-
-        allotment_option_ixs = []
-        for ix in eachindex(fires_to_consider)
-            fire = fires_to_consider[ix]
-            push!(allotment_option_ixs, [i for i in 0:length(fire_allots[fire])])
-        end
-        cartesian_product = product(allotment_option_ixs...)
-        if length(cartesian_product) > gub_cut_limit_per_time
-            @info "CGLP too big, returning"
-            return
-        end
-
-        for ix_per_fire in cartesian_product
-            if sum(ix_per_fire) == 0
-                continue
-            end
-            allots_per_fire =
-                [
-                    fire_ix == 0 ? 0 : costs[fires_to_consider[ix]][fire_ix] for
-                    (ix, fire_ix) in enumerate(ix_per_fire)
-                ]
-            if sum(allots_per_fire) <= available_for_fires
-                a = @constraint(
-                    m,
-                    sum(
-                        vars[
-                            fires_to_consider[ix],
-                            costs[fires_to_consider[ix]][fire_ix],
-                        ] for (ix, fire_ix) in enumerate(ix_per_fire) if fire_ix > 0
-                    ) <=
-                    rhs
-                )
-            end
-        end
-        optimize!(m)
     end
 
     if has_values(m) && (objective_value(m) - ε * value(rhs) > 1e-2)
@@ -268,16 +273,6 @@ function enumerate_minimal_GUB_cover_cuts(
 
     all_cuts = []
 
-    # find the crews that are inactive at time t in all used routes
-    # inactive_crews = Int64[]
-    # for crew in eachindex(crew_allots)
-    # 	if (length(crew_allots[crew]) > 0)
-    # 		if (crew_allots[crew][1][1] == true) & (crew_allots[crew][1][2] == 0)
-    # 			push!(inactive_crews, crew)
-    # 		end
-    # 	end
-    # end
-
     crew_usages = vec(mapslices(sum, crew_allots, dims=2))
     inactive_crews = vec(findall(x -> x < 1e-7, crew_usages))
     # for now, assume that these crews were inactive for a "good" reason and force those to be part of any cover
@@ -320,7 +315,7 @@ function enumerate_minimal_GUB_cover_cuts(
                 min_allot = min(min_allot, cur_allot)
             end
         end
-        if (cost < 1 - 1e-2) & (allot > available_for_fires) &
+        if (cost < 1 - 1e-2) && (allot > available_for_fires) &&
            (allot - min_allot <= available_for_fires)
             push!(
                 all_cuts,
@@ -607,12 +602,10 @@ function find_knapsack_cuts(
     end
 
     if general_gub_cuts != "none"
-        cutting_plane_method = (general_gub_cuts == "cutting_plane")
-        @assert cutting_plane_method || (general_gub_cuts == "enumerate") "invalid general_gub_cuts"
-
+        @assert general_gub_cuts ∈ ["enumerate", "cutting_plane", "adaptive"] "invalid general_gub_cuts"
         for t in 1:num_time_periods
             if t ∉ [knapsack_cut.time_ix for knapsack_cut ∈ knapsack_gub_cuts]
-                max_viol_cut = cut_generating_LP(GRB_ENV, t, crew_assign[:, :, t], all_fire_allots[:, t], cut_search_limit_per_time, cutting_plane_method)
+                max_viol_cut = cut_generating_LP(GRB_ENV, t, crew_assign[:, :, t], all_fire_allots[:, t], cut_search_limit_per_time, general_gub_cuts)
                 if ~isnothing(max_viol_cut)
 
                     # TODO all the domination not needed if we keep this outer if clause

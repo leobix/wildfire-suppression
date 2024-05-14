@@ -6,6 +6,34 @@ using LinearAlgebra, JuMP, Gurobi, LightGraphs, Printf
 
 const GRB_ENV = Gurobi.Env()
 
+# THIS COULD BE MORE GENERAL TO ALLOW DIFFERENT CONSTRAINTS TO DETERMINE THE WEIGHTS 
+# IN DIFFERENT VRP VARIANTS
+struct SOSBranchingRule
+    vehicle::Int
+    customer::Int
+    visits::Bool
+end
+
+function satisfies(route::Vector{Int}, vehicle::Int, branch::SOSBranchingRule)
+    if vehicle != branch.vehicle
+        return true
+    end
+
+    if branch.visits
+        return branch.customer ∈ route
+    end
+    return branch.customer ∉ route
+end
+
+function satisfies(route::Vector{Int}, vehicle::Int, branches::Vector{SOSBranchingRule})
+    for branch ∈ eachindex(branches)
+        if ~satisfies(route, vehicle, branch)
+            return false
+        end
+    end
+    return true
+end
+
 """"
 Create initial set of routes and associated costs
 """
@@ -32,25 +60,35 @@ function find_subtours(next::Vector{Int})
 end
 
 "Find next column to add, returns route, cost, and whether or not the reduced cost is nonnegative"
-function new_route_mdcvrp(distances::Matrix, dual_variables::Vector, Q::Int)
+function new_route_mdcvrp(distances::Matrix,
+    dual_variables::Vector,
+    branches::Vector{SOSBranchingRule},
+    Q::Int)
 
     n = size(distances, 1) - 1 # number of customers
+    println(n)
+    println(size(distances))
+    println(length(dual_variables))
     @assert length(dual_variables) == n
-    push!(dual_variables, 0) # depot
+    duals = copy(dual_variables)
+    push!(duals, 0) # depot
 
     model = Model(() -> Gurobi.Optimizer(GRB_ENV))
-    set_optimizer_attributes(model, "TimeLimit" => 10, "OutputFlag" => 0)
+    set_optimizer_attribute(model, "OutputFlag", 0)
+    set_optimizer_attribute(model, "InfUnbdInfo", 1)
     @variable(model, x[i=1:(n+1), j=1:(n+1)], Bin)
     @constraint(model, flow_conservation[i=1:(n+1)],
         sum(x[j, i] for j = 1:(n+1)) == sum(x[i, j] for j = 1:(n+1)))
     @constraint(model, max_flow[i=1:n],
         sum(x[i, j] for j = 1:(n+1)) <= 1)
-    @constraint(model, no_self_flow[i=1:(n+1)], x[i, i] == 0)
+    @constraint(model, no_self_flow[i=1:n], x[i, i] == 0) # allow depot self-flow so there is a naive solution
     @constraint(model, into_depot, sum(x[j, n+1] for j = 1:(n+1)) == 1)
 
-    # TODO apply branching rules just like above
+    qq = @constraint(model, branching_rules[b=1:length(branches)],
+        sum(x[j, branches[b].customer] for j = 1:(n+1)) == Int(branches[b].visits))
+    println(qq)
 
-    @objective(model, Min, sum(x[i, j] * (distances[i, j] - dual_variables[i]) for i = 1:(n+1), j = 1:(n+1)))
+    @objective(model, Min, sum(x[i, j] * (distances[i, j] - duals[i]) for i = 1:(n+1), j = 1:(n+1)))
 
     # CAPACITY CONSTRAINT
     @constraint(model, sum(x[i, j] for i = 1:(n+1), j = 1:(n+1)) <= Q)
@@ -91,71 +129,100 @@ function new_route_mdcvrp(distances::Matrix, dual_variables::Vector, Q::Int)
         end
     end
 
-    route = [n+1]
+    route = [n + 1]
     while (length(route) == 1) || (route[end] != route[1])
         push!(route, argmax(value.(x[route[end], :])))
     end
-    reduced_cost = sum(distances[route[i], route[i+1]] - dual_variables[route[i]] for i = 1:(length(route)-1))
+    reduced_cost = sum(distances[route[i], route[i+1]] - duals[route[i]] for i = 1:(length(route)-1))
 
     return route, sum(distances[route[i], route[i+1]] for i = 1:(length(route)-1)), reduced_cost
 end
 
 "Solve OVRP relaxation using column generation"
-function rmp_mdcrvp(distances::Matrix, Q::Int; T::Int=10, verbose::Bool=false)
+function rmp_mdcrvp(distances::Matrix, depot_distances::Matrix, branches::Vector{SOSBranchingRule}, Q::Int; T::Int=10, verbose::Bool=false)
 
-    n = size(distances, 1) - 1 # number of customers
-    routes, costs = [], []
+    n = size(distances, 1)  # number of customers
+    d = size(depot_distances, 1) # number of depots
+    println(d)
+    routes = Containers.@container(x[i=1:d, j=1:1000; 0 != 0], Int[])
+    costs = Containers.@container(x[i=1:d, j=1:1000; 0 != 0], 0.0)
+    vehicle = 1
 
     t = 0
     upper_bounds = []
     lower_bounds = []
-
+    valid_routes = [r for r ∈ eachindex(routes) if satisfies(routes[r], r[1], branches)]
+    println(valid_routes)
     while true
 
         t += 1
 
         model = Model(() -> Gurobi.Optimizer(GRB_ENV))
-        set_optimizer_attributes(model, "InfUnbdInfo" => 1, "TimeLimit" => 10, "OutputFlag" => 0)
-        @variable(model, y[r=eachindex(routes)] >= 0)
-        @constraint(model, visit_customer[i=1:n],
-            sum(y[r] for r = eachindex(routes) if i in routes[r]) >= 1)
-        @objective(model, Min, sum(costs[r] * y[r] for r = eachindex(routes)))
+        set_optimizer_attribute(model, "OutputFlag", 0)
+        set_optimizer_attribute(model, "InfUnbdInfo", 1)
+        @variable(model, y[i=1:d, j=1:1000; (i, j) ∈ valid_routes] >= 0)
+        @variable(model, 0 <= visit_customer[i=1:n] <= 1)
+        @constraint(model, sos1[i=1:d], sum(y[r] for r ∈ valid_routes if r[1] == i) <= 1)
+        @constraint(model, linking[i=1:n],
+            sum(y[r] for r = valid_routes if i ∈ routes[r] && r ∈ valid_routes) >= visit_customer[i])
+        @objective(model, Min, sum(costs[r] * y[r] for r ∈ eachindex(routes)) - 1000 * sum(visit_customer) + n * 1000)
 
         optimize!(model)
 
         push!(upper_bounds, objective_value(model))
-        p = [dual(visit_customer[i]) for i = 1:n]
+        p = dual.(linking)
+        σ = dual.(sos1)
+        println(p)
+        println(σ)
+        println(value.(y))
         if termination_status(model) != MOI.OPTIMAL # farkas vector
-            p = p .* 1000
+            p = p ./ sum(p) .* 1000
+            println(p)
         end
-        println("here")
-        route, cost, reduced_cost = new_route_mdcvrp(distances, p, Q)
 
-        verbose && @printf("Found column with reduced cost: %.2g\n", reduced_cost)
-        verbose && print(route)
-        push!(lower_bounds, objective_value(model) + n * reduced_cost)
+        rc_sum = 0
+        found_col = false
+        for vehicle ∈ 1:d
+            dists = vcat(distances, depot_distances[vehicle, :]')
+            println(size(dists))
+            dists = hcat(dists, vcat(depot_distances[vehicle, :], 0))
+            println(size(dists))
+            route, cost, reduced_cost = new_route_mdcvrp(dists, p, [b for b in branches if b.vehicle == vehicle], Q)
+            reduced_cost -= σ[vehicle]
+            rc_sum += reduced_cost
 
-        if (t > 1) && (reduced_cost > -1e-6 || t > T)
-            return [routes[r] for r = eachindex(routes) if value(y[r]) >= 0.1], objective_value(model),
+            if reduced_cost <= -1e-6
+                found_col = true
+                verbose && @printf("Found column with reduced cost: %.2g\n", reduced_cost)
+                ix = length(routes[vehicle, :]) + 1
+                routes[vehicle, ix] = route
+                costs[vehicle, ix] = cost
+                push!(valid_routes, (vehicle, ix))
+                println(valid_routes)
+            end
+        end
+        push!(lower_bounds, objective_value(model) + rc_sum)
+
+        if (t > 1) && (~found_col || t > T)
+            print(routes)
+            return [routes[r] for r = eachindex(y) if value(y[r]) >= 0.1], objective_value(model),
             upper_bounds, lower_bounds
         end
-
-        push!(routes, route)
-        push!(costs, cost)
-
     end
 end
 
 
-locations = [[1, 1], [1, 10], [3, 5]]
+locations = [[1, 1], [1, 20], [3, 5], [1, 2], [1, 9], [3, 6]]
 N = length(locations)
 demands = [4, 5, 6]
-vehicle_bases = [[1, 3], [2, 7]]
+vehicle_bases = [[10, 50], [2, 7]]
 M = length(vehicle_bases)
 capacities = [9, 6]
 
 dist = [norm(locations[i, :] .- locations[j, :]) for i = 1:N, j = 1:N]
-# base_dist = [norm(locations[i, :] .- vehicle_bases[j, :]) for i = 1:N, j = 1:M]
-# @printf base_dist
+base_dist = [norm(locations[i, :] .- vehicle_bases[j, :]) for j = 1:M, i = 1:N]
+println(base_dist)
 
-@time routes, total_cost, upper, lower = rmp_mdcrvp(dist, 4, T=10, verbose = true)
+b = SOSBranchingRule(2, 2, false)
+routes, total_cost, upper, lower = rmp_mdcrvp(dist, base_dist, [b], 6, T=20, verbose=true)
+@time routes, total_cost, upper, lower = rmp_mdcrvp(dist, base_dist, [b], 6, T=20, verbose=true)

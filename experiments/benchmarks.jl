@@ -5,6 +5,55 @@ using JuMP, Gurobi
 
 const GRB_ENV = Gurobi.Env()
 
+function backward_crew_dp_subproblem(
+    arcs::Matrix{Int64},
+    prohibited_arcs::BitVector,
+    state_in_arcs::Array{Vector{Int64},3},
+)
+    """ Probably this could be refactored so the matrix is state * time
+    and then we could generalize code between fire and crew subproblem"""
+
+    # initialize path costs to all states
+    reachable = falses(size(state_in_arcs))
+
+    # get dimensions
+    locs, times, rests = size(state_in_arcs)
+
+    # iterate over times first for algorithm correctness, locs last for performance
+    for t in reverse(1:times)
+        for r in 1:rests
+            for l in 1:locs
+
+                if t == times
+                    reachable[l, t, r] = true
+                end
+
+                if reachable[l, t, r]
+
+                    # for each arc entering this state
+                    for arc_ix ∈ state_in_arcs[l, t, r]
+                        if ~prohibited_arcs[arc_ix]
+
+                            arc = @view arcs[:, arc_ix]
+
+                            # get the time from which this arc comes
+                            time_from = arc[CM.TIME_FROM]
+                            loc_from = (arc[CM.FROM_TYPE] == CM.FIRE_CODE) ? arc[CM.LOC_FROM] : locs
+                            rest_from = arc[CM.REST_FROM] + 1
+
+                            if time_from > 0
+                                reachable[loc_from, time_from, rest_from] = true
+                            end
+
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return reachable
+end
+
 function no_suppression_fire_damage(
 	fire_model::TimeSpaceNetwork,
 	num_times::Int,
@@ -88,17 +137,11 @@ function triage_then_route_by_time_period(
 	# so we precalculate the states that should be under consideration
 
     # TODO FIX THIS
-	reachable_states = []
-	for crew ∈ 1:num_crews
-		path_costs = crew_dp_subproblem(
+	reachable_states = [backward_crew_dp_subproblem(
 			crew_models[crew].wide_arcs,
-			crew_models[crew].arc_costs,
-			falses(length(crew_models[crew].arc_costs)),
+			crew_models[crew].arc_costs .> 1e3,
 			crew_models[crew].state_in_arcs,
-			return_path_costs = true,
-		)
-		push!(reachable_states, path_costs .< 1e3)
-	end
+		) for crew ∈ 1:num_crews]
 
     println(reachable_states[9])
 
@@ -207,7 +250,6 @@ function triage_then_route_by_time_period(
 					time_to = crew_long_arcs[ix, CM.TIME_TO]
 					rest_to = crew_long_arcs[ix, CM.REST_TO]
 					if reachable_states[crew][loc_to, time_to, rest_to + 1]
-                        println((crew, loc_to, time_to, rest_to))
 						arc_variables[crew, loc_to, time_to, rest_to] =
 							@variable(m, binary = true)
 						arc_lookup[(crew, loc_to, time_to, rest_to)] = ix

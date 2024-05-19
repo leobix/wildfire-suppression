@@ -82,7 +82,20 @@ function no_suppression_fire_damage(
 		fire_model.state_in_arcs,
 	)
 
-	return objective
+    rel_costs, prohibited_arcs = get_adjusted_fire_arc_costs(
+		fire_model.long_arcs,
+		mock_duals * 0,
+		branching_rules,
+	)
+	arc_costs = rel_costs .+ fire_model.arc_costs
+
+	objective_full_supp, _ = fire_dp_subproblem(
+		fire_model.wide_arcs,
+		arc_costs,
+		prohibited_arcs,
+		fire_model.state_in_arcs,
+	)
+	return objective - objective_full_supp
 end
 
 function triage_then_route_by_time_period(
@@ -180,7 +193,7 @@ function triage_then_route_by_time_period(
 				fire_models[fire],
 				num_time_periods,
 				branching_rules[fire],
-			) for fire ∈ 1:num_fires
+			) + 1e-6 for fire ∈ 1:num_fires
 		]
 
 		fire_triage_scores =

@@ -156,7 +156,6 @@ function triage_then_route_by_time_period(
 			crew_models[crew].state_in_arcs,
 		) for crew ∈ 1:num_crews]
 
-    println(reachable_states[9])
 
 	# for each time period
 	for curr_time ∈ 0:num_times
@@ -209,6 +208,15 @@ function triage_then_route_by_time_period(
 		set_optimizer_attribute(m, "OptimalityTol", 1e-9)
 		set_optimizer_attribute(m, "FeasibilityTol", 1e-9)
 		fire_totals = @variable(m, s[g = 1:num_fires, t = curr_time+1:num_times+1] >= 0)
+        for g ∈ 1:num_fires
+
+            # don't suppress fully-suppressed fires
+            if no_suppression_fire_damages[g] <= 1.001e-6 
+                for t ∈ curr_time+1:num_times+1
+                    fix(fire_totals[g, t], 0, force=true)
+                end
+            end
+        end
 		@objective(
 			m,
 			Max,
@@ -262,9 +270,10 @@ function triage_then_route_by_time_period(
 						num_fires + 1 : crew_long_arcs[ix, CM.LOC_TO]
 					time_to = crew_long_arcs[ix, CM.TIME_TO]
 					rest_to = crew_long_arcs[ix, CM.REST_TO]
-					if reachable_states[crew][loc_to, time_to, rest_to + 1]
+					if (time_to >= num_times) || reachable_states[crew][loc_to, time_to, rest_to + 1]
 						arc_variables[crew, loc_to, time_to, rest_to] =
-							@variable(m, binary = true)
+							v = @variable(m, binary = true)
+                            set_objective_coefficient(m, v, -100 * crew_models[crew].arc_costs[ix]) # secondary obj
 						arc_lookup[(crew, loc_to, time_to, rest_to)] = ix
 						if loc_to < num_fires + 1
 							set_normalized_coefficient(
@@ -275,8 +284,7 @@ function triage_then_route_by_time_period(
 						end
 					end
 				end
-                print(crew)
-				c = @constraint(m, sum(arc_variables[crew, :, :, :]) == 1)
+				@constraint(m, sum(arc_variables[crew, :, :, :]) == 1)
 			end
 		end
 
@@ -300,8 +308,34 @@ function triage_then_route_by_time_period(
 			crew_rest_from[crew] = crew_long_arcs[chosen_arc, CM.REST_TO]
 		end
 
-		# calculate cost from arcs traversed
 	end
+
+    # calculate cost from arcs traversed
+    crew_costs = [sum(crew_models[crew].arc_costs[crew_arcs_traversed[crew]]) for crew ∈ 1:num_crews]
+
+    # calculate fire plan costs
+    fire_costs = zeros(Float64, num_fires)
+    for fire ∈ 1:num_fires
+
+        rel_costs, prohibited_arcs = get_adjusted_fire_arc_costs(
+            fire_models[fire].long_arcs,
+            zeros(Float64, num_time_periods),
+            branching_rules[fire],
+        )
+        arc_costs = rel_costs .+ fire_models[fire].arc_costs
+        objective, _ = fire_dp_subproblem(
+            fire_models[fire].wide_arcs,
+            arc_costs,
+            prohibited_arcs,
+            fire_models[fire].state_in_arcs,
+        )
+
+        fire_costs[fire] = objective
+
+    end
+    println(crew_costs)
+    println(fire_costs)
+    println(sum(crew_costs) + sum(fire_costs))
 
 end
 
@@ -312,8 +346,8 @@ function triage_then_route_full_horizon(
 
 end
 
-num_crews = 10
-num_fires = 3
+num_crews = 30
+num_fires = 9
 num_time_periods = 14
 
 crew_models = build_crew_models(

@@ -4,6 +4,7 @@ struct TimeSpaceNetwork # TODO always make time the first index
 
     arc_costs::Vector{Float64}
     state_in_arcs::Array{Vector{Int64}}
+    state_out_arcs::Array{Vector{Int64}}
     model_type::String
 
     # not quite sure how much this helps performance, but storing 2 copies

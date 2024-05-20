@@ -25,6 +25,8 @@ module FireArcArrayIndices
 # indices for each crew arc
 STATE_FROM = 2
 TIME_FROM = 3
+TIME_TO = 4
+STATE_TO = 5
 CREWS_PRESENT = 6
 
 end
@@ -500,8 +502,18 @@ function build_crew_models(
             :,
             :,
         ]
+
+        base_time_out = constraint_data.b_out[crew, :, :]
+        state_out_arcs = vcat(
+            constraint_data.f_out[crew, :, :, :],
+            reshape(base_time_out, (1, size(base_time_out)...)),
+        )[
+            :,
+            :,
+            :,
+        ]
         crew_sp =
-            TimeSpaceNetwork(crew_arc_costs, state_in_arcs, "crew", arcs, wide_arcs)
+            TimeSpaceNetwork(crew_arc_costs, state_in_arcs, state_out_arcs, "crew", arcs, wide_arcs)
         push!(crew_sps, crew_sp)
     end
 
@@ -599,13 +611,30 @@ function get_state_in_arcs(arc_array, n_states, num_time_periods)
     # get arcs entering (in) and exiting (out) each state
     in_arcs = Array{Vector{Int64}}(undef, n_states, num_time_periods + 1)
     for s in 1:n_states
-        state_arcs = [i for i in 1:n_arcs if arc_array[i, 5] == s]
+        state_arcs = [i for i in 1:n_arcs if arc_array[i, FM.STATE_TO] == s]
         for t in 1:num_time_periods+1
-            in_arcs[s, t] = [i for i in state_arcs if arc_array[i, 4] == t]
+            in_arcs[s, t] = [i for i in state_arcs if arc_array[i, FM.TIME_TO] == t]
         end
     end
 
     return in_arcs
+end
+
+function get_state_out_arcs(arc_array, n_states, num_time_periods)
+
+    # get the arcs and crew requirements
+    n_arcs = length(arc_array[:, 1])
+
+    # get arcs entering (in) and exiting (out) each state
+    out_arcs = Array{Vector{Int64}}(undef, n_states, num_time_periods + 1)
+    for s in 1:n_states
+        state_arcs = [i for i in 1:n_arcs if arc_array[i, FM.STATE_FROM] == s]
+        for t in 1:num_time_periods+1
+            out_arcs[s, t] = [i for i in state_arcs if arc_array[i, FM.TIME_FROM] == t]
+        end
+    end
+
+    return out_arcs
 end
 
 function update_fire_stats(curr_stats, curr_time, crew_allocation, params)
@@ -814,6 +843,7 @@ function discretize_fire_model(
     arc_arrays = Dict()
     fire_arc_costs_dict = Dict()
     in_arcs = Dict()
+    out_arcs = Dict()
     for key in keys(graphs)
         arc_array = arcs_from_state_graph(graphs[key])
         n_arcs = length(arc_array[:, 1])
@@ -829,9 +859,10 @@ function discretize_fire_model(
 
         n_states = size(states)[1]
         in_arcs[key] = get_state_in_arcs(arc_arrays[key], n_states, num_time_periods)
+        out_arcs[key] = get_state_out_arcs(arc_arrays[key], n_states, num_time_periods)
     end
 
-    return states, graphs, arc_arrays, fire_arc_costs_dict, state_costs, in_arcs
+    return states, graphs, arc_arrays, fire_arc_costs_dict, state_costs, in_arcs, out_arcs
 end
 
 function build_fire_models(
@@ -855,7 +886,7 @@ function build_fire_models(
             "progressions" => progressions[fire, :],
             "start_perim" => start_perims[fire], "line_per_crew" => 17,
             "beta" => 100)
-        _, _, arc_arrays, arc_costs, _, in_arcs = discretize_fire_model(
+        _, _, arc_arrays, arc_costs, _, in_arcs, out_arcs = discretize_fire_model(
             model_config,
             agg_prec,
             passive_states,
@@ -866,6 +897,7 @@ function build_fire_models(
         fire_model = TimeSpaceNetwork(
             arc_costs[round_type],
             in_arcs[round_type],
+            out_arcs[round_type],
             "fire",
             arc_arrays[round_type],
             collect(arc_arrays[round_type]'),

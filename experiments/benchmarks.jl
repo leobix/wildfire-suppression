@@ -160,10 +160,7 @@ function triage_then_route_by_time_period(
 	# for each time period
 	for curr_time ∈ 0:num_times
 
-        println(crew_time_from)
-        println(crew_from_type)
-        println(crew_rest_from)
-        println(crew_loc_from)
+        @debug "crew states" crew_time_from crew_from_type crew_rest_from crew_loc_from
 
 		# update fire branching rules to encode suppression at this time
 		if curr_time > 0
@@ -184,7 +181,7 @@ function triage_then_route_by_time_period(
 			end
 		end
 
-        println(branching_rules)
+        @debug "current branching rules" branching_rulesn
 
 		# get the fire triage scores
 		no_suppression_fire_damages = [
@@ -198,7 +195,7 @@ function triage_then_route_by_time_period(
 		fire_triage_scores =
 			no_suppression_fire_damages ./ sum(no_suppression_fire_damages)
 		
-        println(fire_triage_scores)
+        @debug "current fire triage scores" fire_triage_scores
 
 		# get the possible assignments
 
@@ -295,7 +292,7 @@ function triage_then_route_by_time_period(
 
 		# extract decisions
 		chosen_variables = [i for i ∈ eachindex(arc_variables) if value(arc_variables[i]) > 0.5]
-		println(chosen_variables)
+		@debug "after solving assignment IP" chosen_variables
 
 		# update arcs traversed and crew state
 		for (crew, loc_to, time_to, rest_to) ∈ chosen_variables
@@ -333,9 +330,9 @@ function triage_then_route_by_time_period(
         fire_costs[fire] = objective
 
     end
-    println(crew_costs)
-    println(fire_costs)
-    println(sum(crew_costs) + sum(fire_costs))
+	total_cost = sum(crew_costs) + sum(fire_costs)
+	@info "results" crew_costs fire_costs total_cost
+	println(total_cost)
 
 end
 
@@ -346,8 +343,8 @@ function triage_then_route_full_horizon(
 
 end
 
-num_crews = 30
-num_fires = 9
+num_crews = 10
+num_fires = 3
 num_time_periods = 14
 
 crew_models = build_crew_models(
@@ -364,3 +361,4 @@ fire_models = build_fire_models(
 	num_time_periods,
 )
 triage_then_route_by_time_period(crew_models, fire_models, 0.9, 1.0)
+@time triage_then_route_by_time_period(crew_models, fire_models, 0.9, 1.0)

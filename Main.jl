@@ -27,6 +27,6 @@ end
 
 # precompile
 branch_and_price(3, 10, 14, algo_tracking=false)
-branch_and_price(6, 20, 14, algo_tracking=true, max_nodes=1, cut_loop_max=0, total_time_limit=1200.0, soft_heuristic_time_limit=300.0)
+branch_and_price(6, 20, 14, algo_tracking=true, max_nodes=1, cut_loop_max=0, total_time_limit=1200.0, soft_heuristic_time_limit=0.0)
 
 

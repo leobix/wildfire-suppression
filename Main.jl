@@ -28,16 +28,16 @@ end
 # precompile
 branch_and_price(3, 10, 14, algo_tracking = false)
 
-@time branch_and_price(
-	12,
-	40,
+branch_and_price(
+	6,
+	20,
 	14,
 	algo_tracking = true,
-	price_and_cut_file = "timings.json",
-	max_nodes = 1,
-	cut_loop_max = 0,
-	total_time_limit = 1200.0,
+	# price_and_cut_file = "timings_ref2.json",
+	bb_node_gub_cover_cuts=true,
+	total_time_limit = 600.0,
 	soft_heuristic_time_limit = 0.0,
 )
+
 
 

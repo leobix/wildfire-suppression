@@ -469,7 +469,6 @@ function build_crew_models(
         num_fires,
         num_time_periods,
     )
-    wide_arcs = collect(arcs')
 
     rest_pen = get_rest_penalties(
         num_crews,
@@ -485,13 +484,16 @@ function build_crew_models(
         "fight_fire" => ALPHA,
     )
 
-    crew_arc_costs = get_static_crew_arc_costs(dists_and_times, arcs, cost_params)
-
-    constraint_data =
-        define_network_constraint_data(arcs, num_crews, num_fires, num_time_periods)
-
     crew_sps = TimeSpaceNetwork[]
     for crew in 1:num_crews
+
+        n_arcs = length(arcs[:, 1])
+        crew_arcs = arcs[[i for i in 1:n_arcs if arcs[i, CM.CREW_NUMBER] == crew], :]
+        crew_wide_arcs = collect(crew_arcs')
+        crew_arc_costs = get_static_crew_arc_costs(dists_and_times, crew_arcs, cost_params)
+        
+        # TODO refactor this function; it is returning stuff for all crews
+        constraint_data = define_network_constraint_data(crew_arcs, num_crews, num_fires, num_time_periods)
 
         base_time = constraint_data.b_in[crew, :, :]
         state_in_arcs = vcat(
@@ -513,7 +515,7 @@ function build_crew_models(
             :,
         ]
         crew_sp =
-            TimeSpaceNetwork(crew_arc_costs, state_in_arcs, state_out_arcs, "crew", arcs, wide_arcs)
+            TimeSpaceNetwork(crew_arc_costs, state_in_arcs, state_out_arcs, "crew", crew_arcs, crew_wide_arcs)
         push!(crew_sps, crew_sp)
     end
 

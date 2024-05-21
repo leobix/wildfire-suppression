@@ -97,39 +97,31 @@ function double_column_generation!!!!(
 		# this happens inside the loop for each fire. 
 		# (TODO: see which is faster in Julia)
 
-		subproblem = crew_subproblems[1]
-
-		# generate the local costs of the arcs
-		# TODO NEEDS refactor on prohibited_arcs
-		rel_costs_all, prohibited_arcs_all = get_adjusted_crew_arc_costs(
-			subproblem.long_arcs,
-			linking_duals,
-			crew_branching_rules,
-		)
-
-		arc_costs_all = rel_costs_all .+ subproblem.arc_costs
-
-
 		crew_objectives = zeros(Float64, num_crews)
 		crew_arcs_used = [Int[] for crew ∈ 1:num_crews]
 
 		# for each crew
 		Threads.@threads for crew in 1:num_crews
 
+			crew_rel_costs, crew_prohibited_arcs = get_adjusted_crew_arc_costs(
+				crew_subproblems[crew].long_arcs,
+				linking_duals,
+				crew_branching_rules,
+			)
+	
+			crew_arc_costs = crew_rel_costs .+ crew_subproblems[crew].arc_costs
+
 			# adjust the arc costs for the cuts
-			cut_adjusted_arc_costs = cut_adjust_arc_costs(
-				arc_costs_all,
+			crew_cut_adjusted_arc_costs = cut_adjust_arc_costs(
+				crew_arc_costs,
 				cut_data.crew_sp_lookup[crew],
 				cut_duals,
 			)
 
-			# TODO grab the prohibited arcs belonging to this crew only 
-			crew_prohibited_arcs = prohibited_arcs_all
-
 			# solve the subproblem
 			objective, arcs_used = crew_dp_subproblem(
 				crew_subproblems[crew].wide_arcs,
-				cut_adjusted_arc_costs,
+				crew_cut_adjusted_arc_costs,
 				crew_prohibited_arcs,
 				crew_subproblems[crew].state_in_arcs,
 			)
@@ -368,7 +360,7 @@ function double_column_generation!!!!(
 				num_fires,
 				num_time_periods,
 			)
-			@info "progress" iteration linking_duals supp
+			@debug "progress" iteration linking_duals supp
 
 
 			# if no new column added, we have proof of optimality

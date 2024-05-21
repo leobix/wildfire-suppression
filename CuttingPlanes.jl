@@ -539,15 +539,21 @@ function find_knapsack_cuts(
     end
 
     if gub_cover_cuts
-        for t in 1:num_time_periods
 
-            minimal_cuts =
+        all_cuts = [Any[] for t ∈ 1:num_time_periods] 
+        Threads.@threads for t in 1:num_time_periods
+
+            all_cuts[t] =
                 enumerate_minimal_GUB_cover_cuts(
                     crew_assign[:, :, t],
                     all_fire_allots[:, t],
                     cut_search_limit_per_time,
                 )
+        end
 
+        for t ∈ 1:num_time_periods
+
+            minimal_cuts = all_cuts[t]
             for cut in minimal_cuts
                 orig_fire_allots = cut[3]
                 unused_crews = cut[4]
@@ -603,24 +609,34 @@ function find_knapsack_cuts(
 
     if general_gub_cuts != "none"
         @assert general_gub_cuts ∈ ["enumerate", "cutting_plane", "adaptive"] "invalid general_gub_cuts"
-        for t in 1:num_time_periods
+        
+        cglp_cuts = Array{Any, 1}(undef, num_time_periods)
+        
+        Threads.@threads for t in 1:num_time_periods
+            cglp_cuts[t] = nothing
             if t ∉ [knapsack_cut.time_ix for knapsack_cut ∈ knapsack_gub_cuts]
-                max_viol_cut = cut_generating_LP(GRB_ENV, t, crew_assign[:, :, t], all_fire_allots[:, t], cut_search_limit_per_time, general_gub_cuts)
-                if ~isnothing(max_viol_cut)
+                cut_t = cut_generating_LP(GRB_ENV, t, crew_assign[:, :, t], all_fire_allots[:, t], cut_search_limit_per_time, general_gub_cuts)
+                if ~isnothing(cut_t)
+                    cglp_cuts[t] = cut_t
+                end
+            end
+        end
+        for t ∈ 1:num_time_periods
+            max_viol_cut = cglp_cuts[t]
+            if ~isnothing(max_viol_cut)
 
-                    # TODO all the domination not needed if we keep this outer if clause
-                    incorporate_cut = true
-                    for cut ∈ knapsack_gub_cuts
-                        if first_cut_dominates(cut, max_viol_cut)
-                            @debug "cut dominated" cut max_viol_cut
-                            incorporate_cut = false
-                            break
-                        end
+                # TODO all the domination not needed if we keep this outer if clause
+                incorporate_cut = true
+                for cut ∈ knapsack_gub_cuts
+                    if first_cut_dominates(cut, max_viol_cut)
+                        @debug "cut dominated" cut max_viol_cut
+                        incorporate_cut = false
+                        break
                     end
-                    if incorporate_cut
-                        push!(knapsack_gub_cuts, max_viol_cut)
-                        @debug "pushing max viol cglp cut!" max_viol_cut
-                    end
+                end
+                if incorporate_cut
+                    push!(knapsack_gub_cuts, max_viol_cut)
+                    @debug "pushing max viol cglp cut!" max_viol_cut
                 end
             end
         end

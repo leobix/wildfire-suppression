@@ -171,7 +171,15 @@ fire_models = build_fire_models(
 	num_time_periods,
 )
 
-full_network_flow(crew_models, fire_models, verbose = true)
+for model ∈ crew_models
+	println(size(model.long_arcs))
+end
+
+for model ∈ fire_models
+	println(size(model.long_arcs))
+end
+
+full_network_flow(crew_models, fire_models, verbose = false)
 
 num_crews = 50
 num_fires = 15
@@ -191,11 +199,19 @@ fire_models = build_fire_models(
 	num_time_periods,
 )
 
+for model ∈ crew_models
+	println(size(model.long_arcs))
+end
+
+for model ∈ fire_models
+	println(size(model.long_arcs))
+end
+
 Profile.init()
-@profile full_network_flow(crew_models, fire_models, verbose = true)
+@profile full_network_flow(crew_models, fire_models, verbose = false)
 io = open("prof.txt", "w")
 Profile.print(io, mincount = 50)
 close(io)
 
 @time full_network_flow(crew_models, fire_models, verbose = true)
-@time full_network_flow(crew_models, fire_models, verbose = true, threads=1)
+# @time full_network_flow(crew_models, fire_models, verbose = true, threads=1)

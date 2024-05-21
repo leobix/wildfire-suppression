@@ -27,9 +27,10 @@ end
 
 # precompile
 branch_and_price(3, 10, 14, algo_tracking = false)
-branch_and_price(
-	15,
-	50,
+
+@time branch_and_price(
+	12,
+	40,
 	14,
 	algo_tracking = true,
 	price_and_cut_file = "timings.json",

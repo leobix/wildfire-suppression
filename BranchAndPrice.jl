@@ -70,7 +70,7 @@ integer problem (or an infeasibility certificate).
 - `cut_data::CutData` (modified): Data structure containing information about cuts, including lookups to incorporate coeffs into master problem and subproblems.
 - `crew_subproblems::Vector{TimeSpaceNetwork}`: Vector of data structures containing all static info about crew subproblems.
 - `fire_subproblems::Vector{TimeSpaceNetwork}`: Vector of data structures containing all static info about fire subproblems.
--  gub_cut_limit_per_time::{Int64}: Enumeration limit for cut generation search, which can theoretically grow exponentially large
+-  cut_search_enumeration_limit::{Int64}: Enumeration limit for cut generation search, which can theoretically grow exponentially large
 - `crew_rules::Vector{CrewAssignmentBranchingRule}`: Vector of active branching rules that indicate whether crew j suppresses fire g at time t.
 - `fire_rules::Vector{FireDemandBranchingRule}`: Vector of active branching rules that indicate whether fire g demands <=d crews or >d crews at time t.
 - `global_fire_allotment_branching_rules::Vector{GlobalFireAllotmentBranchingRule}`: Vector of active branching rules that may place a cap on demand across all fires and times
@@ -83,12 +83,12 @@ function price_and_cut!!!!(
     cut_data::CutData,
     crew_subproblems::Vector{TimeSpaceNetwork},
     fire_subproblems::Vector{TimeSpaceNetwork},
-    gub_cut_limit_per_time::Int64,
+    cut_search_enumeration_limit::Int64,
     crew_rules::Vector{CrewAssignmentBranchingRule},
     fire_rules::Vector{FireDemandBranchingRule},
     global_fire_allotment_rules::Vector{GlobalFireAllotmentBranchingRule};
     gub_cover_cuts::Bool,
-    general_gub_cuts::Bool,
+    general_gub_cuts::String,
     single_fire_cuts::Bool,
     decrease_gub_allots::Bool,
     single_fire_lift::Bool,
@@ -99,13 +99,17 @@ function price_and_cut!!!!(
     log_progress_file=nothing,
 )
 
-    if ~isnothing(log_progress_file)
+    log_flag = ~isnothing(log_progress_file)
+
+    if log_flag
         ts = []
+        dcg_logs = []
         objs = []
         num_routes = []
         num_plans = []
         num_cuts_found = []
         active_cuts = []
+        cut_times = []
     end
 
     t = time()
@@ -115,7 +119,7 @@ function price_and_cut!!!!(
     while true
 
         # run DCG, adding columns as needed
-        double_column_generation!!!!(
+        dcg_times = double_column_generation!!!!(
             rmp,
             crew_routes,
             fire_plans,
@@ -125,6 +129,7 @@ function price_and_cut!!!!(
             crew_rules,
             fire_rules,
             global_fire_allotment_rules,
+            timing=log_flag,
             upper_bound=upper_bound,
         )
         if rmp.termination_status == MOI.OBJECTIVE_LIMIT
@@ -133,8 +138,9 @@ function price_and_cut!!!!(
         end
 
         current_obj = objective_value(rmp.model)
-        if ~isnothing(log_progress_file)
+        if log_flag
             push!(ts, time() - t)
+            push!(dcg_logs, dcg_times)
             push!(objs, current_obj)
             push!(num_routes, sum(crew_routes.routes_per_crew))
             push!(num_plans, sum(fire_plans.plans_per_fire))
@@ -161,9 +167,9 @@ function price_and_cut!!!!(
         end
 
         # add cuts
-        num_cuts = find_and_incorporate_knapsack_gub_cuts!!(
+        t2 = @elapsed num_cuts = find_and_incorporate_knapsack_gub_cuts!!(
             cut_data,
-            gub_cut_limit_per_time,
+            cut_search_enumeration_limit,
             rmp,
             crew_routes,
             fire_plans,
@@ -175,6 +181,11 @@ function price_and_cut!!!!(
             decrease_gub_allots=decrease_gub_allots,
             single_fire_lift=single_fire_lift
         )
+
+        if log_flag
+            push!(cut_times, t2)
+        end
+
         @debug "after cuts" num_cuts objective_value(rmp.model)
         if (num_cuts == 0)
             @debug "No cuts found, breaking" loop_ix
@@ -188,14 +199,16 @@ function price_and_cut!!!!(
         end
     end
 
-    if ~isnothing(log_progress_file)
+    if log_flag
         outputs = Dict(
             "times" => ts,
+            "dcg_times" => dcg_logs,
             "objectives" => objs,
             "num_routes" => num_routes,
             "num_plans" => num_plans,
             "num_cuts" => num_cuts_found,
-            "num_active_cuts" => active_cuts
+            "num_active_cuts" => active_cuts,
+            "cut_times" => cut_times
         )
         open(log_progress_file, "w") do f
             JSON.print(f, outputs, 4)
@@ -213,7 +226,7 @@ function branch_and_price(
     max_nodes=10000,
     algo_tracking=false,
     branching_strategy="linking_dual_max_variance",
-    gub_cut_limit_per_time=100000,
+    cut_search_enumeration_limit=10000,
     cut_loop_max=25,
     price_and_cut_soft_time_limit=180.0,
     relative_improvement_cut_req=1e-10,
@@ -223,12 +236,12 @@ function branch_and_price(
     heuristic_cadence=5,
     total_time_limit=1800.0,
     bb_node_gub_cover_cuts=true,
-    bb_node_general_gub_cuts=true,
+    bb_node_general_gub_cuts="adaptive",
     bb_node_single_fire_cuts=false,
     bb_node_decrease_gub_allots=true,
     bb_node_single_fire_lift=true,
     heuristic_gub_cover_cuts=true,
-    heuristic_general_gub_cuts=true,
+    heuristic_general_gub_cuts="adaptive",
     heuristic_single_fire_cuts=false,
     heuristic_decrease_gub_allots=true,
     heuristic_single_fire_lift=true,
@@ -306,7 +319,7 @@ function branch_and_price(
             fire_plans,
             crew_models,
             fire_models,
-            gub_cut_limit_per_time,
+            cut_search_enumeration_limit,
             nothing,
             GRB_ENV,
             price_and_cut_soft_time_limit=price_and_cut_soft_time_limit,
@@ -337,7 +350,7 @@ function branch_and_price(
                 heuristic_must_improve_rounds,
                 crew_models,
                 fire_models,
-                gub_cut_limit_per_time,
+                cut_search_enumeration_limit,
                 GRB_ENV,
                 routes_best_sol=routes_best_sol,
                 plans_best_sol=plans_best_sol,
@@ -782,7 +795,7 @@ function heuristic_upper_bound!!(
     kill_if_no_improvement_rounds::Int64,
     crew_subproblems::Vector{TimeSpaceNetwork},
     fire_subproblems::Vector{TimeSpaceNetwork},
-    gub_cut_limit_per_time::Int64,
+    cut_search_enumeration_limit::Int64,
     gurobi_env;
     price_and_cut_soft_time_limit,
     cut_loop_max,
@@ -922,7 +935,7 @@ function heuristic_upper_bound!!(
             cut_data,
             crew_subproblems,
             fire_subproblems,
-            gub_cut_limit_per_time,
+            cut_search_enumeration_limit,
             crew_rules,
             fire_rules,
             global_rules,
@@ -1024,7 +1037,7 @@ function explore_node!!(
     fire_plans::FirePlanData,
     crew_subproblems::Vector{TimeSpaceNetwork},
     fire_subproblems::Vector{TimeSpaceNetwork},
-    gub_cut_limit_per_time::Int64,
+    cut_search_enumeration_limit::Int64,
     warm_start_strategy::Union{String,Nothing},
     gurobi_env;
     branching_strategy,
@@ -1137,7 +1150,7 @@ function explore_node!!(
         cut_data,
         crew_subproblems,
         fire_subproblems,
-        gub_cut_limit_per_time,
+        cut_search_enumeration_limit,
         crew_rules,
         fire_rules,
         global_rules,

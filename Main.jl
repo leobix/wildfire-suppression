@@ -18,7 +18,7 @@ end
 
 args = get_command_line_args()
 
-io = open("logs_precompile_3.txt", "w")
+io = open("logs_precompile_5.txt", "w")
 if args["debug"] == true
 	global_logger(ConsoleLogger(io, Logging.Debug, show_limited = false))
 else
@@ -29,15 +29,13 @@ end
 branch_and_price(3, 10, 14, algo_tracking = false)
 
 branch_and_price(
-	6,
-	20,
+	3,
+	10,
 	14,
 	algo_tracking = true,
-	# price_and_cut_file = "timings_ref2.json",
-	bb_node_gub_cover_cuts=true,
+	price_and_cut_file = "timings_ref1.json",
+	cut_loop_max = 0,
+	max_nodes = 1,
 	total_time_limit = 600.0,
 	soft_heuristic_time_limit = 0.0,
 )
-
-
-

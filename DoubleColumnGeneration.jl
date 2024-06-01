@@ -415,13 +415,13 @@ function define_restricted_master_problem(
 	@variable(m, plan[g = 1:num_fires, p ∈ fire_avail_ixs[g]] >= 0)
 	@variable(
 		m,
-		descending_linking_dual[
+		deferred_num_crews[
 			g = 1:num_fires,
 			t = 0:num_time_periods,
 		] >= 0
 	)
     for g ∈ 1:num_fires 
-        fix(descending_linking_dual[g, 0], 0, force=true)
+        fix(deferred_num_crews[g, 0], 0, force=true)
     end
 
 	if ~isnothing(dual_warm_start)
@@ -542,7 +542,7 @@ function define_restricted_master_problem(
 				route[c, r] * crew_route_data.fires_fought[c, r, g, t]
 				for c ∈ 1:num_crews, r ∈ crew_avail_ixs[c]
 			) +
-			descending_linking_dual[g, t-1] - descending_linking_dual[g, t]
+			deferred_num_crews[g, t-1] - deferred_num_crews[g, t]
 			>=
 
 			# crews suppressing
@@ -645,6 +645,7 @@ function add_column_to_route_data!(
 	cost::Float64,
 	fires_fought::BitArray{2},
 )
+
 	# add 1 to number of routes for this crew, store the index
 	route_data.routes_per_crew[crew] += 1
 	ix = route_data.routes_per_crew[crew]

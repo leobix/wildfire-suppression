@@ -90,13 +90,6 @@ function double_column_generation!!!!(
 			t = time()
 		end
 
-		# Not for any good reason, the crew subproblems all access the 
-		# same set of arcs in matrix form, and each runs its subproblem 
-		# on a subset of the arcs. This means that dual-adjusting arc 
-		# costs happens once only. In contrast, in the fire subproblems
-		# this happens inside the loop for each fire. 
-		# (TODO: see which is faster in Julia)
-
 		crew_objectives = zeros(Float64, num_crews)
 		crew_arcs_used = [Int[] for crew ∈ 1:num_crews]
 
@@ -396,6 +389,7 @@ function define_restricted_master_problem(
 	fire_avail_ixs::Vector{Vector{Int64}},
 	cut_data::CutData,
 	fire_allotment_branching_rules::Vector{GlobalFireAllotmentBranchingRule},
+	deferral_stabilization=true,
 	dual_warm_start::Union{Nothing, DualWarmStart} = nothing,
 )
 
@@ -413,6 +407,8 @@ function define_restricted_master_problem(
 	# decision variables for crew routes and fire plans
 	@variable(m, route[c = 1:num_crews, r ∈ crew_avail_ixs[c]] >= 0)
 	@variable(m, plan[g = 1:num_fires, p ∈ fire_avail_ixs[g]] >= 0)
+	
+	# add deferral stabilization variables
 	@variable(
 		m,
 		deferred_num_crews[
@@ -424,12 +420,20 @@ function define_restricted_master_problem(
         fix(deferred_num_crews[g, 0], 0, force=true)
     end
 
+	# fix deferral stabilization variables to 0 if not stabilizing
+	if ~deferral_stabilization
+		for g ∈ 1:num_fires 
+			for t ∈ 1:num_time_periods
+				fix(deferred_num_crews[g, t], 0, force=true)
+			end
+		end
+
 	if ~isnothing(dual_warm_start)
 
 		error("Not implemented")
 		# dual stabilization variables
-		@variable(m, delta_plus[g = 1:num_fires, t = 1:num_time_periods] >= 0)
-		@variable(m, delta_minus[g = 1:num_fires, t = 1:num_time_periods] >= 0)
+		# @variable(m, delta_plus[g = 1:num_fires, t = 1:num_time_periods] >= 0)
+		# @variable(m, delta_minus[g = 1:num_fires, t = 1:num_time_periods] >= 0)
 
 	end
 
@@ -439,9 +443,9 @@ function define_restricted_master_problem(
 	@constraint(m, plan_per_fire[g = 1:num_fires],
 		sum(plan[g, p] for p ∈ fire_avail_ixs[g]) >= 1)
 
-	## constraints for GUB knapsack cuts
+	## constraints for cuts
 
-	# get proper coefficients of columns in gub_cover_cuts
+	# get proper coefficients of columns in each cut
 	cut_ixs = keys(cut_data.cut_dict)
 
 	fire_plan_ixs = Dict()
@@ -494,12 +498,6 @@ function define_restricted_master_problem(
 		) >=
 		-cut_data.cut_dict[(t, u)].rhs
 	)
-
-	# # set cut RHS (negating because of >= convention)
-	# for ix in keys(cut_data.cut_dict)
-	# 	set_normalized_rhs(gub_cover_cuts[ix], -cut_data.cut_dict[ix].rhs)
-	# end
-
 
 	# container for fire allotment branching rules
 	@constraint(
@@ -555,34 +553,34 @@ function define_restricted_master_problem(
 
 		error("Not implemented")
 
-		# get expected dual value ratios
-		ratios = dual_warm_start.linking_values
-		ratios = ratios / sum(ratios)
+		# # get expected dual value ratios
+		# ratios = dual_warm_start.linking_values
+		# ratios = ratios / sum(ratios)
 
-		@constraint(m, linking[g = 1:num_fires, t = 1:num_time_periods],
+		# @constraint(m, linking[g = 1:num_fires, t = 1:num_time_periods],
 
-			# crews at fire
-			sum(
-				route[c, r] * crew_route_data.fires_fought[c, r, g, t]
-				for c ∈ 1:num_crews, r ∈ crew_avail_ixs[c]
-			)
-			+
+		# 	# crews at fire
+		# 	sum(
+		# 		route[c, r] * crew_route_data.fires_fought[c, r, g, t]
+		# 		for c ∈ 1:num_crews, r ∈ crew_avail_ixs[c]
+		# 	)
+		# 	+
 
-			# perturbation
-			delta_plus[g, t] - delta_minus[g, t] -
-			sum(ratios .* delta_plus) + sum(ratios .* delta_minus)
-			>=
+		# 	# perturbation
+		# 	delta_plus[g, t] - delta_minus[g, t] -
+		# 	sum(ratios .* delta_plus) + sum(ratios .* delta_minus)
+		# 	>=
 
-			# crews suppressing
-			sum(
-				plan[g, p] * fire_plan_data.crews_present[g, p, t]
-				for p ∈ fire_avail_ixs[g]
-			))
+		# 	# crews suppressing
+		# 	sum(
+		# 		plan[g, p] * fire_plan_data.crews_present[g, p, t]
+		# 		for p ∈ fire_avail_ixs[g]
+		# 	))
 
-		# this constrant neutralizes the perturbation, will be presolved away if RHS is 0
-		# but raising the RHS slightly above 0 allows the perturbation
-		@constraint(m, perturb[g = 1:num_fires, t = 1:num_time_periods],
-			delta_plus[g, t] + delta_minus[g, t] <= 0)
+		# # this constrant neutralizes the perturbation, will be presolved away if RHS is 0
+		# # but raising the RHS slightly above 0 allows the perturbation
+		# @constraint(m, perturb[g = 1:num_fires, t = 1:num_time_periods],
+		# 	delta_plus[g, t] + delta_minus[g, t] <= 0)
 	else
 		error("Dual stabilization type not implemented")
 	end
@@ -618,7 +616,23 @@ function define_restricted_master_problem(
 
 end
 
+"""
+Add a new suppression plan to the FirePlanData structure for a specific fire.
 
+# Arguments
+- `plan_data::FirePlanData` (modified): The FirePlanData structure to which the column will be added.
+- `fire::Int64`: The index of the fire for which the plan is being added.
+- `cost::Float64`: The cost associated with the plan for the given fire.
+- `crew_demands::Vector{Int64}`: The crews required for the plan at each time.
+
+# Returns
+- `ix::Int64`: The index of the newly added column in the plan data for the specified fire.
+
+# Description
+- Increments the count of plans for the specified fire.
+- Appends the plan cost to the plan costs matrix for the specified fire.
+- Appends the crew demands to the crews present matrix for the specified fire.
+"""
 function add_column_to_plan_data!(
 	plan_data::FirePlanData,
 	fire::Int64,
@@ -639,6 +653,23 @@ function add_column_to_plan_data!(
 
 end
 
+"""
+Add a new route to the CrewRouteData structure for a specific crew.
+
+# Arguments
+- `route_data::CrewRouteData` (modified): The CrewRouteData structure to which the column will be added.
+- `crew::Int64`: The index of the crew for which the route data is being added.
+- `cost::Float64`: The cost associated with the route for the given crew.
+- `fires_fought::BitArray{2}`: A 2-dimensional BitArray representing the fires fought by the crew at each time for the given route.
+
+# Returns
+- `ix::Int64`: The index of the newly added column in the route data for the specified crew.
+
+# Description
+- Increments the count of routes for the specified crew.
+- Appends the route cost to the route costs matrix for the specified crew.
+- Appends the fires fought to the fires_fought array for the specified crew.
+"""
 function add_column_to_route_data!(
 	route_data::CrewRouteData,
 	crew::Int64,
@@ -660,6 +691,21 @@ function add_column_to_route_data!(
 
 end
 
+"""
+Add a new column to the RestrictedMasterProblem representing a crew route.
+
+# Arguments
+- `rmp::RestrictedMasterProblem` (modified): The RestrictedMasterProblem object to which the column will be added.
+- `cut_data::CutData` (modified): The CutData object containing information about the cuts.
+- `crew_routes::CrewRouteData`: The CrewRouteData object containing information about crew routes.
+- `crew::Int64`: The index of the crew for which the route is being added.
+- `ix::Int64`: The index (for this crew) of the route being added.
+
+# Description
+- Defines a variable representing the new route in the RestrictedMasterProblem.
+- Updates the coefficient of this route in the objective function of the RestrictedMasterProblem.
+- Updates coefficient of this route in all relevant constraints.
+"""
 function add_column_to_master_problem!!(
 	rmp::RestrictedMasterProblem,
 	cut_data::CutData,
@@ -722,6 +768,22 @@ function add_column_to_master_problem!!(
 
 end
 
+"""
+Add a new column to the RestrictedMasterProblem representing a fire plan.
+
+# Arguments
+- `rmp::RestrictedMasterProblem` (modified): The RestrictedMasterProblem object to which the column will be added.
+- `cut_data::CutData` (modified): The CutData object containing information about the cuts.
+- `fire_plans::FirePlanData`: The FirePlanData object containing information about fire plans.
+- `fire_allotment_branching_rules::Vector{GlobalFireAllotmentBranchingRule}`: The vector of GlobalFireAllotmentBranchingRule containing information about global fire allotment branching rules.
+- `fire::Int64`: The index of the fire for which the plan is being added.
+- `ix::Int64`: The index (for this fire)of the plan being added.
+
+# Description
+- Defines a variable representing the new plan in the RestrictedMasterProblem.
+- Updates the coefficient in the objective function of the RestrictedMasterProblem.
+- Updates coefficient of this plan in all relevant constraints.
+"""
 function add_column_to_master_problem!!(
 	rmp::RestrictedMasterProblem,
 	cut_data::CutData,

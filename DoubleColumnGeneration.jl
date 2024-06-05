@@ -427,6 +427,7 @@ function define_restricted_master_problem(
 				fix(deferred_num_crews[g, t], 0, force=true)
 			end
 		end
+	end
 
 	if ~isnothing(dual_warm_start)
 
@@ -604,6 +605,8 @@ function define_restricted_master_problem(
 
 	return RestrictedMasterProblem(
 		m,
+		crew_avail_ixs,
+		fire_avail_ixs,
 		route,
 		plan,
 		route_per_crew,
@@ -718,6 +721,9 @@ function add_column_to_master_problem!!(
 	rmp.routes[crew, ix] =
 		@variable(rmp.model, base_name = "route[$crew,$ix]", lower_bound = 0)
 
+	# update index lookup
+	push!(rmp.crew_column_ixs[crew], ix)
+
 	# update coefficient in objective
 	set_objective_coefficient(
 		rmp.model,
@@ -796,6 +802,9 @@ function add_column_to_master_problem!!(
 	# define variable
 	rmp.plans[fire, ix] =
 		@variable(rmp.model, base_name = "plan[$fire,$ix]", lower_bound = 0)
+
+	# update index lookup
+	push!(rmp.fire_column_ixs[fire], ix)
 
 	# update coefficient in objective
 	set_objective_coefficient(
@@ -887,11 +896,14 @@ function get_crew_incumbent_weighted_average(
 
 	num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)
 
-	crew_allotment = zeros(num_crews, num_fires, num_time_periods)
-	for ix in eachindex(rmp.routes)
-		if value(rmp.routes[ix]) > 0
-			crew_allotment[ix[1], :, :] +=
-				crew_routes.fires_fought[ix..., :, :] * value(rmp.routes[ix])
+	crew_allotment = zeros(Float64, num_crews, num_fires, num_time_periods)
+	for crew in 1:num_crews
+		for col in rmp.crew_column_ixs[crew]
+			weight = value(rmp.routes[(crew, col)])
+			if weight > 0
+				crew_allotment[crew, :, :] +=
+					crew_routes.fires_fought[crew, col, :, :] * weight
+			end
 		end
 	end
 

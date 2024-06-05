@@ -1186,8 +1186,8 @@ function explore_node!!(
     # update the rmp 
     branch_and_bound_node.master_problem = rmp
 
-    all_fire_allots, all_crew_allots = extract_usages(crew_routes, fire_plans, rmp)
-    @debug "usages" all_fire_allots all_crew_allots
+    # all_fire_allots, all_crew_allots = extract_usages(crew_routes, fire_plans, rmp)
+    # @debug "usages" all_fire_allots all_crew_allots
 
     # update the branch-and-bound node to be feasible or not
     if rmp.termination_status == MOI.INFEASIBLE

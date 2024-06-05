@@ -150,6 +150,10 @@ mutable struct RestrictedMasterProblem # TODO can make some JuMP things const?
     # model
     const model::JuMP.Model
 
+    # fast lookups for variables
+    crew_column_ixs::Vector{Vector{Int}}
+    fire_column_ixs::Vector{Vector{Int}}
+
     # vars
     const routes::JuMP.Containers.SparseAxisArray # could speed up?
     const plans::JuMP.Containers.SparseAxisArray # could speed up?

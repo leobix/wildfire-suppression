@@ -232,7 +232,8 @@ function cut_generating_LP(gurobi_env,
 				cnstr = @constraint(
 					m,
 					sum(
-						vars[fire, allot] for (fire, allot) in eachindex(vars) if
+						vars[fire, allot] for
+						(fire, allot) in eachindex(vars) if
 						value(x[fire, allot]) > 0.5
 					) <=
 					rhs

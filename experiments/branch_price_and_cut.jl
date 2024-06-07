@@ -54,14 +54,14 @@ function run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_li
                 soft_heuristic_time_limit=heuristic_time_limit,
                 total_time_limit=total_time_limit,
                 branching_strategy=b_rule,
-                bb_node_gub_cover_cuts=cut,
-                bb_node_general_gub_cuts=cut,
-                bb_node_decrease_gub_allots=cut,
-                bb_node_single_fire_lift=cut,
-                heuristic_gub_cover_cuts=cut,
-                heuristic_general_gub_cuts=cut,
-                heuristic_decrease_gub_allots=cut,
-                heuristic_single_fire_lift=cut,
+                bb_node_gub_cover_cuts=false,
+                bb_node_general_gub_cuts=cut ? "adaptive" : "none",
+                bb_node_decrease_gub_allots=false,
+                bb_node_single_fire_lift=false,
+                heuristic_gub_cover_cuts=false,
+                heuristic_general_gub_cuts=cut ? "adaptive" : "none",
+                heuristic_decrease_gub_allots=false,
+                heuristic_single_fire_lift=false,
             )
         json_name = file_name * ".json"
         outputs = Dict(
@@ -83,17 +83,17 @@ end
 out_dir = args["directory_output"]
 cuts = [false]
 branching_rules = ["linking_dual_max_variance"]
-heuristic_time_limits = [180.0]
+heuristic_time_limits = [0.0]
 
-out_dir = args["directory_output"]
-cuts = [true, false]
-branching_rules = ["linking_dual_max_variance", "max_variance"]
-heuristic_time_limits = [180.0, 0.0]
+# out_dir = args["directory_output"]
+# cuts = [true, false]
+# branching_rules = ["linking_dual_max_variance", "max_variance"]
+# heuristic_time_limits = [180.0, 0.0]
 
 # precompile
-sizes = [(3, 10, 14), (6, 20, 14), (9, 30, 14)]
+sizes = [(3, 10, 14)]
 run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_limits, precompile=true, total_time_limit=5.0)
 
 # experiment
-sizes = [(9, 30, 14)]
-run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_limits, precompile=false, total_time_limit=1800.0)
+sizes = [(3, 10, 14)]
+run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_limits, precompile=false, total_time_limit=100.0)

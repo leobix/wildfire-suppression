@@ -267,6 +267,26 @@ function double_column_generation!!!!(
 
 		continue_iterating =
 			(iteration == 1) || (-reduced_cost_sum / ub > local_gap_rel_tolerance)
+
+		# if we have not found columns with enough reduced cost
+		if ~continue_iterating
+
+			# because of discretization, we do not actually have a guarantee that
+			# the deferral variables are 0. set them to 0 here and keep iterating.
+			# the deferral variables still help a lot with convergence.
+			# alternative is to accept the solution with deferrals, but this
+			# substantially weakens the cutting plane logic
+			if maximum(value.(rmp.deferred_num_crews)) > 1e-5
+				for g ∈ 1:num_fires
+					for t ∈ 1:num_time_periods
+						fix(rmp.deferred_num_crews[g, t], 0, force = true)
+					end
+				end
+				continue_iterating = true
+				@info "remove deferrals" iteration
+			end
+		end
+
 		if continue_iterating
 
 			# TODO dual warm start passed in here
@@ -356,7 +376,7 @@ function double_column_generation!!!!(
 			@debug "progress" iteration linking_duals supp
 
 
-			# if no new column added, we have proof of optimality
+		# if no new column added, we have proof of optimality
 		else
 			# re-optimze for JuMP reasons (access attrs) just in case we added a column 
 			# but then stopped due to too small reduced cost improvement
@@ -369,7 +389,7 @@ function double_column_generation!!!!(
 				details["master_problem"] += (time() - t)
 			end
 			rmp.termination_status = MOI.LOCALLY_SOLVED
-			@debug "RMP stats with no more columns found" iteration objective_value(
+			@debug "end DCG" iteration objective_value(
 				rmp.model,
 			)
 		end

@@ -629,6 +629,7 @@ function define_restricted_master_problem(
 		fire_avail_ixs,
 		route,
 		plan,
+		deferred_num_crews,
 		route_per_crew,
 		plan_per_fire,
 		linking,

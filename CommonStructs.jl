@@ -157,6 +157,7 @@ mutable struct RestrictedMasterProblem # TODO can make some JuMP things const?
 	# vars
 	const routes::JuMP.Containers.SparseAxisArray # could speed up?
 	const plans::JuMP.Containers.SparseAxisArray # could speed up?
+    const deferred_num_crews::JuMP.Containers.DenseAxisArray
 
 	# constraints
 	const route_per_crew::Vector{ConstraintRef}

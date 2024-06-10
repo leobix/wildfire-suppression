@@ -24,6 +24,19 @@ def extract_results(prefix, file):
         df = pd.concat([df, dcg_df], axis=1)
     return df
 
+def extract_bb_results(prefix):
+
+    files = glob.glob(prefix + '*')
+    files = [file.split('\\')[-1] for file in files if "precompile" not in file and "logs" not in file]
+    dfs = []
+    for file in files:
+        with open(prefix + file, "r") as f:
+            d = json.load(f)
+            df = pd.DataFrame(d)
+            df["file"] = file
+            dfs.append(df)
+    return pd.concat(dfs)
+
 
 def extract_results_from_file_prefix(prefix):
 
@@ -70,4 +83,29 @@ def cuts_at_root_node(prefix='data\\experiment_outputs\\cuts_at_root_node\\'):
 
     fig.figure.savefig("experiments\\figures\\cuts_at_root_node.png") 
 
+def value_of_cuts_and_branching(prefix='data\\experiment_outputs\\branch_price_and_cut\\'):
+    df = extract_bb_results(prefix)
+    df["upper_bounds"] = df["upper_bounds"].fillna(np.inf)
+    file_extract = df["file"].apply(lambda x: x.split('_'))
+    df["Crews"] = file_extract.str[0].astype(int)
+    df["Cuts"] = file_extract.str[2] == "true"
+    df["Branching strategy"] = file_extract.apply(lambda x: "_".join(x[x.index("branch") + 2:x.index("heuristic")]))
+    df["Heuristic"] = file_extract.str[-1] == "true.json"
+    df["Pct. gap"] = (df["upper_bounds"] - df["lower_bounds"]) / df["lower_bounds"] * 100
+    df["Pct. gap"] = np.round(df["Pct. gap"] + 1e-12, 4) 
+    df["Fires"] = (0.3 * df["Crews"]).astype(int)
+    cols = ["Crews", "Fires", "Cuts", "Branching strategy", "Heuristic", "times", "explored_nodes", "Pct. gap",  "upper_bounds", "lower_bounds"]
+    tbl = df.drop_duplicates("file", keep="last")[cols].reset_index(drop=True)
+    still_gap = tbl["Pct. gap"] > 0
+    tbl.loc[still_gap, "times"] = 1800.0
+    tbl["times"] = tbl["times"].apply(lambda x: signif(x, 5))
+    tbl["Pct. gap"] = tbl["Pct. gap"].apply(lambda x: signif(x, 3))
+    tbl.rename(inplace=True, columns={"upper_bounds" : "UB", "lower_bounds" : "LB", "times" : "Time", "explored_nodes" : "Nodes"})
+    latex_table = tbl.to_latex(index=False, escape=True, column_format = "|ccccc|ccccc|")
+    latex_table = latex_table.replace("\\bottomrule", "\\hline").replace("\\midrule", "\\hline").replace("\\toprule", "\\hline")
+
+    with open("experiments\\figures\\value_of_cuts_and_branching.txt", 'w') as f:
+        print(latex_table, file=f)
+
+value_of_cuts_and_branching()
 cuts_at_root_node()

@@ -8,9 +8,7 @@ function full_network_flow(
 	crew_models::Vector{TimeSpaceNetwork},
 	fire_models::Vector{TimeSpaceNetwork};
 	integer = false,
-	verbose = false,
-    threads = 0
-)
+	verbose = false)
 
 	num_crews = length(crew_models)
 	num_fires = length(fire_models)
@@ -23,7 +21,6 @@ function full_network_flow(
 		set_optimizer_attribute(m, "OutputFlag", 0)
 	end
 	set_optimizer_attribute(m, "TimeLimit", 180)
-    set_optimizer_attribute(m, "Threads", threads)
 
 	fire_vars = []
 	for fire ∈ 1:num_fires
@@ -198,14 +195,6 @@ fire_models = build_fire_models(
 	num_crews,
 	num_time_periods,
 )
-
-for model ∈ crew_models
-	println(size(model.long_arcs))
-end
-
-for model ∈ fire_models
-	println(size(model.long_arcs))
-end
 
 Profile.init()
 @profile full_network_flow(crew_models, fire_models, verbose = false)

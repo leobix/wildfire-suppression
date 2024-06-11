@@ -107,5 +107,38 @@ def value_of_cuts_and_branching(prefix='data\\experiment_outputs\\branch_price_a
     with open("experiments\\figures\\value_of_cuts_and_branching.txt", 'w') as f:
         print(latex_table, file=f)
 
+def cglp_methods(prefix='data\\experiment_outputs\\cglp_lazy_constraints\\'):
+    cut_progress = extract_results_from_file_prefix(prefix)
+        ## GET TIMINGS
+    time_cols = ["master_problem", "fire_subproblems", "crew_subproblems", "cut_times"]
+    aggs = {i : "sum" for i in time_cols}
+    aggs["times"] = "max"
+    time_df = cut_progress.groupby("file", as_index=False).agg(aggs)
+    time_df["num_fires"] = time_df["file"].apply(lambda x: x.split("_")[-1][:-5]).astype(int)
+    time_df.sort_values(["num_fires", "file"])
+
+
+    ## GET BOUND PROGRESS
+    min_lb = cut_progress.groupby("file")["objectives"].transform("min")
+    cut_progress["lower_bound_increase"] = cut_progress["objectives"] / min_lb - 1
+    cut_progress["strategy"] = cut_progress["file"].apply(lambda x: "_".join(x.split("_")[:-1]))
+    cut_progress["num_crews"] = cut_progress["file"].apply(lambda x: int(x.split("_")[-1][:-5]))
+    cut_progress.rename(columns={"times" : "time (secs)"}, inplace=True)
+
+    ## MAKE PLOT
+    fig = sns.relplot(
+        data=cut_progress, x="time (secs)", 
+        y="lower_bound_increase",
+        col="num_crews",
+        hue="strategy",
+        kind="line",
+        facet_kws={'sharey': False, 'sharex': False}
+    )
+
+    breakpoint()
+
+    fig.figure.savefig("experiments\\figures\\cglp_methods.png") 
+
+cglp_methods()
 value_of_cuts_and_branching()
 cuts_at_root_node()

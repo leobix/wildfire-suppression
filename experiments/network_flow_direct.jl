@@ -1,8 +1,21 @@
 include("../Subproblems.jl")
 
-using JuMP, Gurobi, Profile
+using JuMP, Gurobi, JSON, ArgParse
 const GRB_ENV = Gurobi.Env()
 
+function get_command_line_args()
+    arg_parse_settings = ArgParseSettings()
+    @add_arg_table arg_parse_settings begin
+        "--debug"
+        help = "run in debug mode, exposing all logging that uses @debug macro"
+        action = :store_true
+        "--directory_output", "-d"
+        help = "directory to write outputs, must exist"
+        arg_type = String
+        default = "data/experiment_outputs/network_flow_direct/"
+    end
+    return parse_args(arg_parse_settings)
+end
 
 function full_network_flow(
 	crew_models::Vector{TimeSpaceNetwork},
@@ -44,7 +57,7 @@ function full_network_flow(
 		push!(fire_vars, y)
 	end
 
-    crew_vars = []
+	crew_vars = []
 	for crew ∈ 1:num_crews
 		crew_model = crew_models[crew]
 		ixs = findall(crew_model.long_arcs[:, CM.CREW_NUMBER] .== crew)
@@ -70,7 +83,8 @@ function full_network_flow(
 			fire ∈ 1:num_fires,
 			ix ∈ 1:size(fire_models[fire].long_arcs)[1]
 		) + sum(
-			crew_models[crew].arc_costs[ix] * crew_vars[crew][ix] for crew ∈ 1:num_crews,
+			crew_models[crew].arc_costs[ix] * crew_vars[crew][ix] for
+			crew ∈ 1:num_crews,
 			ix ∈ findall(crew_models[crew].long_arcs[:, CM.CREW_NUMBER] .== crew)
 		)
 	)
@@ -159,6 +173,7 @@ function full_network_flow(
 	# end
 
 end
+args = get_command_line_args()
 linear_outputs = Dict()
 integer_outputs = Dict()
 
@@ -192,6 +207,7 @@ full_network_flow(crew_models, fire_models, verbose = false)
 
 
 sizes = [(3, 10, 14), (6, 20, 14), (9, 30, 14), (12, 40, 14), (15, 50, 14)]
+sizes = [(3, 10, 14)]
 
 for (num_fires, num_crews, num_time_periods) ∈ sizes
 
@@ -211,11 +227,25 @@ for (num_fires, num_crews, num_time_periods) ∈ sizes
 
 
 
-	t = @elapsed u, l = full_network_flow(local_crew_models, local_fire_models, verbose = true, integer=false, time_limit=60.0)
+	t = @elapsed u, l = full_network_flow(
+		local_crew_models,
+		local_fire_models,
+		verbose = false,
+		integer = false,
+		time_limit = 60.0,
+	)
 	linear_outputs[num_crews] = Dict("ub" => u, "lb" => l, "time" => t)
-	t = @elapsed u, l = full_network_flow(local_crew_models, local_fire_models, verbose = true, integer=true, time_limit=1800.0)
+	t = @elapsed u, l = full_network_flow(
+		local_crew_models,
+		local_fire_models,
+		verbose = false,
+		integer = true,
+		time_limit = 1800.0,
+	)
 	integer_outputs[num_crews] = Dict("ub" => u, "lb" => l, "time" => t)
 end
 
-println(linear_outputs)
-println(integer_outputs)
+open(args["directory_output"] * "output.json", "w") do f
+	JSON.print(f, Dict("linear" => linear_outputs, "integer" => integer_outputs), 4)
+end
+

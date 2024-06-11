@@ -8,8 +8,11 @@ function full_network_flow(
 	crew_models::Vector{TimeSpaceNetwork},
 	fire_models::Vector{TimeSpaceNetwork};
 	integer = false,
-	verbose = false)
+	verbose = false,
+	time_limit = 180.0)
 
+	ub = Inf
+	lb = 0
 	num_crews = length(crew_models)
 	num_fires = length(fire_models)
 	_, num_times, _ = size(crew_models[1].state_in_arcs)
@@ -20,7 +23,7 @@ function full_network_flow(
 	if ~verbose
 		set_optimizer_attribute(m, "OutputFlag", 0)
 	end
-	set_optimizer_attribute(m, "TimeLimit", 180)
+	set_optimizer_attribute(m, "TimeLimit", time_limit)
 
 	fire_vars = []
 	for fire ∈ 1:num_fires
@@ -132,6 +135,13 @@ function full_network_flow(
 	)
 
 	optimize!(m)
+
+	if has_values(m)
+		ub = objective_value(m)
+		lb = objective_bound(m)
+	end
+
+	return lb, ub
 	# supplies = zeros(num_fires, num_time_periods)
 	# for fire ∈ 1:num_fires
 	# 	for t ∈ 1:num_time_periods
@@ -149,6 +159,8 @@ function full_network_flow(
 	# end
 
 end
+linear_outputs = Dict()
+integer_outputs = Dict()
 
 num_crews = 10
 num_fires = 3
@@ -168,39 +180,42 @@ fire_models = build_fire_models(
 	num_time_periods,
 )
 
-for model ∈ crew_models
-	println(size(model.long_arcs))
-end
+# for model ∈ crew_models
+# 	println(size(model.long_arcs))
+# end
 
-for model ∈ fire_models
-	println(size(model.long_arcs))
-end
+# for model ∈ fire_models
+# 	println(size(model.long_arcs))
+# end
 
 full_network_flow(crew_models, fire_models, verbose = false)
 
-num_crews = 50
-num_fires = 15
-num_time_periods = 14
 
-crew_models = build_crew_models(
-	"data/raw/big_fire",
-	num_fires,
-	num_crews,
-	num_time_periods,
-)
+sizes = [(3, 10, 14), (6, 20, 14), (9, 30, 14), (12, 40, 14), (15, 50, 14)]
 
-fire_models = build_fire_models(
-	"data/raw/big_fire",
-	num_fires,
-	num_crews,
-	num_time_periods,
-)
+for (num_fires, num_crews, num_time_periods) ∈ sizes
 
-Profile.init()
-@profile full_network_flow(crew_models, fire_models, verbose = false)
-io = open("prof.txt", "w")
-Profile.print(io, mincount = 50)
-close(io)
+	local_crew_models = build_crew_models(
+		"data/raw/big_fire",
+		num_fires,
+		num_crews,
+		num_time_periods,
+	)
 
-@time full_network_flow(crew_models, fire_models, verbose = true)
-# @time full_network_flow(crew_models, fire_models, verbose = true, threads=1)
+	local_fire_models = build_fire_models(
+		"data/raw/big_fire",
+		num_fires,
+		num_crews,
+		num_time_periods,
+	)
+
+
+
+	t = @elapsed u, l = full_network_flow(local_crew_models, local_fire_models, verbose = true, integer=false, time_limit=60.0)
+	linear_outputs[num_crews] = Dict("ub" => u, "lb" => l, "time" => t)
+	t = @elapsed u, l = full_network_flow(local_crew_models, local_fire_models, verbose = true, integer=true, time_limit=1800.0)
+	integer_outputs[num_crews] = Dict("ub" => u, "lb" => l, "time" => t)
+end
+
+println(linear_outputs)
+println(integer_outputs)

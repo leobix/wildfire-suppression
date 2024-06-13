@@ -2,6 +2,7 @@
 !.gitignore
 !*/
 !*.jl
+!experiments/shell/*.sh
 !**/*.toml
 **/.ipynb_checkpoints/*
 !**/*process_outputs.py

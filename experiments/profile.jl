@@ -22,4 +22,5 @@ Profile.init()
 )
 	end
 Profile.print(io, mincount = 20)
+Profile.print(io, mincount = 20, groupby=:thread)
 close(io)

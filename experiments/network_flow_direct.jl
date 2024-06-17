@@ -207,7 +207,7 @@ full_network_flow(crew_models, fire_models, verbose = false)
 
 
 sizes = [(3, 10, 14), (6, 20, 14), (9, 30, 14), (12, 40, 14), (15, 50, 14)]
-sizes = [(3, 10, 14)]
+sizes = [(3, 10, 14), (6, 20, 14), (9, 30, 14)]
 
 for (num_fires, num_crews, num_time_periods) ∈ sizes
 
@@ -240,7 +240,7 @@ for (num_fires, num_crews, num_time_periods) ∈ sizes
 		local_fire_models,
 		verbose = false,
 		integer = true,
-		time_limit = 1800.0,
+		time_limit = 120.0,
 	)
 	integer_outputs[num_crews] = Dict("ub" => u, "lb" => l, "time" => t)
 end
@@ -248,4 +248,5 @@ end
 open(args["directory_output"] * "output.json", "w") do f
 	JSON.print(f, Dict("linear" => linear_outputs, "integer" => integer_outputs), 4)
 end
+
 

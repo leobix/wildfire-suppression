@@ -95,5 +95,5 @@ sizes = [(3, 10, 14)]
 run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_limits, precompile=true, total_time_limit=5.0)
 
 # experiment
-sizes = [(3, 10, 14), (6, 20, 14)]
+sizes = [(3, 10, 14), (6, 20, 14), (9, 30, 14)]
 run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_limits, precompile=false, total_time_limit=1200.0)

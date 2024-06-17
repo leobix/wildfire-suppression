@@ -493,7 +493,8 @@ function find_lower_bound(node::BranchAndBoundNode)
 
 end
 
-function max_variance_natural_variable(
+
+function most_fractional_natural_variable(
     crew_routes::CrewRouteData,
     fire_plans::FirePlanData,
     route_values::JuMP.Containers.SparseAxisArray,
@@ -503,6 +504,26 @@ function max_variance_natural_variable(
     # gather global information
     num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)
 
+    # calculate variance of B_{gt}, demand at fire g at time t
+    fire_means = zeros(Float64, (num_fires, num_time_periods))
+    fire_sq_means = zeros(Float64, (num_fires, num_time_periods))
+    for ix ∈ eachindex(plan_values)
+        fire = ix[1]
+        plan = ix[2]
+        fire_means[fire, :] +=
+            plan_values[ix] * fire_plans.crews_present[fire, plan, :]
+    end
+
+    fire_fractionals = - ((fire_means .- floor.(fire_means) .- 0.5) .^ 2)
+    fire_biggest_frac, fire_most_fractional = findmax(fire_fractionals)
+
+    # if some fire has fractional plans, return the info needed to create the branching rule
+    if fire_most_fractional > 1e-10
+        return "fire", fire_most_fractional, fire_biggest_frac, fire_means[fire_max_ix]
+    end
+
+    # if we reach this point, all fire plans are {0,1}, check crews now
+    
     # calculate variance of A_{cgt}, crew c suppressing fire g at time t
     crew_means = zeros(Float64, (num_crews, num_fires, num_time_periods))
     for ix ∈ eachindex(route_values)
@@ -511,7 +532,29 @@ function max_variance_natural_variable(
         crew_means[crew, :, :] +=
             route_values[ix] * crew_routes.fires_fought[crew, route, :, :]
     end
-    crew_variances = crew_means .* (1 .- crew_means)
+    
+    crew_fractionals = - ((crew_means .- floor.(crew_means) .- 0.5) .^ 2)
+    crew_biggest_frac, crew_most_fractional = findmax(crew_fractionals)
+
+    # if some crew has fractional plans, return the info needed to create the branching rule
+    if crew_most_fractional > 1e-10
+        return "crew", crew_most_fractional, crew_biggest_frac, crew_means[crew_max_ix]
+    end
+
+    # since this is not guaranteed to branch if fractional fire plans add to an integer, need backup plan
+    return max_variance_natural_variable(crew_routes, fire_plans, route_values, plan_values, linking_duals)
+end
+
+
+function max_variance_natural_variable(
+    crew_routes::CrewRouteData,
+    fire_plans::FirePlanData,
+    route_values::JuMP.Containers.SparseAxisArray,
+    plan_values::JuMP.Containers.SparseAxisArray,
+    linking_duals::Union{Nothing,Matrix{Float64}}
+)
+    # gather global information
+    num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)
 
     # calculate variance of B_{gt}, demand at fire g at time t
     fire_means = zeros(Float64, (num_fires, num_time_periods))
@@ -528,13 +571,6 @@ function max_variance_natural_variable(
 
     # dual-adjust variances, increasing focus on high-leverage fire/times
     if ~isnothing(linking_duals)
-        for j ∈ 1:num_crews
-            for g ∈ 1:num_fires
-                for t ∈ 1:num_time_periods
-                    crew_variances[j, g, t] *= ((linking_duals[g, t])^2)
-                end
-            end
-        end
 
         for g ∈ 1:num_fires
             for t ∈ 1:num_time_periods
@@ -544,16 +580,43 @@ function max_variance_natural_variable(
     end
 
     @debug "Variances" fire_variances # crew_variances
-    # get the max variance for each natural variable type
-    crew_max_var, crew_max_ix = findmax(crew_variances)
+
+    # get the max fire variance 
     fire_max_var, fire_max_ix = findmax(fire_variances)
 
-    # return the info needed to create the branching rule
-    if fire_max_var > crew_max_var
+    # if some fire has fractional plans, return the info needed to create the branching rule
+    if fire_max_var > 0
         return "fire", fire_max_ix, fire_max_var, fire_means[fire_max_ix]
-    else
-        return "crew", crew_max_ix, crew_max_var, crew_means[crew_max_ix]
     end
+
+    # if we reach this point, all fire plans are {0,1}, check crews now
+    
+    # calculate variance of A_{cgt}, crew c suppressing fire g at time t
+    crew_means = zeros(Float64, (num_crews, num_fires, num_time_periods))
+    for ix ∈ eachindex(route_values)
+        crew = ix[1]
+        route = ix[2]
+        crew_means[crew, :, :] +=
+            route_values[ix] * crew_routes.fires_fought[crew, route, :, :]
+    end
+    crew_variances = crew_means .* (1 .- crew_means)
+
+    # dual-adjust crew variances
+    if ~isnothing(linking_duals)
+        for j ∈ 1:num_crews
+            for g ∈ 1:num_fires
+                for t ∈ 1:num_time_periods
+                    crew_variances[j, g, t] *= ((linking_duals[g, t])^2)
+                end
+            end
+        end
+    end
+    # get the max variance for crews
+    crew_max_var, crew_max_ix = findmax(crew_variances)
+
+    # return the info needed to create the branching rule
+    # (could be zeros if crews are intege; this should be eliminated earlier)
+    return "crew", crew_max_ix, crew_max_var, crew_means[crew_max_ix]
 
 end
 

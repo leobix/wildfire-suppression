@@ -2,24 +2,6 @@ include("../BranchAndPrice.jl")
 
 using Gurobi, JSON, ArgParse, Logging, IterTools
 
-# test multithreading
-Threads.@threads for i ∈ 1:100
-    println(Threads.threadid())
-    j = 0
-    for k ∈ 1:10000000
-        j += 1
-    end
-end
-
-println("again")
-println()
-Threads.@threads for i ∈ 1:100
-    println(Threads.threadid())
-    j = 0
-    for k ∈ 1:10000000
-        j += 1
-    end
-end
 
 function get_command_line_args()
     arg_parse_settings = ArgParseSettings()

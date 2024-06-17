@@ -441,7 +441,7 @@ function define_restricted_master_problem(
 	end
 
 	# fix deferral stabilization variables to 0 if not stabilizing
-	if ~deferral_stabilization || true
+	if ~deferral_stabilization
 		for g ∈ 1:num_fires
 			for t ∈ 1:num_time_periods
 				fix(deferred_num_crews[g, t], 0, force = true)

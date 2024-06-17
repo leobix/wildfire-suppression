@@ -82,7 +82,7 @@ end
 
 out_dir = args["directory_output"]
 cuts = [true]
-branching_rules = ["linking_dual_max_variance"]
+branching_rules = ["linking_dual_max_variance", "most_fractional"]
 heuristic_time_limits = [0.0]
 
 # out_dir = args["directory_output"]

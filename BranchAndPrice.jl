@@ -525,7 +525,7 @@ function most_fractional_natural_variable(
 	fire_biggest_frac, fire_most_fractional = findmax(fire_fractionals)
 
 	# if some fire has fractional plans, return the info needed to create the branching rule
-	if fire_most_fractional > 1e-10
+	if fire_biggest_frac > 1e-10
 		return "fire",
 		fire_most_fractional,
 		fire_biggest_frac,
@@ -547,7 +547,7 @@ function most_fractional_natural_variable(
 	crew_biggest_frac, crew_most_fractional = findmax(crew_fractionals)
 
 	# if some crew has fractional plans, return the info needed to create the branching rule
-	if crew_most_fractional > 1e-10
+	if crew_biggest_frac > 1e-10
 		return "crew",
 		crew_most_fractional,
 		crew_biggest_frac,
@@ -1360,7 +1360,16 @@ function explore_node!!(
 					plan_values,
 					nothing,
 				)
-		else
+        elseif branching_strategy == "most_fractional"
+            branch_type, branch_ix, var_variance, var_mean =
+                most_fractional_natural_variable(
+                    crew_routes,
+                    fire_plans,
+                    route_values,
+                    plan_values,
+                    nothing,
+                )
+        else
 			error("branching strategy not implemented")
 		end
 

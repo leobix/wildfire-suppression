@@ -1360,16 +1360,16 @@ function explore_node!!(
 					plan_values,
 					nothing,
 				)
-        elseif branching_strategy == "most_fractional"
-            branch_type, branch_ix, var_variance, var_mean =
-                most_fractional_natural_variable(
-                    crew_routes,
-                    fire_plans,
-                    route_values,
-                    plan_values,
-                    nothing,
-                )
-        else
+		elseif branching_strategy == "most_fractional"
+			branch_type, branch_ix, var_variance, var_mean =
+				most_fractional_natural_variable(
+					crew_routes,
+					fire_plans,
+					route_values,
+					plan_values,
+					nothing,
+				)
+		else
 			error("branching strategy not implemented")
 		end
 

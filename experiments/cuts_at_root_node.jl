@@ -2,6 +2,17 @@ include("../BranchAndPrice.jl")
 
 using Gurobi, JSON, ArgParse, Logging, IterTools
 
+# test multithreading
+Threads.@threads for i ∈ 1:100
+    println(Threads.threadid())
+end
+
+println("again")
+println()
+Threads.@threads for i ∈ 1:100
+    println(Threads.threadid())
+end
+
 function get_command_line_args()
     arg_parse_settings = ArgParseSettings()
     @add_arg_table arg_parse_settings begin
@@ -84,7 +95,7 @@ end
 
 # experiment
 sizes = [(3, 10, 14), (6, 20, 14), (9, 30, 14), (12, 40, 14), (15, 50, 14)]
-sizes = [(3, 10, 14), (6, 20, 14)]
+sizes = [(3, 10, 14)]
 
 for (g, c, t) ∈ sizes
     for (key, param_set) in params

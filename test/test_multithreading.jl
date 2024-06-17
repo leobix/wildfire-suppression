@@ -1,9 +1,11 @@
 # test multithreading
 Threads.@threads for i ∈ 1:100
     println(Threads.threadid())
-    j = 0
-    for k ∈ 1:10000000
-        j += 1
+    j = 0.0
+    for k ∈ 1:10000
+        for l ∈ 1:1000
+            j += (l+k)^0.5
+        end
     end
 end
 
@@ -13,8 +15,10 @@ println()
 
 Threads.@threads for i ∈ 1:100
     println(Threads.threadid())
-    j = 0
-    for k ∈ 1:10000000
-        j += 1
+    j = 0.0
+    for k ∈ 1:10000
+        for l ∈ 1:1000
+            j += (l+k)^0.5
+        end
     end
 end

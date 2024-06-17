@@ -924,6 +924,7 @@ function heuristic_upper_bound!!(
             fire_ixs,
             cut_data,
             global_rules,
+            false,
         )
 
 
@@ -1054,16 +1055,17 @@ function explore_node!!(
 
     @info "Exploring node" branch_and_bound_node.ix
 
+    deferral_stabilization = false
     # gather global information
     num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)
     cut_data = branch_and_bound_node.cut_data
     ## get the columns with which to initialize restricted master problem
 
-    # if we are at the root node, there are no columns yet
+    # if we are at the root node, there are no columns yet, and stabilization applies
     if isnothing(branch_and_bound_node.parent)
         crew_ixs = [Int[] for i ∈ 1:num_crews]
         fire_ixs = [Int[] for i ∈ 1:num_fires]
-
+        deferral_stabilization = true
 
     else
         # if we are not at the root node, there are a lot of options here, but
@@ -1075,6 +1077,7 @@ function explore_node!!(
         cull = false
         parent_rmp = branch_and_bound_node.parent.master_problem
         if ~cull
+            # TODO this should be cleaner with new ix data structure kept with rmp
             crew_ixs =
                 [[i[1] for i in eachindex(parent_rmp.routes[j, :])] for j ∈ 1:num_crews]
             fire_ixs =
@@ -1140,6 +1143,7 @@ function explore_node!!(
         fire_ixs,
         cut_data,
         global_rules,
+        deferral_stabilization,
     )
     @info "Define rmp time (b-and-b)" t
 
@@ -1186,8 +1190,8 @@ function explore_node!!(
     # update the rmp 
     branch_and_bound_node.master_problem = rmp
 
-    all_fire_allots, all_crew_allots = extract_usages(crew_routes, fire_plans, rmp)
-    @debug "usages" all_fire_allots all_crew_allots
+    # all_fire_allots, all_crew_allots = extract_usages(crew_routes, fire_plans, rmp)
+    # @debug "usages" all_fire_allots all_crew_allots
 
     # update the branch-and-bound node to be feasible or not
     if rmp.termination_status == MOI.INFEASIBLE

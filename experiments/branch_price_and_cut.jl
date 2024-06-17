@@ -83,7 +83,7 @@ end
 out_dir = args["directory_output"]
 cuts = [true]
 branching_rules = ["linking_dual_max_variance"]
-heuristic_time_limits = [60.0]
+heuristic_time_limits = [0.0]
 
 # out_dir = args["directory_output"]
 # cuts = [true, false]
@@ -92,8 +92,8 @@ heuristic_time_limits = [60.0]
 
 # precompile
 sizes = [(3, 10, 14)]
-run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_limits, precompile=true, total_time_limit=30.0)
+run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_limits, precompile=true, total_time_limit=5.0)
 
 # experiment
-sizes = [(3, 10, 14), (6, 20, 14), (9, 30, 14)]
-run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_limits, precompile=false, total_time_limit=1800.0)
+sizes = [(3, 10, 14), (6, 20, 14)]
+run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_limits, precompile=false, total_time_limit=1200.0)

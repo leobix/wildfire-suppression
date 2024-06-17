@@ -1077,6 +1077,7 @@ function explore_node!!(
         cull = false
         parent_rmp = branch_and_bound_node.parent.master_problem
         if ~cull
+            # TODO this should be cleaner with new ix data structure kept with rmp
             crew_ixs =
                 [[i[1] for i in eachindex(parent_rmp.routes[j, :])] for j ∈ 1:num_crews]
             fire_ixs =

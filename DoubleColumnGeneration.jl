@@ -274,8 +274,8 @@ function double_column_generation!!!!(
 			# because of discretization, we do not actually have a guarantee that
 			# the deferral variables are 0. set them to 0 here and keep iterating.
 			# the deferral variables still help a lot with convergence.
-			# alternative is to accept the solution with deferrals, but this
-			# substantially weakens the cutting plane logic
+			# alternative is to accept the solution with deferrals, implicitly
+			# improving discretization... too complicated but should be a better solution
 			if maximum(value.(rmp.deferred_num_crews)) > 1e-5
 				for g ∈ 1:num_fires
 					for t ∈ 1:num_time_periods
@@ -441,7 +441,7 @@ function define_restricted_master_problem(
 	end
 
 	# fix deferral stabilization variables to 0 if not stabilizing
-	if ~deferral_stabilization
+	if ~deferral_stabilization || true
 		for g ∈ 1:num_fires
 			for t ∈ 1:num_time_periods
 				fix(deferred_num_crews[g, t], 0, force = true)

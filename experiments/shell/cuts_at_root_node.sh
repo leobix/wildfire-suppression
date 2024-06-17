@@ -1,6 +1,8 @@
 #!/bin/bash
 
 #SBATCH --exclusive
+#SBATCH --mail-type=BEGIN,END,FAIL
+#SBATCH --mail-user=jacobwac@mit.edu
 
 module load julia/1.10.1
 module load gurobi/gurobi-1102

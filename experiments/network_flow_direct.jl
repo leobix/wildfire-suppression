@@ -227,7 +227,7 @@ for (num_fires, num_crews, num_time_periods) ∈ sizes
 
 
 
-	t = @elapsed u, l = full_network_flow(
+	t = @elapsed l, u = full_network_flow(
 		local_crew_models,
 		local_fire_models,
 		verbose = false,
@@ -235,7 +235,7 @@ for (num_fires, num_crews, num_time_periods) ∈ sizes
 		time_limit = 60.0,
 	)
 	linear_outputs[num_crews] = Dict("ub" => u, "lb" => l, "time" => t)
-	t = @elapsed u, l = full_network_flow(
+	t = @elapsed l, u = full_network_flow(
 		local_crew_models,
 		local_fire_models,
 		verbose = false,

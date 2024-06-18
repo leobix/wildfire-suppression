@@ -23,23 +23,17 @@ function cut_adjust_arc_costs!(costs::Vector{Float64}, cut_arc_lookup, cut_duals
 	end
 end
 
-function adjust_fire_sp_arc_costs(
+function adjust_fire_sp_arc_costs!(
+	costs::Vector{Float64},
 	branching_rule::GlobalFireAllotmentBranchingRule,
 	fire::Int64,
-	orig_costs::Vector{Float64},
 	rule_dual_value::Float64)
-
-	# copy the costs
-	adj_costs = copy(orig_costs)
 
 	# for each affected arc, add the dual value
 	# TODO verify that >= convention means we are adding dual value either way
 	for arc in branching_rule.fire_sp_arc_lookup[fire]
-		adj_costs[arc] += rule_dual_value
+		costs[arc] += rule_dual_value
 	end
-
-	return adj_costs
-
 end
 
 
@@ -238,22 +232,26 @@ function get_fires_fought(
 
 end
 
-function get_adjusted_fire_arc_costs(
-	long_arcs,
-	linking_duals,
+function adjust_fire_arc_costs!!(
+	costs::Vector{Float64},
+	prohibited_arcs::BitVector,
+	fire_ix::Int64,
+	linking_dual_arc_lookup::Matrix{Vector{Int64}},
+	long_arcs::Matrix{Int64},
+	linking_duals::Vector{Float64},
 	branching_rules,
 )
 
 	# no cost for starting arc
 	duals = vcat(0.0, linking_duals)
 
-	# + 1 is because we appended the 0
-	rel_costs =
-		duals[long_arcs[:, FM.TIME_FROM].+1] .* long_arcs[:, FM.CREWS_PRESENT]
+	# + 1 is because we appended the 0 (in lookup as well)
+	for t ∈ eachindex(duals)
+		costs[linking_dual_arc_lookup[fire_ix, t]] .+= duals[t] .* long_arcs[linking_dual_arc_lookup[fire_ix, t], FM.CREWS_PRESENT]
+	end
 
 	# get disallowed arcs due to branching rules
 	# TODO refactor to track this info in B-and-B tree, check each rule just once
-	prohibited_arcs = falses(size(long_arcs)[1])
 	for rule ∈ branching_rules
 		for arc ∈ 1:size(long_arcs)[1]
 			if long_arcs[arc, FM.TIME_FROM] == rule.time_ix
@@ -263,9 +261,6 @@ function get_adjusted_fire_arc_costs(
 			end
 		end
 	end
-
-	return rel_costs, prohibited_arcs
-
 end
 
 function fire_dp_inner_loop!!(
@@ -309,7 +304,7 @@ function fire_dp_subproblem(arcs::Matrix{Int64},
 			min_index = Ref{Int64}(-1)
 
 			# for each arc entering this state
-			for arc_ix in state_in_arcs[s, t]
+			for arc_ix ∈ state_in_arcs[s, t]
 				if ~prohibited_arcs[arc_ix]
 					arc = @view arcs[:, arc_ix]
 					this_arc_cost = arc_costs[arc_ix]

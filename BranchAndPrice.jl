@@ -258,10 +258,9 @@ function branch_and_price(
 
 	@info "Initializing data structures"
 	# initialize input data
-	crew_routes, fire_plans, crew_models, fire_models, cut_data =
+	@time crew_routes, fire_plans, crew_models, fire_models, cut_data =
 		initialize_data_structures(num_fires, num_crews, num_time_periods)
-
-
+	GC.gc()
 	algo_tracking ?
 	(@info "Checkpoint after initializing data structures" time() - start_time) :
 	nothing

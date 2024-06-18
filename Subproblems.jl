@@ -91,13 +91,13 @@ function get_adjusted_crew_arc_costs(
 
 end
 
-function crew_dp_inner_loop(
+function crew_dp_inner_loop!!(
+	min_cost::Ref{Float64},
+	min_index::Ref{Int64},
 	arc::SubArray{Int64, 1, Matrix{Int64}},
 	arc_ix::Int64,
 	this_arc_cost::Float64,
 	path_costs::Array{Float64, 3},
-	min_cost::Float64,
-	min_index::Int64,
 )
 
 	# get the time from which this arc comes
@@ -127,12 +127,10 @@ function crew_dp_inner_loop(
 	# find the path cost, update min cost and index if needed
 
 	possible_cost = this_arc_cost + past_state_cost
-	if possible_cost < min_cost
-		min_cost = possible_cost
-		min_index = arc_ix
+	if possible_cost < min_cost[]
+		min_cost[] = possible_cost
+		min_index[] = arc_ix
 	end
-
-	return min_cost, min_index
 end
 
 
@@ -158,8 +156,8 @@ function crew_dp_subproblem(
 	for t in 1:times
 		for r in 1:rests
 			for l in 1:locs
-				min_cost = Inf
-				min_index = -1
+				min_cost = Ref{Float64}(Inf)
+				min_index = Ref{Int64}(-1)
 
 				# for each arc entering this state
 				for arc_ix ∈ state_in_arcs[l, t, r]
@@ -167,21 +165,21 @@ function crew_dp_subproblem(
 
 						arc = @view arcs[:, arc_ix]
 						this_arc_cost = arc_costs[arc_ix]
-						min_cost, min_index = crew_dp_inner_loop(
+						crew_dp_inner_loop!!(
+							min_cost,
+							min_index,
 							arc,
 							arc_ix,
 							this_arc_cost,
 							path_costs,
-							min_cost,
-							min_index,
 						)
 
 					end
 				end
 
 				# store state shortest path and cost
-				path_costs[l, t, r] = min_cost
-				in_arcs[l, t, r] = min_index
+				path_costs[l, t, r] = min_cost[]
+				in_arcs[l, t, r] = min_index[]
 
 			end
 		end
@@ -281,13 +279,13 @@ function get_adjusted_fire_arc_costs(
 
 end
 
-function fire_dp_inner_loop(
+function fire_dp_inner_loop!!(
+	min_cost::Ref{Float64},
+	min_index::Ref{Int64},
 	arc::SubArray{Int64, 1, Matrix{Int64}},
 	arc_ix::Int64,
 	this_arc_cost::Float64,
 	path_costs::Matrix{Float64},
-	min_cost::Float64,
-	min_index::Int64,
 )
 
 	# get the time from which this arc comes
@@ -299,12 +297,11 @@ function fire_dp_inner_loop(
 
 	# find the path cost, update min cost and index if needed
 	possible_cost = this_arc_cost + past_state_cost
-	if possible_cost < min_cost
-		min_cost = possible_cost
-		min_index = arc_ix
+	if possible_cost < min_cost[]
+		min_cost[] = possible_cost
+		min_index[] = arc_ix
 	end
 
-	return min_cost, min_index
 end
 
 function fire_dp_subproblem(arcs::Matrix{Int64},
@@ -319,28 +316,28 @@ function fire_dp_subproblem(arcs::Matrix{Int64},
 	# iterate over times first for algorithm correctness
 	for t in 1:times
 		for s in 1:states
-			min_cost = Inf
-			min_index = -1
+			min_cost = Ref{Float64}(Inf)
+			min_index = Ref{Int64}(-1)
 
 			# for each arc entering this state
 			for arc_ix in state_in_arcs[s, t]
 				if ~prohibited_arcs[arc_ix]
 					arc = @view arcs[:, arc_ix]
 					this_arc_cost = arc_costs[arc_ix]
-					min_cost, min_index = fire_dp_inner_loop(
+					fire_dp_inner_loop!!(
+						min_cost,
+						min_index,
 						arc,
 						arc_ix,
 						this_arc_cost,
 						path_costs,
-						min_cost,
-						min_index,
 					)
 				end
 			end
 
 			# store state shortest path and cost
-			path_costs[s, t] = min_cost
-			in_arcs[s, t] = min_index
+			path_costs[s, t] = min_cost[]
+			in_arcs[s, t] = min_index[]
 		end
 	end
 

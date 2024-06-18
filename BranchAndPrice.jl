@@ -99,7 +99,7 @@ function price_and_cut!!!!(
 	upper_bound::Float64 = 1e10,
 	log_progress_file = nothing,
 )
-
+	GC.enable(false)
 	log_flag = ~isnothing(log_progress_file)
 
 	if log_flag
@@ -223,6 +223,8 @@ function price_and_cut!!!!(
 	end
 
 	@debug "After price-and-cut" dual.(rmp.supply_demand_linking)
+	GC.enable(true)
+	GC.gc()
 
 end
 

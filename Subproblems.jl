@@ -2,10 +2,7 @@ include("CommonStructs.jl")
 include("TSNetworkGeneration.jl")
 include("BranchingRules.jl")
 
-function cut_adjust_arc_costs(orig_costs, cut_arc_lookup, cut_duals)
-
-	# copy the costs
-	adj_costs = copy(orig_costs)
+function cut_adjust_arc_costs!(costs::Vector{Float64}, cut_arc_lookup, cut_duals)
 
 	# for each cut
 	for ix in eachindex(cut_duals)
@@ -14,21 +11,16 @@ function cut_adjust_arc_costs(orig_costs, cut_arc_lookup, cut_duals)
 		if cut_duals[ix] > 0
 
 			# grab the sparse representation of the dual adjustment
-			adjustment_dict = cut_arc_lookup[ix]
+			# Note: cost_ix = (arc_ix, coeff)
 
 			# for each arc to be adjusted
-			for cost_ix in adjustment_dict
+			for cost_ix ∈ cut_arc_lookup[ix]
 
 				# add the dual cost 
-				arc_ix = cost_ix[1]
-				coeff = cost_ix[2]
-				adj_costs[arc_ix] += cut_duals[ix] * coeff
+				costs[cost_ix[1]] += cut_duals[ix] * cost_ix[2]
 			end
 		end
 	end
-
-	return adj_costs
-
 end
 
 function adjust_fire_sp_arc_costs(
@@ -51,8 +43,9 @@ function adjust_fire_sp_arc_costs(
 end
 
 
-function adjust_crew_arc_costs!(
+function adjust_crew_arc_costs!!(
 	costs::Vector{Float64},
+	prohibited_arcs::BitVector,
 	long_arcs::Matrix{Int64},
 	linking_duals::Matrix{Float64},
 	linking_dual_arc_lookup::Matrix{Vector{Int64}},
@@ -72,8 +65,6 @@ function adjust_crew_arc_costs!(
 
 	# get disallowed arcs due to branching rules
 	# TODO refactor to track this info in B-and-B tree, check each rule just once
-	prohibited_arcs = falses(size(long_arcs)[1])
-
 	for rule ∈ branching_rules
 		for arc ∈ 1:size(long_arcs)[1]
 			if (long_arcs[arc, CM.CREW_NUMBER] == rule.crew_ix) &&
@@ -87,9 +78,6 @@ function adjust_crew_arc_costs!(
 			end
 		end
 	end
-
-	return prohibited_arcs
-
 end
 
 function crew_dp_inner_loop!!(

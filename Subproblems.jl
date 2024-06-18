@@ -51,23 +51,24 @@ function adjust_fire_sp_arc_costs(
 end
 
 
-function get_adjusted_crew_arc_costs(
+function adjust_crew_arc_costs!(
+	costs::Vector{Float64},
 	long_arcs::Matrix{Int64},
 	linking_duals::Matrix{Float64},
+	linking_dual_arc_lookup::Matrix{Vector{Int64}},
 	branching_rules::Vector{CrewAssignmentBranchingRule},
 )
 
-	time_periods = size(linking_duals)[2]
-	n_arcs = size(long_arcs)[1]
+	fires, time_periods = size(linking_duals)
 
-	costs = [
-		(
-			(long_arcs[i, CM.TO_TYPE] == CM.FIRE_CODE) &
-			(long_arcs[i, CM.TIME_TO] <= time_periods)
-		) ?
-		-linking_duals[long_arcs[i, CM.LOC_TO], long_arcs[i, CM.TIME_TO]] : 0
-		for i in 1:n_arcs
-	]
+	for g ∈ 1:fires
+		for t ∈ 1:time_periods
+			for i ∈ linking_dual_arc_lookup[g, t]
+				costs[i] -= linking_duals[g, t]
+			end
+		end
+	end
+			
 
 	# get disallowed arcs due to branching rules
 	# TODO refactor to track this info in B-and-B tree, check each rule just once
@@ -87,7 +88,7 @@ function get_adjusted_crew_arc_costs(
 		end
 	end
 
-	return costs, prohibited_arcs
+	return prohibited_arcs
 
 end
 

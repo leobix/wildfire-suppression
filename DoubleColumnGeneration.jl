@@ -97,13 +97,16 @@ function double_column_generation!!!!(
 		
 		Threads.@threads for crew in 1:num_crews
 
-			crew_rel_costs, crew_prohibited_arcs = get_adjusted_crew_arc_costs(
+			crew_subproblems[crew].modified_arc_costs .*= 0
+			crew_prohibited_arcs = adjust_crew_arc_costs!(
+				crew_subproblems[crew].modified_arc_costs,
 				crew_subproblems[crew].long_arcs,
 				linking_duals,
+				crew_subproblems[crew].supply_demand_dual_arc_lookup,
 				crew_branching_rules,
 			)
 
-			crew_arc_costs = crew_rel_costs .+ crew_subproblems[crew].arc_costs
+			crew_arc_costs = crew_subproblems[crew].modified_arc_costs .+ crew_subproblems[crew].arc_costs
 
 			# adjust the arc costs for the cuts
 			crew_cut_adjusted_arc_costs = cut_adjust_arc_costs(

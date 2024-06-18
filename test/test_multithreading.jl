@@ -21,7 +21,7 @@ Profile.init()
 		println(Threads.threadid())
 		j = 0.0
 		for k ∈ 1:10000
-			for l ∈ 1:1000
+			for l ∈ 1:10000
 				j += (l + k)^0.5
 			end
 		end

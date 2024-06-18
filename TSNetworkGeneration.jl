@@ -515,7 +515,7 @@ function build_crew_models(
             :,
         ]
         crew_sp =
-            TimeSpaceNetwork(crew_arc_costs, state_in_arcs, state_out_arcs, "crew", crew_arcs, crew_wide_arcs)
+            TimeSpaceNetwork(crew_arc_costs, state_in_arcs, state_out_arcs, "crew", crew_arcs, crew_wide_arcs, copy(crew_arc_costs), falses(length(crew_arc_costs)))
         push!(crew_sps, crew_sp)
     end
 
@@ -903,6 +903,8 @@ function build_fire_models(
             "fire",
             arc_arrays[round_type],
             collect(arc_arrays[round_type]'),
+            copy(arc_costs[round_type]),
+            falses(length(arc_costs[round_type]))
         )
         push!(fire_models, fire_model)
     end

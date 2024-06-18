@@ -21,6 +21,10 @@ Profile.init()
 	soft_heuristic_time_limit = 0.0
 )
 	end
+
 Profile.print(io, mincount = 20)
-Profile.print(io, mincount = 20, groupby=:thread)
+if ~Sys.iswindows()
+	Profile.print(io, mincount = 20, groupby=:thread)
+end
+
 close(io)

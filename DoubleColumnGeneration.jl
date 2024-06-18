@@ -94,6 +94,7 @@ function double_column_generation!!!!(
 		crew_arcs_used = [Int[] for crew ∈ 1:num_crews]
 
 		# for each crew
+		GC.enable(false)
 		Threads.@threads for crew in 1:num_crews
 
 			crew_rel_costs, crew_prohibited_arcs = get_adjusted_crew_arc_costs(
@@ -129,6 +130,7 @@ function double_column_generation!!!!(
 			crew_objectives[crew] = objective
 			crew_arcs_used[crew] = arcs_used
 		end
+		GC.enable(true)
 
 		for crew ∈ 1:num_crews
 
@@ -174,6 +176,7 @@ function double_column_generation!!!!(
 		fire_arcs_used = [Int[] for fire ∈ 1:num_fires]
 
 		# for each fire
+		GC.enable(false)
 		Threads.@threads for fire in 1:num_fires
 
 			# generate the local costs of the arcs
@@ -224,6 +227,8 @@ function double_column_generation!!!!(
 			fire_objectives[fire] = objective
 			fire_arcs_used[fire] = arcs_used
 		end
+		GC.enable(true)
+
 
 		for fire ∈ 1:num_fires
 

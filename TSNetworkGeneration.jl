@@ -916,14 +916,13 @@ function build_fire_models(
         # need +1 for the start arcs, tracking times {0, ..., T} but Julia uses 1-indexing
         linking_dual_arc_lookup = Matrix{Vector{Int64}}(undef, num_fires, num_time_periods + 1)
         for g ∈ 1:num_fires
-            for t ∈ 1:num_time_periods
+            for t ∈ 1:num_time_periods+1
                 linking_dual_arc_lookup[g, t] = Int64[]
             end
         end
 
-        n_arcs = length(arc_costs)
-        for i in 1:n_arcs
-            t = arc_arrays[round_type][i, FM.TIME_FROM + 1]
+        for i ∈ 1:length(arc_costs[round_type])
+            t = arc_arrays[round_type][i, FM.TIME_FROM] + 1
             push!(linking_dual_arc_lookup[fire, t], i)
         end
 

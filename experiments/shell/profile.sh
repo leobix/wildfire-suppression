@@ -1,6 +1,7 @@
 #!/bin/bash
 
 #SBATCH --exclusive
+#SBATCH --ntasks=32
 
 module load julia/1.10.1
 module load gurobi/gurobi-1102

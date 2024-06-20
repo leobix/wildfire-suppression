@@ -2,7 +2,7 @@ include("CommonStructs.jl")
 include("TSNetworkGeneration.jl")
 include("BranchingRules.jl")
 
-function cut_adjust_arc_costs!(costs::Vector{Float64}, cut_arc_lookup, cut_duals)
+function cut_adjust_arc_costs!(costs::Vector{Float64}, cut_arc_lookup::Dict{Tuple{Int64, Int64}, Dict{Int64, Float64}}, cut_duals::JuMP.Containers.SparseAxisArray)
 
 	# for each cut
 	for ix in eachindex(cut_duals)

@@ -213,7 +213,7 @@ function double_column_generation!!!!(
 				# if this is a <= 0 rule, we have more prohibited arcs
 				if ~rule.geq_flag
 					for arc_ix ∈ rule.fire_sp_arc_lookup[fire]
-						prohibited_arcs[arc_ix] = true
+						fire_subproblems[fire].prohibited_arcs[arc_ix] = true
 					end
 				end
 

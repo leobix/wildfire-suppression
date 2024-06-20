@@ -135,8 +135,6 @@ def cglp_methods(prefix='data\\experiment_outputs\\cglp_lazy_constraints\\'):
         facet_kws={'sharey': False, 'sharex': False}
     )
 
-    breakpoint()
-
     fig.figure.savefig("experiments\\figures\\cglp_methods.png") 
 
 cglp_methods()

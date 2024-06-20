@@ -240,7 +240,7 @@ for (num_fires, num_crews, num_time_periods) ∈ sizes
 		local_fire_models,
 		verbose = false,
 		integer = true,
-		time_limit = 1800.0,
+		time_limit = 60.0,
 	)
 	integer_outputs[num_crews] = Dict("ub" => u, "lb" => l, "time" => t)
 end

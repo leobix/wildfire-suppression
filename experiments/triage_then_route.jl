@@ -56,6 +56,7 @@ end
 
 function no_suppression_fire_damage(
 	fire_model::TimeSpaceNetwork,
+	fire::Int,
 	num_times::Int,
 	branching_rules::Vector{FireDemandBranchingRule},
 )
@@ -68,31 +69,45 @@ function no_suppression_fire_damage(
         end
     end
 
-	rel_costs, prohibited_arcs = get_adjusted_fire_arc_costs(
+	fire_model.prohibited_arcs .&= false
+	for i ∈ eachindex(fire_model.modified_arc_costs)
+		fire_model.modified_arc_costs[i] = fire_model.arc_costs[i]
+	end
+	adjust_fire_arc_costs!!(
+		fire_model.modified_arc_costs,
+		fire_model.prohibited_arcs,
+		fire,
+		fire_model.supply_demand_dual_arc_lookup,
 		fire_model.long_arcs,
 		mock_duals,
 		branching_rules,
 	)
-	arc_costs = rel_costs .+ fire_model.arc_costs
 
 	objective, _ = fire_dp_subproblem(
 		fire_model.wide_arcs,
-		arc_costs,
-		prohibited_arcs,
+		fire_model.modified_arc_costs,
+		fire_model.prohibited_arcs,
 		fire_model.state_in_arcs,
 	)
 
-    rel_costs, prohibited_arcs = get_adjusted_fire_arc_costs(
+	fire_model.prohibited_arcs .&= false
+	for i ∈ eachindex(fire_model.modified_arc_costs)
+		fire_model.modified_arc_costs[i] = fire_model.arc_costs[i]
+	end
+	adjust_fire_arc_costs!!(
+		fire_model.modified_arc_costs,
+		fire_model.prohibited_arcs,
+		fire,
+		fire_model.supply_demand_dual_arc_lookup,
 		fire_model.long_arcs,
-		mock_duals * 0,
+		mock_duals .* 0,
 		branching_rules,
 	)
-	arc_costs = rel_costs .+ fire_model.arc_costs
 
 	objective_full_supp, _ = fire_dp_subproblem(
 		fire_model.wide_arcs,
-		arc_costs,
-		prohibited_arcs,
+		fire_model.modified_arc_costs,
+		fire_model.prohibited_arcs,
 		fire_model.state_in_arcs,
 	)
 	return objective - objective_full_supp
@@ -187,6 +202,7 @@ function triage_then_route_by_time_period(
 		no_suppression_fire_damages = [
 			no_suppression_fire_damage(
 				fire_models[fire],
+				fire,
 				num_time_periods,
 				branching_rules[fire],
 			) + 1e-6 for fire ∈ 1:num_fires
@@ -314,16 +330,24 @@ function triage_then_route_by_time_period(
     fire_costs = zeros(Float64, num_fires)
     for fire ∈ 1:num_fires
 
-        rel_costs, prohibited_arcs = get_adjusted_fire_arc_costs(
+		fire_models[fire].prohibited_arcs .&= false
+		for i ∈ eachindex(fire_models[fire].modified_arc_costs)
+			fire_models[fire].modified_arc_costs[i] = fire_models[fire].arc_costs[i]
+		end
+        adjust_fire_arc_costs!!(
+			fire_models[fire].modified_arc_costs,
+			fire_models[fire].prohibited_arcs,
+			fire,
+			fire_models[fire].supply_demand_dual_arc_lookup,
             fire_models[fire].long_arcs,
             zeros(Float64, num_time_periods),
             branching_rules[fire],
         )
-        arc_costs = rel_costs .+ fire_models[fire].arc_costs
+
         objective, _ = fire_dp_subproblem(
             fire_models[fire].wide_arcs,
-            arc_costs,
-            prohibited_arcs,
+            fire_models[fire].modified_arc_costs,
+            fire_models[fire].prohibited_arcs,
             fire_models[fire].state_in_arcs,
         )
 
@@ -333,13 +357,6 @@ function triage_then_route_by_time_period(
 	total_cost = sum(crew_costs) + sum(fire_costs)
 	@info "results" crew_costs fire_costs total_cost
 	println(total_cost)
-
-end
-
-function triage_then_route_full_horizon(
-	crew_models::Vector{TimeSpaceNetwork},
-	fire_models::Vector{TimeSpaceNetwork},
-)
 
 end
 

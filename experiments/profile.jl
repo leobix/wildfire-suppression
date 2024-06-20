@@ -5,7 +5,6 @@ using JuMP, Gurobi, JSON, Profile, ArgParse, Logging, IterTools
 const GRB_ENV = Gurobi.Env()
 
 
-error()
 # precompile
 branch_and_price(3, 10, 14, max_nodes = 3, soft_heuristic_time_limit = 0.0, algo_tracking = false)
 

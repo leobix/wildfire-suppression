@@ -133,7 +133,7 @@ function price_and_cut!!!!(
 			timing = log_flag,
 			upper_bound = upper_bound,
 		)
-		if rmp.termination_status == MOI.OBJECTIVE_LIMIT
+		if (rmp.termination_status == MOI.OBJECTIVE_LIMIT) || (rmp.termination_status == MOI.INFEASIBLE)
 			@debug "no more cuts needed"
 			break
 		end

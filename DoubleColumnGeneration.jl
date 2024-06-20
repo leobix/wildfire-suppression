@@ -402,13 +402,26 @@ function double_column_generation!!!!(
 			end
 			optimize!(rmp.model)
 
+			if (termination_status(rmp.model) == MOI.INFEASIBLE) |
+				(termination_status(rmp.model) == MOI.INFEASIBLE_OR_UNBOUNDED)
+ 
+				 # log this
+				 @debug "prune by infeasibility"
+				 rmp.termination_status = MOI.INFEASIBLE
+
+			else
+
+				rmp.termination_status = MOI.LOCALLY_SOLVED
+				@debug "end DCG" iteration termination_status(rmp.model) objective_value(
+					rmp.model,
+				)
+
+			end
+
 			if timing
 				details["master_problem"] += (time() - t)
 			end
-			rmp.termination_status = MOI.LOCALLY_SOLVED
-			@debug "end DCG" iteration objective_value(
-				rmp.model,
-			)
+
 		end
 	end
 

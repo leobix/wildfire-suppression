@@ -81,19 +81,14 @@ function run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_li
 end
 
 out_dir = args["directory_output"]
-cuts = [true]
-branching_rules = ["linking_dual_max_variance"]
-heuristic_time_limits = [0.0]
-
-# out_dir = args["directory_output"]
-# cuts = [true, false]
-# branching_rules = ["linking_dual_max_variance", "max_variance"]
-# heuristic_time_limits = [180.0, 0.0]
+cuts = [true, false]
+branching_rules = ["most_fractional", "max_variance", "linking_dual_max_variance"]
+heuristic_time_limits = [0.0, 60.0]
 
 # precompile
 sizes = [(3, 10, 14)]
 run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_limits, precompile=true, total_time_limit=5.0)
 
 # experiment
-sizes = [(6, 20, 14)]
+sizes = [(3, 10, 14), (6, 20, 14), (9, 30, 14)]
 run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_limits, precompile=false, total_time_limit=1200.0)

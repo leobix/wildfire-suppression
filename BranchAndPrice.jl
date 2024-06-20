@@ -237,10 +237,10 @@ function branch_and_price(
 	cut_loop_max = 10,
 	price_and_cut_soft_time_limit = 180.0,
 	relative_improvement_cut_req = 1e-10,
-	soft_heuristic_time_limit = 300.0,
-	hard_heuristic_iteration_limit = 10,
+	soft_heuristic_time_limit = 60.0,
+	hard_heuristic_iteration_limit = 3,
 	heuristic_must_improve_rounds = 2,
-	heuristic_cadence = 5,
+	heuristic_cadence_secs = 120.0,
 	total_time_limit = 1800.0,
 	bb_node_gub_cover_cuts = true,
 	bb_node_general_gub_cuts = "adaptive",
@@ -271,6 +271,9 @@ function branch_and_price(
 	columns = []
 	times = []
 	time_1 = time() - start_time
+
+	# initialize last heuristic time to ensure running heuristic at root node
+	last_heuristic_time = time_1 - heuristic_cadence_secs 
 
 	# initialize nodes list with the root node
 	nodes = BranchAndBoundNode[]
@@ -345,9 +348,10 @@ function branch_and_price(
 			break
 		end
 
-		if (node_explored_count % heuristic_cadence == 1) &&
+		if (heuristic_cadence_secs < time() - last_heuristic_time) &&
 		   (soft_heuristic_time_limit > 0.0) && (lb / ub < 1 - 1e-3) # gurobi has 1e-4 tol I can't fix
-			heuristic_ub, ub_rmp, routes_best_sol, plans_best_sol =
+		   last_heuristic_time = time()	
+		   heuristic_ub, ub_rmp, routes_best_sol, plans_best_sol =
 				heuristic_upper_bound!!(
 					crew_routes,
 					fire_plans,

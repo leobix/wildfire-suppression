@@ -97,7 +97,7 @@ def value_of_cuts_and_branching(prefix='data\\experiment_outputs\\branch_price_a
     cols = ["Crews", "Fires", "Cuts", "Branching strategy", "Heuristic", "times", "explored_nodes", "Pct. gap",  "upper_bounds", "lower_bounds"]
     tbl = df.drop_duplicates("file", keep="last")[cols].reset_index(drop=True)
     still_gap = tbl["Pct. gap"] > 0
-    tbl.loc[still_gap, "times"] = 1800.0
+    tbl.loc[still_gap, "times"] = 1200.0
     tbl["times"] = tbl["times"].apply(lambda x: signif(x, 5))
     tbl["Pct. gap"] = tbl["Pct. gap"].apply(lambda x: signif(x, 3))
     tbl.rename(inplace=True, columns={"upper_bounds" : "UB", "lower_bounds" : "LB", "times" : "Time", "explored_nodes" : "Nodes"})

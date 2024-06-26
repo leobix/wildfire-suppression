@@ -492,6 +492,7 @@ function find_knapsack_cuts(
 	if gub_cover_cuts
 
 		all_cuts = [Any[] for t ∈ 1:num_time_periods]
+        
 		Threads.@threads for t in 1:num_time_periods
 
 			all_cuts[t] =
@@ -501,6 +502,8 @@ function find_knapsack_cuts(
 					cut_search_limit_per_time,
 				)
 		end
+        
+
 
 		for t ∈ 1:num_time_periods
 
@@ -566,6 +569,7 @@ function find_knapsack_cuts(
 
 		cglp_cuts = Array{Any, 1}(undef, num_time_periods)
 
+        
 		Threads.@threads for t in 1:num_time_periods
 			cglp_cuts[t] = nothing
 			if t ∉ [knapsack_cut.time_ix for knapsack_cut ∈ knapsack_gub_cuts]
@@ -582,6 +586,7 @@ function find_knapsack_cuts(
 				end
 			end
 		end
+        
 		for t ∈ 1:num_time_periods
 			max_viol_cut = cglp_cuts[t]
 			if ~isnothing(max_viol_cut)
@@ -817,6 +822,7 @@ function find_and_incorporate_knapsack_gub_cuts!!(
 		optimize!(rmp.model)
 	end
 
+    
 	Threads.@threads for fire ∈ 1:num_fires
 		incorporate_gub_cover_cuts_into_fire_subproblem!(
 			gub_cut_data.fire_sp_lookup[fire],
@@ -825,7 +831,10 @@ function find_and_incorporate_knapsack_gub_cuts!!(
 			fire_models[fire],
 		)
 	end
+    
 
+
+    
 	Threads.@threads for crew ∈ 1:num_crews
 		incorporate_gub_cover_cuts_into_crew_subproblem!(
 			gub_cut_data.crew_sp_lookup[crew],
@@ -834,6 +843,8 @@ function find_and_incorporate_knapsack_gub_cuts!!(
 			crew_models[crew],
 		)
 	end
+    
+
 
 	return num_cuts_found
 end

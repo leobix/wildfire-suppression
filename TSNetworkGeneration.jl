@@ -514,8 +514,24 @@ function build_crew_models(
             :,
             :,
         ]
+
+        linking_dual_arc_lookup = Matrix{Vector{Int64}}(undef, num_fires, num_time_periods)
+        for g ∈ 1:num_fires
+            for t ∈ 1:num_time_periods
+                linking_dual_arc_lookup[g, t] = Int64[]
+            end
+        end
+
+        for i in 1:length(crew_arc_costs)
+            if (crew_arcs[i, CM.TO_TYPE] == CM.FIRE_CODE) && (crew_arcs[i, CM.TIME_TO] <= num_time_periods)
+                g = crew_arcs[i, CM.LOC_TO]
+                t = crew_arcs[i, CM.TIME_TO]
+                push!(linking_dual_arc_lookup[g, t], i)
+            end
+        end
+
         crew_sp =
-            TimeSpaceNetwork(crew_arc_costs, state_in_arcs, state_out_arcs, "crew", crew_arcs, crew_wide_arcs)
+            TimeSpaceNetwork(crew_arc_costs, state_in_arcs, state_out_arcs, "crew", crew_arcs, crew_wide_arcs, copy(crew_arc_costs), falses(length(crew_arc_costs)), linking_dual_arc_lookup)
         push!(crew_sps, crew_sp)
     end
 
@@ -896,6 +912,20 @@ function build_fire_models(
             num_time_periods,
             [round_type],
         )
+
+        # need +1 for the start arcs, tracking times {0, ..., T} but Julia uses 1-indexing
+        linking_dual_arc_lookup = Matrix{Vector{Int64}}(undef, num_fires, num_time_periods + 1)
+        for g ∈ 1:num_fires
+            for t ∈ 1:num_time_periods+1
+                linking_dual_arc_lookup[g, t] = Int64[]
+            end
+        end
+
+        for i ∈ 1:length(arc_costs[round_type])
+            t = arc_arrays[round_type][i, FM.TIME_FROM] + 1
+            push!(linking_dual_arc_lookup[fire, t], i)
+        end
+
         fire_model = TimeSpaceNetwork(
             arc_costs[round_type],
             in_arcs[round_type],
@@ -903,6 +933,9 @@ function build_fire_models(
             "fire",
             arc_arrays[round_type],
             collect(arc_arrays[round_type]'),
+            copy(arc_costs[round_type]),
+            falses(length(arc_costs[round_type])),
+            linking_dual_arc_lookup,
         )
         push!(fire_models, fire_model)
     end

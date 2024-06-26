@@ -2,10 +2,7 @@ include("CommonStructs.jl")
 include("TSNetworkGeneration.jl")
 include("BranchingRules.jl")
 
-function cut_adjust_arc_costs(orig_costs, cut_arc_lookup, cut_duals)
-
-	# copy the costs
-	adj_costs = copy(orig_costs)
+function cut_adjust_arc_costs!(costs::Vector{Float64}, cut_arc_lookup::Dict{Tuple{Int64, Int64}, Dict{Int64, Float64}}, cut_duals::JuMP.Containers.SparseAxisArray)
 
 	# for each cut
 	for ix in eachindex(cut_duals)
@@ -14,65 +11,54 @@ function cut_adjust_arc_costs(orig_costs, cut_arc_lookup, cut_duals)
 		if cut_duals[ix] > 0
 
 			# grab the sparse representation of the dual adjustment
-			adjustment_dict = cut_arc_lookup[ix]
+			# Note: cost_ix = (arc_ix, coeff)
 
 			# for each arc to be adjusted
-			for cost_ix in adjustment_dict
+			for cost_ix ∈ cut_arc_lookup[ix]
 
 				# add the dual cost 
-				arc_ix = cost_ix[1]
-				coeff = cost_ix[2]
-				adj_costs[arc_ix] += cut_duals[ix] * coeff
+				costs[cost_ix[1]] += cut_duals[ix] * cost_ix[2]
 			end
 		end
 	end
-
-	return adj_costs
-
 end
 
-function adjust_fire_sp_arc_costs(
+function adjust_fire_sp_arc_costs!(
+	costs::Vector{Float64},
 	branching_rule::GlobalFireAllotmentBranchingRule,
 	fire::Int64,
-	orig_costs::Vector{Float64},
 	rule_dual_value::Float64)
-
-	# copy the costs
-	adj_costs = copy(orig_costs)
 
 	# for each affected arc, add the dual value
 	# TODO verify that >= convention means we are adding dual value either way
 	for arc in branching_rule.fire_sp_arc_lookup[fire]
-		adj_costs[arc] += rule_dual_value
+		costs[arc] += rule_dual_value
 	end
-
-	return adj_costs
-
 end
 
 
-function get_adjusted_crew_arc_costs(
+function adjust_crew_arc_costs!!(
+	costs::Vector{Float64},
+	prohibited_arcs::BitVector,
 	long_arcs::Matrix{Int64},
 	linking_duals::Matrix{Float64},
+	linking_dual_arc_lookup::Matrix{Vector{Int64}},
 	branching_rules::Vector{CrewAssignmentBranchingRule},
 )
 
-	time_periods = size(linking_duals)[2]
-	n_arcs = size(long_arcs)[1]
+	fires, time_periods = size(linking_duals)
 
-	costs = [
-		(
-			(long_arcs[i, CM.TO_TYPE] == CM.FIRE_CODE) &
-			(long_arcs[i, CM.TIME_TO] <= time_periods)
-		) ?
-		-linking_duals[long_arcs[i, CM.LOC_TO], long_arcs[i, CM.TIME_TO]] : 0
-		for i in 1:n_arcs
-	]
+	for g ∈ 1:fires
+		for t ∈ 1:time_periods
+			for i ∈ linking_dual_arc_lookup[g, t]
+				costs[i] -= linking_duals[g, t]
+			end
+		end
+	end
+			
 
 	# get disallowed arcs due to branching rules
 	# TODO refactor to track this info in B-and-B tree, check each rule just once
-	prohibited_arcs = falses(size(long_arcs)[1])
-
 	for rule ∈ branching_rules
 		for arc ∈ 1:size(long_arcs)[1]
 			if (long_arcs[arc, CM.CREW_NUMBER] == rule.crew_ix) &&
@@ -86,18 +72,15 @@ function get_adjusted_crew_arc_costs(
 			end
 		end
 	end
-
-	return costs, prohibited_arcs
-
 end
 
-function crew_dp_inner_loop(
+function crew_dp_inner_loop!!(
+	min_cost::Ref{Float64},
+	min_index::Ref{Int64},
 	arc::SubArray{Int64, 1, Matrix{Int64}},
 	arc_ix::Int64,
 	this_arc_cost::Float64,
 	path_costs::Array{Float64, 3},
-	min_cost::Float64,
-	min_index::Int64,
 )
 
 	# get the time from which this arc comes
@@ -127,12 +110,10 @@ function crew_dp_inner_loop(
 	# find the path cost, update min cost and index if needed
 
 	possible_cost = this_arc_cost + past_state_cost
-	if possible_cost < min_cost
-		min_cost = possible_cost
-		min_index = arc_ix
+	if possible_cost < min_cost[]
+		min_cost[] = possible_cost
+		min_index[] = arc_ix
 	end
-
-	return min_cost, min_index
 end
 
 
@@ -158,8 +139,8 @@ function crew_dp_subproblem(
 	for t in 1:times
 		for r in 1:rests
 			for l in 1:locs
-				min_cost = Inf
-				min_index = -1
+				min_cost = Ref{Float64}(Inf)
+				min_index = Ref{Int64}(-1)
 
 				# for each arc entering this state
 				for arc_ix ∈ state_in_arcs[l, t, r]
@@ -167,21 +148,21 @@ function crew_dp_subproblem(
 
 						arc = @view arcs[:, arc_ix]
 						this_arc_cost = arc_costs[arc_ix]
-						min_cost, min_index = crew_dp_inner_loop(
+						crew_dp_inner_loop!!(
+							min_cost,
+							min_index,
 							arc,
 							arc_ix,
 							this_arc_cost,
 							path_costs,
-							min_cost,
-							min_index,
 						)
 
 					end
 				end
 
 				# store state shortest path and cost
-				path_costs[l, t, r] = min_cost
-				in_arcs[l, t, r] = min_index
+				path_costs[l, t, r] = min_cost[]
+				in_arcs[l, t, r] = min_index[]
 
 			end
 		end
@@ -251,22 +232,26 @@ function get_fires_fought(
 
 end
 
-function get_adjusted_fire_arc_costs(
-	long_arcs,
-	linking_duals,
+function adjust_fire_arc_costs!!(
+	costs::Vector{Float64},
+	prohibited_arcs::BitVector,
+	fire_ix::Int64,
+	linking_dual_arc_lookup::Matrix{Vector{Int64}},
+	long_arcs::Matrix{Int64},
+	linking_duals::Vector{Float64},
 	branching_rules,
 )
 
 	# no cost for starting arc
 	duals = vcat(0.0, linking_duals)
 
-	# + 1 is because we appended the 0
-	rel_costs =
-		duals[long_arcs[:, FM.TIME_FROM].+1] .* long_arcs[:, FM.CREWS_PRESENT]
+	# + 1 is because we appended the 0 (in lookup as well)
+	for t ∈ eachindex(duals)
+		costs[linking_dual_arc_lookup[fire_ix, t]] .+= duals[t] .* long_arcs[linking_dual_arc_lookup[fire_ix, t], FM.CREWS_PRESENT]
+	end
 
 	# get disallowed arcs due to branching rules
 	# TODO refactor to track this info in B-and-B tree, check each rule just once
-	prohibited_arcs = falses(size(long_arcs)[1])
 	for rule ∈ branching_rules
 		for arc ∈ 1:size(long_arcs)[1]
 			if long_arcs[arc, FM.TIME_FROM] == rule.time_ix
@@ -276,18 +261,15 @@ function get_adjusted_fire_arc_costs(
 			end
 		end
 	end
-
-	return rel_costs, prohibited_arcs
-
 end
 
-function fire_dp_inner_loop(
+function fire_dp_inner_loop!!(
+	min_cost::Ref{Float64},
+	min_index::Ref{Int64},
 	arc::SubArray{Int64, 1, Matrix{Int64}},
 	arc_ix::Int64,
 	this_arc_cost::Float64,
 	path_costs::Matrix{Float64},
-	min_cost::Float64,
-	min_index::Int64,
 )
 
 	# get the time from which this arc comes
@@ -299,12 +281,11 @@ function fire_dp_inner_loop(
 
 	# find the path cost, update min cost and index if needed
 	possible_cost = this_arc_cost + past_state_cost
-	if possible_cost < min_cost
-		min_cost = possible_cost
-		min_index = arc_ix
+	if possible_cost < min_cost[]
+		min_cost[] = possible_cost
+		min_index[] = arc_ix
 	end
 
-	return min_cost, min_index
 end
 
 function fire_dp_subproblem(arcs::Matrix{Int64},
@@ -319,28 +300,28 @@ function fire_dp_subproblem(arcs::Matrix{Int64},
 	# iterate over times first for algorithm correctness
 	for t in 1:times
 		for s in 1:states
-			min_cost = Inf
-			min_index = -1
+			min_cost = Ref{Float64}(Inf)
+			min_index = Ref{Int64}(-1)
 
 			# for each arc entering this state
-			for arc_ix in state_in_arcs[s, t]
+			for arc_ix ∈ state_in_arcs[s, t]
 				if ~prohibited_arcs[arc_ix]
 					arc = @view arcs[:, arc_ix]
 					this_arc_cost = arc_costs[arc_ix]
-					min_cost, min_index = fire_dp_inner_loop(
+					fire_dp_inner_loop!!(
+						min_cost,
+						min_index,
 						arc,
 						arc_ix,
 						this_arc_cost,
 						path_costs,
-						min_cost,
-						min_index,
 					)
 				end
 			end
 
 			# store state shortest path and cost
-			path_costs[s, t] = min_cost
-			in_arcs[s, t] = min_index
+			path_costs[s, t] = min_cost[]
+			in_arcs[s, t] = min_index[]
 		end
 	end
 

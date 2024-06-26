@@ -12,6 +12,13 @@ struct TimeSpaceNetwork # TODO always make time the first index
 	long_arcs::Matrix{Int64}
 	wide_arcs::Matrix{Int64}
 
+    # avoid later allocations with modified arc costs and prohibited arcs
+    modified_arc_costs::Vector{Float64}
+    prohibited_arcs::BitVector
+
+	# precalculate arc lookups to supply-demand linking variables
+	supply_demand_dual_arc_lookup::Matrix{Vector{Int64}}
+
 end
 
 struct CrewRouteData

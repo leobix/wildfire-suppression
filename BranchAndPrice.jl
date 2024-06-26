@@ -234,7 +234,7 @@ function branch_and_price(
 	algo_tracking = false,
 	branching_strategy = "linking_dual_max_variance",
 	cut_search_enumeration_limit = 10000,
-	cut_loop_max = 25,
+	cut_loop_max = 10,
 	price_and_cut_soft_time_limit = 180.0,
 	relative_improvement_cut_req = 1e-10,
 	soft_heuristic_time_limit = 300.0,
@@ -258,10 +258,9 @@ function branch_and_price(
 
 	@info "Initializing data structures"
 	# initialize input data
-	crew_routes, fire_plans, crew_models, fire_models, cut_data =
+	@time crew_routes, fire_plans, crew_models, fire_models, cut_data =
 		initialize_data_structures(num_fires, num_crews, num_time_periods)
-
-
+	GC.gc()
 	algo_tracking ?
 	(@info "Checkpoint after initializing data structures" time() - start_time) :
 	nothing

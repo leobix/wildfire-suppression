@@ -94,19 +94,25 @@ function double_column_generation!!!!(
 		crew_arcs_used = [Int[] for crew ∈ 1:num_crews]
 
 		# for each crew
+		
 		Threads.@threads for crew in 1:num_crews
 
-			crew_rel_costs, crew_prohibited_arcs = get_adjusted_crew_arc_costs(
+			crew_subproblems[crew].prohibited_arcs .&= false
+			for i ∈ eachindex(crew_subproblems[crew].modified_arc_costs)
+				crew_subproblems[crew].modified_arc_costs[i] = crew_subproblems[crew].arc_costs[i]
+			end
+			adjust_crew_arc_costs!!(
+				crew_subproblems[crew].modified_arc_costs,
+				crew_subproblems[crew].prohibited_arcs,
 				crew_subproblems[crew].long_arcs,
 				linking_duals,
+				crew_subproblems[crew].supply_demand_dual_arc_lookup,
 				crew_branching_rules,
 			)
 
-			crew_arc_costs = crew_rel_costs .+ crew_subproblems[crew].arc_costs
-
 			# adjust the arc costs for the cuts
-			crew_cut_adjusted_arc_costs = cut_adjust_arc_costs(
-				crew_arc_costs,
+			cut_adjust_arc_costs!(
+				crew_subproblems[crew].modified_arc_costs,
 				cut_data.crew_sp_lookup[crew],
 				cut_duals,
 			)
@@ -114,8 +120,8 @@ function double_column_generation!!!!(
 			# solve the subproblem
 			objective, arcs_used = crew_dp_subproblem(
 				crew_subproblems[crew].wide_arcs,
-				crew_cut_adjusted_arc_costs,
-				crew_prohibited_arcs,
+				crew_subproblems[crew].modified_arc_costs,
+				crew_subproblems[crew].prohibited_arcs,
 				crew_subproblems[crew].state_in_arcs,
 			)
 
@@ -129,6 +135,7 @@ function double_column_generation!!!!(
 			crew_objectives[crew] = objective
 			crew_arcs_used[crew] = arcs_used
 		end
+		
 
 		for crew ∈ 1:num_crews
 
@@ -177,17 +184,23 @@ function double_column_generation!!!!(
 		Threads.@threads for fire in 1:num_fires
 
 			# generate the local costs of the arcs
-			rel_costs, prohibited_arcs = get_adjusted_fire_arc_costs(
+			fire_subproblems[fire].prohibited_arcs .&= false
+			for i ∈ eachindex(fire_subproblems[fire].modified_arc_costs)
+				fire_subproblems[fire].modified_arc_costs[i] = fire_subproblems[fire].arc_costs[i]
+			end
+			adjust_fire_arc_costs!!(
+				fire_subproblems[fire].modified_arc_costs,
+				fire_subproblems[fire].prohibited_arcs,
+				fire,
+				fire_subproblems[fire].supply_demand_dual_arc_lookup,
 				fire_subproblems[fire].long_arcs,
 				linking_duals[fire, :],
 				[rule for rule ∈ fire_branching_rules if rule.fire_ix == fire],
 			)
 
-			arc_costs = rel_costs .+ fire_subproblems[fire].arc_costs
-
 			# adjust the arc costs for the cuts
-			cut_adjusted_arc_costs = cut_adjust_arc_costs(
-				arc_costs,
+			cut_adjust_arc_costs!(
+				fire_subproblems[fire].modified_arc_costs,
 				cut_data.fire_sp_lookup[fire],
 				cut_duals,
 			)
@@ -200,15 +213,15 @@ function double_column_generation!!!!(
 				# if this is a <= 0 rule, we have more prohibited arcs
 				if ~rule.geq_flag
 					for arc_ix ∈ rule.fire_sp_arc_lookup[fire]
-						prohibited_arcs[arc_ix] = true
+						fire_subproblems[fire].prohibited_arcs[arc_ix] = true
 					end
 				end
 
 				# we need to do a proper dual adjustment
-				cut_adjusted_arc_costs = adjust_fire_sp_arc_costs(
+				adjust_fire_sp_arc_costs!(
+					fire_subproblems[fire].modified_arc_costs,
 					rule,
 					fire,
-					cut_adjusted_arc_costs,
 					global_fire_allot_duals[ix],
 				)
 			end
@@ -216,14 +229,16 @@ function double_column_generation!!!!(
 			# solve the subproblem
 			objective, arcs_used = fire_dp_subproblem(
 				fire_subproblems[fire].wide_arcs,
-				cut_adjusted_arc_costs,
-				prohibited_arcs,
+				fire_subproblems[fire].modified_arc_costs,
+				fire_subproblems[fire].prohibited_arcs,
 				fire_subproblems[fire].state_in_arcs,
 			)
 
 			fire_objectives[fire] = objective
 			fire_arcs_used[fire] = arcs_used
 		end
+		
+
 
 		for fire ∈ 1:num_fires
 
@@ -260,6 +275,8 @@ function double_column_generation!!!!(
 				)
 			end
 		end
+
+
 
 		if timing
 			details["fire_subproblems"] += time() - t

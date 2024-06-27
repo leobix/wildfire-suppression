@@ -2,22 +2,27 @@ include("CommonStructs.jl")
 include("TSNetworkGeneration.jl")
 include("BranchingRules.jl")
 
-function cut_adjust_arc_costs!(costs::Vector{Float64}, cut_arc_lookup::Dict{Tuple{Int64, Int64}, Dict{Int64, Float64}}, cut_duals::JuMP.Containers.SparseAxisArray)
+function cut_adjust_arc_costs!(
+	costs::Vector{Float64},
+	cut_arc_lookup::Dict{Tuple{Int64, Int64}, Dict{Int64, Float64}},
+	cut_duals::JuMP.Containers.SparseAxisArray,
+)
 
 	# for each cut
 	for ix in eachindex(cut_duals)
 
+		dual_value = cut_duals[ix]
 		# if the dual cost is strictly positive
-		if cut_duals[ix] > 0
+		if dual_value > 0
 
 			# grab the sparse representation of the dual adjustment
 			# Note: cost_ix = (arc_ix, coeff)
 
 			# for each arc to be adjusted
-			for cost_ix ∈ cut_arc_lookup[ix]
+			for (arc_ix, coeff) ∈ cut_arc_lookup[ix]
 
 				# add the dual cost 
-				costs[cost_ix[1]] += cut_duals[ix] * cost_ix[2]
+				costs[arc_ix] += dual_value * coeff
 			end
 		end
 	end
@@ -40,7 +45,7 @@ end
 function adjust_crew_arc_costs!!(
 	costs::Vector{Float64},
 	prohibited_arcs::BitVector,
-	long_arcs::Matrix{Int64},
+	crew::Int64,
 	linking_duals::Matrix{Float64},
 	linking_dual_arc_lookup::Matrix{Vector{Int64}},
 	branching_rules::Vector{CrewAssignmentBranchingRule},
@@ -55,21 +60,11 @@ function adjust_crew_arc_costs!!(
 			end
 		end
 	end
-			
 
 	# get disallowed arcs due to branching rules
-	# TODO refactor to track this info in B-and-B tree, check each rule just once
 	for rule ∈ branching_rules
-		for arc ∈ 1:size(long_arcs)[1]
-			if (long_arcs[arc, CM.CREW_NUMBER] == rule.crew_ix) &&
-			   (long_arcs[arc, CM.TIME_TO] == rule.time_ix)
-				suppresses_fire =
-					(long_arcs[arc, CM.TO_TYPE] == CM.FIRE_CODE) &&
-					(long_arcs[arc, CM.LOC_TO] == rule.fire_ix)
-				if ~satisfies_branching_rule(rule, suppresses_fire)
-					prohibited_arcs[arc] = true
-				end
-			end
+		if crew == rule.crew_ix
+			prohibited_arcs[rule.prohibited_arcs] .= true
 		end
 	end
 end
@@ -232,14 +227,47 @@ function get_fires_fought(
 
 end
 
+function get_branching_rule_crew_prohibited_arcs!(
+	rule::CrewAssignmentBranchingRule,
+	long_arcs::Matrix{Int64},
+)
+	n = size(long_arcs)[1]
+	for arc ∈ 1:n
+		if (long_arcs[arc, CM.CREW_NUMBER] == rule.crew_ix) &&
+		   (long_arcs[arc, CM.TIME_TO] == rule.time_ix)
+			suppresses_fire =
+				(long_arcs[arc, CM.TO_TYPE] == CM.FIRE_CODE) &&
+				(long_arcs[arc, CM.LOC_TO] == rule.fire_ix)
+			if ~satisfies_branching_rule(rule, suppresses_fire)
+				push!(rule.prohibited_arcs, arc)
+			end
+		end
+	end
+	return prohibited_arcs
+end
+function get_branching_rule_fire_prohibited_arcs!(
+	rule::FireDemandBranchingRule,
+	long_arcs::Matrix{Int64},
+)
+
+	n = size(long_arcs)[1]
+	for arc ∈ 1:n
+		if long_arcs[arc, FM.TIME_FROM] == rule.time_ix
+			if ~satisfies_branching_rule(rule, long_arcs[arc, FM.CREWS_PRESENT])
+				push!(rule.prohibited_arcs, arc)
+			end
+		end
+	end
+end
+
 function adjust_fire_arc_costs!!(
 	costs::Vector{Float64},
 	prohibited_arcs::BitVector,
-	fire_ix::Int64,
+	fire::Int64,
 	linking_dual_arc_lookup::Matrix{Vector{Int64}},
 	long_arcs::Matrix{Int64},
 	linking_duals::Vector{Float64},
-	branching_rules,
+	branching_rules::Vector{FireDemandBranchingRule},
 )
 
 	# no cost for starting arc
@@ -247,18 +275,14 @@ function adjust_fire_arc_costs!!(
 
 	# + 1 is because we appended the 0 (in lookup as well)
 	for t ∈ eachindex(duals)
-		costs[linking_dual_arc_lookup[fire_ix, t]] .+= duals[t] .* long_arcs[linking_dual_arc_lookup[fire_ix, t], FM.CREWS_PRESENT]
+		costs[linking_dual_arc_lookup[fire, t]] .+=
+			duals[t] .* long_arcs[linking_dual_arc_lookup[fire, t], FM.CREWS_PRESENT]
 	end
 
 	# get disallowed arcs due to branching rules
-	# TODO refactor to track this info in B-and-B tree, check each rule just once
 	for rule ∈ branching_rules
-		for arc ∈ 1:size(long_arcs)[1]
-			if long_arcs[arc, FM.TIME_FROM] == rule.time_ix
-				if ~satisfies_branching_rule(rule, long_arcs[arc, FM.CREWS_PRESENT])
-					prohibited_arcs[arc] = true
-				end
-			end
+		if fire == rule.fire_ix
+			prohibited_arcs[rule.prohibited_arcs] .= true
 		end
 	end
 end

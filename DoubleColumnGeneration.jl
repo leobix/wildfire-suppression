@@ -104,7 +104,7 @@ function double_column_generation!!!!(
 			adjust_crew_arc_costs!!(
 				crew_subproblems[crew].modified_arc_costs,
 				crew_subproblems[crew].prohibited_arcs,
-				crew_subproblems[crew].long_arcs,
+				crew,
 				linking_duals,
 				crew_subproblems[crew].supply_demand_dual_arc_lookup,
 				crew_branching_rules,

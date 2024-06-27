@@ -482,8 +482,8 @@ function initialize_data_structures(
 	)
 
 
-	crew_routes = CrewRouteData(100000, num_fires, num_crews, num_time_periods)
-	fire_plans = FirePlanData(100000, num_fires, num_time_periods)
+	crew_routes = CrewRouteData(Int(floor(6 * 1e6 / num_crews)), num_fires, num_crews, num_time_periods)
+	fire_plans = FirePlanData(Int(floor(6 * 1e6  / num_crews)), num_fires, num_time_periods)
 	cut_data = CutData(num_crews, num_fires, num_time_periods)
 
 	return crew_routes, fire_plans, crew_models, fire_models, cut_data
@@ -1388,12 +1388,18 @@ function explore_node!!(
 				Tuple(branch_ix)...,
 				Int(floor(var_mean)),
 				"less_than_or_equal",
+				Int64[],
 			)
 			right_branching_rule = FireDemandBranchingRule(
 				Tuple(branch_ix)...,
 				Int(floor(var_mean)) + 1,
 				"greater_than_or_equal",
+				Int64[],
 			)
+
+			get_branching_rule_fire_prohibited_arcs!(left_branching_rule, fire_subproblems[Tuple(branch_ix)[1]].long_arcs)
+			get_branching_rule_fire_prohibited_arcs!(right_branching_rule, fire_subproblems[Tuple(branch_ix)[1]].long_arcs)
+			
 			left_child = BranchAndBoundNode(
 				ix = size(all_nodes)[1] + 1,
 				parent = branch_and_bound_node,
@@ -1415,11 +1421,17 @@ function explore_node!!(
 			left_branching_rule = CrewAssignmentBranchingRule(
 				Tuple(branch_ix)...,
 				false,
+				Int64[],
 			)
 			right_branching_rule = CrewAssignmentBranchingRule(
 				Tuple(branch_ix)...,
 				true,
+				Int64[],
 			)
+
+			get_branching_rule_crew_prohibited_arcs!(left_branching_rule, crew_subproblems[Tuple(branch_ix)[1]].long_arcs)
+			get_branching_rule_crew_prohibited_arcs!(right_branching_rule, crew_subproblems[Tuple(branch_ix)[1]].long_arcs)
+			
 			left_child = BranchAndBoundNode(
 				ix = size(all_nodes)[1] + 1,
 				parent = branch_and_bound_node,

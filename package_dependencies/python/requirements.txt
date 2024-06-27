@@ -1,8 +1,13 @@
 contourpy==1.2.1
 cycler==0.12.1
+data==0.4
+decorator==5.1.1
 fonttools==4.53.0
+funcsigs==1.0.2
+future==1.0.0
 Jinja2==3.1.4
 kiwisolver==1.4.5
+latex==0.7.0
 MarkupSafe==2.1.5
 matplotlib==3.9.0
 numpy==2.0.0
@@ -13,5 +18,7 @@ pyparsing==3.1.2
 python-dateutil==2.9.0.post0
 pytz==2024.1
 seaborn==0.13.2
+shutilwhich==1.1.0
 six==1.16.0
+tempdir==0.7.1
 tzdata==2024.1

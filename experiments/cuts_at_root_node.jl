@@ -77,7 +77,7 @@ for (key, param_set) in params
         soft_heuristic_time_limit=0.0, 
         price_and_cut_soft_time_limit=1200.0,
         max_nodes=1, 
-        cut_loop_max=25, 
+        cut_loop_max=2, 
         relative_improvement_cut_req=1e-25, 
         price_and_cut_file=args["directory_output"] * key * "_cut_progress_precompile.json"; 
         param_set...)
@@ -93,7 +93,7 @@ for (g, c, t) ∈ sizes
             soft_heuristic_time_limit=0.0, 
             price_and_cut_soft_time_limit=1200.0,
             max_nodes=1, 
-            cut_loop_max=25, 
+            cut_loop_max=50, 
             relative_improvement_cut_req=1e-25, 
             price_and_cut_file=args["directory_output"] * key * "_cut_progress_" * string(g) * ".json"; 
             param_set...)

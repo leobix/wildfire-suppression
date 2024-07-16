@@ -133,7 +133,7 @@ function price_and_cut!!!!(
 			timing = log_flag,
 			upper_bound = upper_bound,
 		)
-		if rmp.termination_status == MOI.OBJECTIVE_LIMIT
+		if (rmp.termination_status == MOI.OBJECTIVE_LIMIT) || (rmp.termination_status == MOI.INFEASIBLE)
 			@debug "no more cuts needed"
 			break
 		end
@@ -230,6 +230,8 @@ function branch_and_price(
 	num_fires::Int,
 	num_crews::Int,
 	num_time_periods::Int;
+	line_per_crew = 40,
+	travel_speed = 40.0 * 16.0,
 	max_nodes = 10000,
 	algo_tracking = false,
 	branching_strategy = "linking_dual_max_variance",
@@ -237,10 +239,10 @@ function branch_and_price(
 	cut_loop_max = 10,
 	price_and_cut_soft_time_limit = 180.0,
 	relative_improvement_cut_req = 1e-10,
-	soft_heuristic_time_limit = 300.0,
-	hard_heuristic_iteration_limit = 10,
+	soft_heuristic_time_limit = 60.0,
+	hard_heuristic_iteration_limit = 3,
 	heuristic_must_improve_rounds = 2,
-	heuristic_cadence = 5,
+	heuristic_cadence_secs = 120.0,
 	total_time_limit = 1800.0,
 	bb_node_gub_cover_cuts = true,
 	bb_node_general_gub_cuts = "adaptive",
@@ -259,7 +261,7 @@ function branch_and_price(
 	@info "Initializing data structures"
 	# initialize input data
 	@time crew_routes, fire_plans, crew_models, fire_models, cut_data =
-		initialize_data_structures(num_fires, num_crews, num_time_periods)
+		initialize_data_structures(num_fires, num_crews, num_time_periods, line_per_crew, travel_speed)
 	GC.gc()
 	algo_tracking ?
 	(@info "Checkpoint after initializing data structures" time() - start_time) :
@@ -271,6 +273,9 @@ function branch_and_price(
 	columns = []
 	times = []
 	time_1 = time() - start_time
+
+	# initialize last heuristic time to ensure running heuristic at root node
+	last_heuristic_time = time_1 - heuristic_cadence_secs 
 
 	# initialize nodes list with the root node
 	nodes = BranchAndBoundNode[]
@@ -345,9 +350,10 @@ function branch_and_price(
 			break
 		end
 
-		if (node_explored_count % heuristic_cadence == 1) &&
+		if (heuristic_cadence_secs < time() - last_heuristic_time) &&
 		   (soft_heuristic_time_limit > 0.0) && (lb / ub < 1 - 1e-3) # gurobi has 1e-4 tol I can't fix
-			heuristic_ub, ub_rmp, routes_best_sol, plans_best_sol =
+		   last_heuristic_time = time()	
+		   heuristic_ub, ub_rmp, routes_best_sol, plans_best_sol =
 				heuristic_upper_bound!!(
 					crew_routes,
 					fire_plans,
@@ -462,12 +468,15 @@ function initialize_data_structures(
 	num_fires::Int64,
 	num_crews::Int64,
 	num_time_periods::Int64,
+	line_per_crew::Int64,
+	travel_speed::Float64
 )
 	crew_models = build_crew_models(
 		"data/raw/big_fire",
 		num_fires,
 		num_crews,
 		num_time_periods,
+		travel_speed=travel_speed
 	)
 
 	fire_models = build_fire_models(
@@ -475,11 +484,12 @@ function initialize_data_structures(
 		num_fires,
 		num_crews,
 		num_time_periods,
+		line_per_crew
 	)
 
 
-	crew_routes = CrewRouteData(100000, num_fires, num_crews, num_time_periods)
-	fire_plans = FirePlanData(100000, num_fires, num_time_periods)
+	crew_routes = CrewRouteData(Int(floor(6 * 1e6 / num_crews)), num_fires, num_crews, num_time_periods)
+	fire_plans = FirePlanData(Int(floor(6 * 1e6  / num_crews)), num_fires, num_time_periods)
 	cut_data = CutData(num_crews, num_fires, num_time_periods)
 
 	return crew_routes, fire_plans, crew_models, fire_models, cut_data
@@ -1384,12 +1394,18 @@ function explore_node!!(
 				Tuple(branch_ix)...,
 				Int(floor(var_mean)),
 				"less_than_or_equal",
+				Int64[],
 			)
 			right_branching_rule = FireDemandBranchingRule(
 				Tuple(branch_ix)...,
 				Int(floor(var_mean)) + 1,
 				"greater_than_or_equal",
+				Int64[],
 			)
+
+			get_branching_rule_fire_prohibited_arcs!(left_branching_rule, fire_subproblems[Tuple(branch_ix)[1]].long_arcs)
+			get_branching_rule_fire_prohibited_arcs!(right_branching_rule, fire_subproblems[Tuple(branch_ix)[1]].long_arcs)
+			
 			left_child = BranchAndBoundNode(
 				ix = size(all_nodes)[1] + 1,
 				parent = branch_and_bound_node,
@@ -1411,11 +1427,17 @@ function explore_node!!(
 			left_branching_rule = CrewAssignmentBranchingRule(
 				Tuple(branch_ix)...,
 				false,
+				Int64[],
 			)
 			right_branching_rule = CrewAssignmentBranchingRule(
 				Tuple(branch_ix)...,
 				true,
+				Int64[],
 			)
+
+			get_branching_rule_crew_prohibited_arcs!(left_branching_rule, crew_subproblems[Tuple(branch_ix)[1]].long_arcs)
+			get_branching_rule_crew_prohibited_arcs!(right_branching_rule, crew_subproblems[Tuple(branch_ix)[1]].long_arcs)
+			
 			left_child = BranchAndBoundNode(
 				ix = size(all_nodes)[1] + 1,
 				parent = branch_and_bound_node,

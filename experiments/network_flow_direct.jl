@@ -193,6 +193,7 @@ fire_models = build_fire_models(
 	num_fires,
 	num_crews,
 	num_time_periods,
+	17
 )
 
 # for model ∈ crew_models
@@ -223,6 +224,7 @@ for (num_fires, num_crews, num_time_periods) ∈ sizes
 		num_fires,
 		num_crews,
 		num_time_periods,
+		17
 	)
 
 

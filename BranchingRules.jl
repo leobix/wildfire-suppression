@@ -6,6 +6,7 @@ struct CrewAssignmentBranchingRule
     fire_ix::Int64
     time_ix::Int64
     visits::Bool
+    prohibited_arcs::Vector{Int64}
 end
 
 struct FireDemandBranchingRule
@@ -14,6 +15,7 @@ struct FireDemandBranchingRule
     time_ix::Int64
     allotment::Int64
     branch_direction::String
+    prohibited_arcs::Vector{Int64}
 end
 
 function satisfies_branching_rule(

@@ -73,27 +73,29 @@ params["everything"] = Dict(:bb_node_gub_cover_cuts => true,
 # precompile
 for (key, param_set) in params
     branch_and_price(3, 10, 14, 
+        line_per_crew = 39,
         algo_tracking=true, 
         soft_heuristic_time_limit=0.0, 
         price_and_cut_soft_time_limit=1200.0,
         max_nodes=1, 
-        cut_loop_max=25, 
+        cut_loop_max=2, 
         relative_improvement_cut_req=1e-25, 
         price_and_cut_file=args["directory_output"] * key * "_cut_progress_precompile.json"; 
         param_set...)
 end
 
 # experiment
-sizes = [(3, 10, 14), (6, 20, 14), (9, 30, 14), (12, 40, 14), (15, 50, 14)]
+sizes = [(3, 10, 14, 39), (6, 20, 14, 20), (9, 30, 14, 20), (12, 40, 14, 20), (15, 50, 14, 20)]
 
-for (g, c, t) ∈ sizes
+for (g, c, t, l) ∈ sizes
     for (key, param_set) in params
         branch_and_price(g, c, t, 
+            line_per_crew=l,
             algo_tracking=true, 
             soft_heuristic_time_limit=0.0, 
             price_and_cut_soft_time_limit=1200.0,
             max_nodes=1, 
-            cut_loop_max=25, 
+            cut_loop_max=50, 
             relative_improvement_cut_req=1e-25, 
             price_and_cut_file=args["directory_output"] * key * "_cut_progress_" * string(g) * ".json"; 
             param_set...)

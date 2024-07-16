@@ -11,11 +11,11 @@ branch_and_price(3, 10, 14, max_nodes = 3, soft_heuristic_time_limit = 0.0, algo
 io = open("profile_logs.txt", "w")
 Profile.init()
 @time begin @profile branch_and_price(
-	9,
-	30,
+	6,
+	20,
 	14,
 	cut_loop_max=10,
-	max_nodes=1,
+	max_nodes=10,
 	price_and_cut_file = "profile_timings.json",
 	algo_tracking = false,
 	soft_heuristic_time_limit = 0.0

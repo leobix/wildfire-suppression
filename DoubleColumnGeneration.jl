@@ -104,7 +104,7 @@ function double_column_generation!!!!(
 			adjust_crew_arc_costs!!(
 				crew_subproblems[crew].modified_arc_costs,
 				crew_subproblems[crew].prohibited_arcs,
-				crew_subproblems[crew].long_arcs,
+				crew,
 				linking_duals,
 				crew_subproblems[crew].supply_demand_dual_arc_lookup,
 				crew_branching_rules,
@@ -156,6 +156,8 @@ function double_column_generation!!!!(
 					arcs_used,
 					(num_fires, num_time_periods),
 				)
+
+				@info "crew route" crew fires_fought
 
 				# add the route to the routes
 				new_route_ix =
@@ -402,13 +404,26 @@ function double_column_generation!!!!(
 			end
 			optimize!(rmp.model)
 
+			if (termination_status(rmp.model) == MOI.INFEASIBLE) |
+				(termination_status(rmp.model) == MOI.INFEASIBLE_OR_UNBOUNDED)
+ 
+				 # log this
+				 @debug "prune by infeasibility"
+				 rmp.termination_status = MOI.INFEASIBLE
+
+			else
+
+				rmp.termination_status = MOI.LOCALLY_SOLVED
+				@debug "end DCG" iteration termination_status(rmp.model) objective_value(
+					rmp.model,
+				)
+
+			end
+
 			if timing
 				details["master_problem"] += (time() - t)
 			end
-			rmp.termination_status = MOI.LOCALLY_SOLVED
-			@debug "end DCG" iteration objective_value(
-				rmp.model,
-			)
+
 		end
 	end
 

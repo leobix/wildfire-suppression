@@ -294,7 +294,7 @@ function get_static_crew_arc_costs(gd, arcs, cost_param_dict)
     return copy(costs) ./ 1e6 # divide by 1e-6 because Gurobi tolerance
 end
 
-function crew_data_from_path(path)
+function crew_data_from_path(path, travel_speed::Float64)
 
     # get distance from fire f to fire g 
     fire_dists = readdlm(path * "/fire_distances.csv", ',')
@@ -308,6 +308,11 @@ function crew_data_from_path(path)
     # initialize number of periods to travel from base c to fire g (NUM_CREWS-by-NUM_FIRES)
     tau_base_to_fire = convert(Array{Int}, ones((size(base_fire_dists))))
 
+    # add travel times
+    tau .+= Int.(round.(fire_dists ./ travel_speed))
+    tau_base_to_fire .+= Int.(round.(base_fire_dists ./ travel_speed))
+
+    @info "travel times" tau tau_base_to_fire
     # read intial crew statuses (location, period by which they must rest)
     # (-1 in current_fire means crew is currently at base)
     # (rested_periods is the amount of time crew has been at base, relevant for completing rest)
@@ -457,10 +462,11 @@ function build_crew_models(
     in_path::String,
     num_fires::Int64,
     num_crews::Int64,
-    num_time_periods::Int64,
+    num_time_periods::Int64;
+    travel_speed::Float64 = Inf
 )
 
-    dists_and_times, crew_status = crew_data_from_path(in_path)
+    dists_and_times, crew_status = crew_data_from_path(in_path, travel_speed)
 
     arcs = generate_arcs(
         dists_and_times,
@@ -888,6 +894,7 @@ function build_fire_models(
     num_fires::Int64,
     num_crews::Int64,
     num_time_periods::Int64,
+    line_per_crew::Int64,
 )
 
     # get inital fire perimeters and no-suppression progression parameters
@@ -902,7 +909,7 @@ function build_fire_models(
     for fire in 1:num_fires
         model_config = Dict("model_type" => "simple_linear",
             "progressions" => progressions[fire, :],
-            "start_perim" => start_perims[fire], "line_per_crew" => 17,
+            "start_perim" => start_perims[fire], "line_per_crew" => line_per_crew,
             "beta" => 100)
         _, _, arc_arrays, arc_costs, _, in_arcs, out_arcs = discretize_fire_model(
             model_config,

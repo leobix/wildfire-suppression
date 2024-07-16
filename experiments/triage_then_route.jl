@@ -405,6 +405,7 @@ for (num_fires, num_crews, num_time_periods) ∈ sizes
 		num_fires,
 		num_crews,
 		num_time_periods,
+		17
 	)
 	t = @elapsed _, _, cost =
 		triage_then_route_by_time_period(crew_models, fire_models, 0.9, 1.0)
@@ -426,6 +427,7 @@ for (num_fires, num_crews, num_time_periods) ∈ sizes
 		num_fires,
 		num_crews,
 		num_time_periods,
+		17
 	)
 	t = @elapsed _, _, cost =
 		triage_then_route_by_time_period(crew_models, fire_models, 0.9, 1.0)

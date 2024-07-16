@@ -216,7 +216,11 @@ def value_of_cuts_and_branching(
     df = extract_bb_results(prefix)
     df["upper_bounds"] = df["upper_bounds"].fillna(np.inf)
     file_extract = df["file"].apply(lambda x: x.split("_"))
-    df["Crews"] = file_extract.str[0].astype(int)
+    param_list = file_extract.str[0]
+    param_list = param_list.apply(lambda x: x.split("+"))
+    df["Crews"] = param_list.str[0].astype(int)
+    df["Line per crew"] = param_list.str[1].astype(int)
+    df["Travel speed"] = param_list.str[2].astype(float)
     df["Cuts"] = file_extract.str[2] == "true"
     df["Branching strategy"] = file_extract.apply(
         lambda x: "_".join(x[x.index("branch") + 2 : x.index("heuristic")])
@@ -227,13 +231,17 @@ def value_of_cuts_and_branching(
     )
     df["Pct. gap"] = np.round(df["Pct. gap"] + 1e-12, 4)
     df["Fires"] = (0.3 * df["Crews"]).astype(int)
+    df["heuristic_times"] = df.groupby("file")["heuristic_times"].transform("cumsum")
     cols = [
         "Crews",
         "Fires",
+        "Line per crew",
+        "Travel speed",
         "Cuts",
         "Branching strategy",
         "Heuristic",
         "times",
+        "heuristic_times",
         "explored_nodes",
         "Pct. gap",
         "upper_bounds",

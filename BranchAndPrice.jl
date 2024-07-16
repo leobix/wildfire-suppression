@@ -98,6 +98,7 @@ function price_and_cut!!!!(
 	relative_improvement_cut_req::Float64,
 	upper_bound::Float64 = 1e10,
 	log_progress_file = nothing,
+	time_limit = Inf,
 )
 
 	log_flag = ~isnothing(log_progress_file)
@@ -132,6 +133,7 @@ function price_and_cut!!!!(
 			global_fire_allotment_rules,
 			timing = log_flag,
 			upper_bound = upper_bound,
+			time_limit = time_limit,
 		)
 		if (rmp.termination_status == MOI.OBJECTIVE_LIMIT) || (rmp.termination_status == MOI.INFEASIBLE)
 			@debug "no more cuts needed"
@@ -271,6 +273,7 @@ function branch_and_price(
 	ubs = []
 	lbs = []
 	columns = []
+	heuristic_times = []
 	times = []
 	time_1 = time() - start_time
 
@@ -350,6 +353,7 @@ function branch_and_price(
 			break
 		end
 
+		heuristic_time = 0.0
 		if (heuristic_cadence_secs < time() - last_heuristic_time) &&
 		   (soft_heuristic_time_limit > 0.0) && (lb / ub < 1 - 1e-3) # gurobi has 1e-4 tol I can't fix
 		   last_heuristic_time = time()	
@@ -382,6 +386,8 @@ function branch_and_price(
 				break
 			end
 
+			heuristic_time = time() - last_heuristic_time
+
 			nodes[node_ix].heuristic_found_master_problem = ub_rmp
 
 			if heuristic_ub < nodes[node_ix].u_bound
@@ -408,7 +414,7 @@ function branch_and_price(
 
 		# if this node has an integer solution, check if we have found 
 		# a better solution than the incumbent
-		# TODO keep track if it comes from heurisitc or no
+		# TODO keep track if it comes from heuristic or no
 		if nodes[node_ix].u_bound < ub
 			ub = nodes[node_ix].u_bound
 			ub_ix = node_ix
@@ -439,6 +445,7 @@ function branch_and_price(
 				columns,
 				sum(crew_routes.routes_per_crew) + sum(fire_plans.plans_per_fire),
 			)
+			push!(heuristic_times, heuristic_time)
 			push!(times, time() - start_time)
 		end
 
@@ -460,7 +467,7 @@ function branch_and_price(
 		end
 	end
 
-	return explored_nodes, ubs, lbs, columns, times, time_1
+	return explored_nodes, ubs, lbs, columns, heuristic_times, times, time_1
 
 end
 
@@ -476,7 +483,7 @@ function initialize_data_structures(
 		num_fires,
 		num_crews,
 		num_time_periods,
-		travel_speed=travel_speed
+		travel_speed,
 	)
 
 	fire_models = build_fire_models(
@@ -1040,7 +1047,8 @@ function heuristic_upper_bound!!(
 			single_fire_cuts = single_fire_cuts,
 			decrease_gub_allots = decrease_gub_allots,
 			single_fire_lift = single_fire_lift,
-			upper_bound = ub)
+			upper_bound = ub,
+			time_limit = 20.0)
 		@info "Price and cut time (heuristic)" t
 
 		# add in columns from best feasible solution so far

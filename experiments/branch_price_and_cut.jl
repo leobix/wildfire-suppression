@@ -32,9 +32,9 @@ function run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_li
 
     for (cut, b_rule, heuristic_time_limit, problem_size) ∈ product(cuts, branching_rules, heuristic_time_limits, sizes)
 
-        (g, c, t) = problem_size
+        (g, c, t, l, crew_speed) = problem_size
         heuristic_enabled = heuristic_time_limit > 0.0
-        s = string(c)
+        s = string(c) * "+" * string(l) * "+" * string(crew_speed)
         if precompile
             s = "precompile"
         end
@@ -45,23 +45,20 @@ function run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_li
         else
             global_logger(ConsoleLogger(io, Logging.Info, show_limited=false))
         end
-        explored_nodes, ubs, lbs, columns, times, time_1 =
+        explored_nodes, ubs, lbs, columns, heuristic_times, times, time_1 =
             branch_and_price(
                 g,
                 c,
                 t,
+                line_per_crew=l,
+                travel_speed = crew_speed,
                 algo_tracking=true,
+                max_nodes=1000,
                 soft_heuristic_time_limit=heuristic_time_limit,
                 total_time_limit=total_time_limit,
                 branching_strategy=b_rule,
-                bb_node_gub_cover_cuts=false,
                 bb_node_general_gub_cuts=cut ? "adaptive" : "none",
-                bb_node_decrease_gub_allots=false,
-                bb_node_single_fire_lift=false,
-                heuristic_gub_cover_cuts=false,
-                heuristic_general_gub_cuts=cut ? "adaptive" : "none",
-                heuristic_decrease_gub_allots=false,
-                heuristic_single_fire_lift=false,
+                heuristic_general_gub_cuts=cut ? "adaptive" : "none"
             )
         json_name = file_name * ".json"
         outputs = Dict(
@@ -69,8 +66,8 @@ function run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_li
             "upper_bounds" => ubs,
             "lower_bounds" => lbs,
             "times" => times,
+            "heuristic_times" => heuristic_times,
             "num_columns" => columns,
-            "times" => times,
             "init_time" => time_1,
         )
 
@@ -86,12 +83,16 @@ branching_rules = ["most_fractional", "max_variance", "linking_dual_max_variance
 heuristic_time_limits = [0.0, 60.0]
 
 # precompile
-sizes = [(3, 10, 14)]
+sizes = [(3, 10, 14, 26, 40.0 * 16.0)]
 run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_limits, precompile=true, total_time_limit=5.0)
 
 # experiment
 cuts = [true]
-sizes = [(6, 20, 14)]
-branching_rules = ["max_variance"]
+sizes = [(6, 20, 14, 20), (9, 30, 14, 20), (12, 40, 14, 20), (15, 50, 14, 20), (18, 60, 14, 20)]
+sizes_1 = [(6, 20, 14, i, j) for i ∈ [16, 18, 20, 22, 24] for j ∈ [640.0, 240.0, Inf]] 
+sizes_2 = [(9, 30, 14, i, j) for i ∈ [16, 18, 20, 22, 24] for j ∈ [640.0, 240.0, Inf]] 
+sizes = vcat(sizes_1, sizes_2)
+branching_rules = ["linking_dual_max_variance"]
 heuristic_time_limits = [60.0]
-run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_limits, precompile=false, total_time_limit=1200.0)
+run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_limits, precompile=false, total_time_limit=120.0)
+

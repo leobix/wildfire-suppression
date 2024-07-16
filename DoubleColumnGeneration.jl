@@ -47,6 +47,7 @@ function double_column_generation!!!!(
 	global_fire_allotment_branching_rules::Vector{GlobalFireAllotmentBranchingRule};
 	upper_bound::Float64,
 	timing::Bool,
+	time_limit::Float64 = Inf,
 	improving_column_abs_tolerance::Float64 = 1e-10,
 	local_gap_rel_tolerance::Float64 = 1e-9)
 
@@ -157,7 +158,7 @@ function double_column_generation!!!!(
 					(num_fires, num_time_periods),
 				)
 
-				@info "crew route" crew fires_fought
+				@debug "crew route" crew fires_fought
 
 				# add the route to the routes
 				new_route_ix =
@@ -285,7 +286,7 @@ function double_column_generation!!!!(
 		end
 
 		continue_iterating =
-			(iteration == 1) || (-reduced_cost_sum / ub > local_gap_rel_tolerance)
+			((iteration == 1) || (-reduced_cost_sum / ub > local_gap_rel_tolerance)) && (time_limit > time() - t)
 
 		# if we have not found columns with enough reduced cost
 		if ~continue_iterating

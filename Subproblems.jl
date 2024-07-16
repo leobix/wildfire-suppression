@@ -243,8 +243,8 @@ function get_branching_rule_crew_prohibited_arcs!(
 			end
 		end
 	end
-	return prohibited_arcs
 end
+
 function get_branching_rule_fire_prohibited_arcs!(
 	rule::FireDemandBranchingRule,
 	long_arcs::Matrix{Int64},

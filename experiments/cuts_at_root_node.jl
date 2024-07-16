@@ -85,7 +85,7 @@ for (key, param_set) in params
 end
 
 # experiment
-sizes = [(3, 10, 14, 39), (6, 20, 14, 20), (9, 30, 14, 20), (12, 40, 14, 20), (15, 50, 14, 20)]
+sizes = [(3, 10, 14, 39), (6, 20, 14, 20), (9, 30, 14, 20), (12, 39, 14, 20), (15, 50, 14, 20)]
 
 for (g, c, t, l) ∈ sizes
     for (key, param_set) in params

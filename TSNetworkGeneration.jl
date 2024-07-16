@@ -312,7 +312,7 @@ function crew_data_from_path(path, travel_speed::Float64)
     tau .+= Int.(round.(fire_dists ./ travel_speed))
     tau_base_to_fire .+= Int.(round.(base_fire_dists ./ travel_speed))
 
-    @info "travel times" tau tau_base_to_fire
+    @debug "travel times" tau tau_base_to_fire
     # read intial crew statuses (location, period by which they must rest)
     # (-1 in current_fire means crew is currently at base)
     # (rested_periods is the amount of time crew has been at base, relevant for completing rest)
@@ -462,8 +462,8 @@ function build_crew_models(
     in_path::String,
     num_fires::Int64,
     num_crews::Int64,
-    num_time_periods::Int64;
-    travel_speed::Float64 = Inf
+    num_time_periods::Int64,
+    travel_speed::Float64
 )
 
     dists_and_times, crew_status = crew_data_from_path(in_path, travel_speed)

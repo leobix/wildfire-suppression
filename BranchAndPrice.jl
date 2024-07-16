@@ -230,6 +230,8 @@ function branch_and_price(
 	num_fires::Int,
 	num_crews::Int,
 	num_time_periods::Int;
+	line_per_crew = 40,
+	travel_speed = 40.0 * 16.0,
 	max_nodes = 10000,
 	algo_tracking = false,
 	branching_strategy = "linking_dual_max_variance",
@@ -259,7 +261,7 @@ function branch_and_price(
 	@info "Initializing data structures"
 	# initialize input data
 	@time crew_routes, fire_plans, crew_models, fire_models, cut_data =
-		initialize_data_structures(num_fires, num_crews, num_time_periods)
+		initialize_data_structures(num_fires, num_crews, num_time_periods, line_per_crew, travel_speed)
 	GC.gc()
 	algo_tracking ?
 	(@info "Checkpoint after initializing data structures" time() - start_time) :
@@ -462,12 +464,15 @@ function initialize_data_structures(
 	num_fires::Int64,
 	num_crews::Int64,
 	num_time_periods::Int64,
+	line_per_crew::Int64,
+	travel_speed::Float64
 )
 	crew_models = build_crew_models(
 		"data/raw/big_fire",
 		num_fires,
 		num_crews,
 		num_time_periods,
+		travel_speed=travel_speed
 	)
 
 	fire_models = build_fire_models(
@@ -475,6 +480,7 @@ function initialize_data_structures(
 		num_fires,
 		num_crews,
 		num_time_periods,
+		line_per_crew
 	)
 
 

@@ -157,6 +157,8 @@ function double_column_generation!!!!(
 					(num_fires, num_time_periods),
 				)
 
+				@info "crew route" crew fires_fought
+
 				# add the route to the routes
 				new_route_ix =
 					add_column_to_route_data!(crew_routes, crew, cost, fires_fought)

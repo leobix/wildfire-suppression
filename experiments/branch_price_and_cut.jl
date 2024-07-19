@@ -46,7 +46,7 @@ function run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_li
             println("Skipping ", file_name)
             continue
         end
-        
+
         local io = open(logfile, "w")
         if args["debug"] == true
             global_logger(ConsoleLogger(io, Logging.Debug, show_limited=false))
@@ -104,5 +104,5 @@ sizes_2 = [(9, 30, 14, i, j) for i ∈ [16, 18, 20, 22, 24] for j ∈ [640.0, 24
 sizes = vcat(sizes_1, sizes_2)
 branching_rules = ["linking_dual_max_variance"]
 heuristic_time_limits = [60.0]
-run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_limits, precompile=false, total_time_limit=120.0)
+run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_limits, precompile=false, total_time_limit=1200.0)
 

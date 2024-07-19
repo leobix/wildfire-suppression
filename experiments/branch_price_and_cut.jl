@@ -39,12 +39,21 @@ function run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_li
             s = "precompile"
         end
         file_name = s * "_cut_" * string(cut) * "_branch_strategy_" * string(b_rule) * "_heuristic_" * string(heuristic_enabled)
-        local io = open(out_dir * "logs_" * file_name * ".txt", "w")
+        logfile = out_dir * "logs_" * file_name * ".txt"
+
+        # check if we tried this file, skip if logs exist
+        if (~precompile) && (isfile(logfile))
+            println("Skipping ", file_name)
+            continue
+        end
+        
+        local io = open(logfile, "w")
         if args["debug"] == true
             global_logger(ConsoleLogger(io, Logging.Debug, show_limited=false))
         else
             global_logger(ConsoleLogger(io, Logging.Info, show_limited=false))
         end
+            
         explored_nodes, ubs, lbs, columns, heuristic_times, times, time_1 =
             branch_and_price(
                 g,
@@ -74,6 +83,7 @@ function run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_li
         open(out_dir * json_name, "w") do f
             JSON.print(f, outputs, 4)
         end
+        return
     end
 end
 

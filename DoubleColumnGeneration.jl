@@ -455,6 +455,7 @@ function define_restricted_master_problem(
 	set_optimizer_attribute(m, "OptimalityTol", 1e-9)
 	set_optimizer_attribute(m, "FeasibilityTol", 1e-9)
 	set_optimizer_attribute(m, "InfUnbdInfo", 1)
+	# set_optimizer_attribute(m, "OutputFlag", 1)
 
 
 	# decision variables for crew routes and fire plans

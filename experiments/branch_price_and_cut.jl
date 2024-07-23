@@ -41,11 +41,11 @@ function run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_li
         file_name = s * "_cut_" * string(cut) * "_branch_strategy_" * string(b_rule) * "_heuristic_" * string(heuristic_enabled)
         logfile = out_dir * "logs_" * file_name * ".txt"
 
-        # check if we tried this file, skip if logs exist
-        if (~precompile) && (isfile(logfile))
-            println("Skipping ", file_name)
-            continue
-        end
+        # # check if we tried this file, skip if logs exist
+        # if (~precompile) && (isfile(logfile))
+        #     println("Skipping ", file_name)
+        #     continue
+        # end
 
         local io = open(logfile, "w")
         if args["debug"] == true
@@ -83,7 +83,7 @@ function run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_li
         open(out_dir * json_name, "w") do f
             JSON.print(f, outputs, 4)
         end
-        return
+        # return
     end
 end
 
@@ -98,7 +98,7 @@ run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_limits, pre
 
 # experiment
 cuts = [true]
-sizes = [(6, 20, 14, 20), (9, 30, 14, 20), (12, 40, 14, 20), (15, 50, 14, 20), (18, 60, 14, 20)]
+# sizes = [(6, 20, 14, 20), (9, 30, 14, 20), (12, 40, 14, 20), (15, 50, 14, 20), (18, 60, 14, 20)]
 sizes_1 = [(6, 20, 14, i, j) for i ∈ [16, 18, 20, 22, 24] for j ∈ [640.0, 240.0, Inf]] 
 sizes_2 = [(9, 30, 14, i, j) for i ∈ [16, 18, 20, 22, 24] for j ∈ [640.0, 240.0, Inf]] 
 sizes = vcat(sizes_1, sizes_2)

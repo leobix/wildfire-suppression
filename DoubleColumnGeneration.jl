@@ -49,7 +49,7 @@ function double_column_generation!!!!(
 	timing::Bool,
 	time_limit::Float64 = Inf,
 	improving_column_abs_tolerance::Float64 = 1e-10,
-	local_gap_rel_tolerance::Float64 = 1e-9)
+	local_gap_rel_tolerance::Float64 = 1e-5)
 
 	# initialize timing dictionary
 	details = Dict{String, Float64}()
@@ -267,6 +267,7 @@ function double_column_generation!!!!(
 				new_plan_ix =
 					add_column_to_plan_data!(fire_plans, fire, cost, crew_demands)
 
+				@debug "fire plan" fire crew_demands
 				# update the master problem
 				add_column_to_master_problem!!(
 					rmp,
@@ -285,6 +286,7 @@ function double_column_generation!!!!(
 			details["fire_subproblems"] += time() - t
 		end
 
+		@debug "total reduced cost" reduced_cost_sum ub reduced_cost_sum / ub local_gap_rel_tolerance
 		continue_iterating =
 			((iteration == 1) || (-reduced_cost_sum / ub > local_gap_rel_tolerance)) && (time_limit > time() - t)
 

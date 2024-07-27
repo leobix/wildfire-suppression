@@ -426,14 +426,14 @@ for (num_fires, num_crews, num_time_periods) ∈ sizes
 		num_fires,
 		num_crews,
 		num_time_periods,
-		26,
+		20,
 	)
 	t = @elapsed _, _, cost =
 		triage_then_route_by_time_period(crew_models, fire_models, 0.9, 1.0)
 	@info "done" num_crews t cost
 end
 
-sizes = [(3, 10, 14, 26), (6, 20, 14, 22), (9, 30, 14, 22), (12, 40, 14, 20), (15, 50, 14, 20)]
+sizes = [(3, 10, 14, 20), (6, 20, 14, 20), (9, 30, 14, 20), (12, 40, 14, 20), (15, 50, 14, 20), (18, 60, 14, 20), (21, 70, 14, 20)]
 for (num_fires, num_crews, num_time_periods, line_per_crew) ∈ sizes
 
 	crew_models = build_crew_models(

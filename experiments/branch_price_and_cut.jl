@@ -62,7 +62,6 @@ function run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_li
                 line_per_crew=l,
                 travel_speed = crew_speed,
                 algo_tracking=true,
-                max_nodes=1000,
                 soft_heuristic_time_limit=heuristic_time_limit,
                 total_time_limit=total_time_limit,
                 branching_strategy=b_rule,
@@ -96,6 +95,14 @@ heuristic_time_limits = [0.0, 60.0]
 sizes = [(3, 10, 14, 20, 640.0)]
 run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_limits, precompile=true, total_time_limit=5.0)
 
+# value of cuts, branching, heuristic experiment
+cuts = [true, false]
+branching_rules = ["most_fractional", "max_variance", "linking_dual_max_variance"]
+heuristic_time_limits = [0.0, 60.0]
+sizes = [(3, 10, 14, 20, 640.0), (6, 20, 14, 20, 640.0), (9, 30, 14, 20, 640.0)]
+run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_limits, precompile=false, total_time_limit=1200.0)
+
+
 # sensitivity experiment
 branching_rules = ["linking_dual_max_variance"]
 heuristic_time_limits = [60.0]
@@ -105,19 +112,9 @@ sizes_2 = [(9, 30, 14, i, j) for i ∈ [16, 18, 20, 22, 24] for j ∈ [640.0, 24
 sizes = vcat(sizes_1, sizes_2)
 run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_limits, precompile=false, total_time_limit=1200.0)
 
-# value of cuts, branching, heuristic experiment
-cuts = [true, false]
-branching_rules = ["most_fractional", "max_variance", "linking_dual_max_variance"]
-heuristic_time_limits = [0.0, 60.0]
-sizes = [(3, 10, 14, 20, 640.0), (6, 20, 14, 20, 640.0)]
-run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_limits, precompile=false, total_time_limit=1200.0)
-
-
 # scalability experiment
 branching_rules = ["linking_dual_max_variance"]
 heuristic_time_limits = [60.0]
 cuts = [true]
-branching_rules = ["most_fractional", "max_variance", "linking_dual_max_variance"]
-heuristic_time_limits = [0.0, 60.0]
 sizes = [(3, 10, 14, 20, 640.0), (6, 20, 14, 20, 640.0), (9, 30, 14, 20, 640.0), (12, 40, 14, 20, 640.0), (15, 50, 14, 20, 640.0), (18, 60, 14, 20, 640.0), (21, 70, 14, 20, 640.0)]
 run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_limits, precompile=false, total_time_limit=1200.0)

@@ -141,7 +141,7 @@ def dcg_root_node_stats(
     ]
     time_df = time_df[cols]
     latex_table = time_df.to_latex(
-        index=False, escape=True, float_format="%.3f", column_format="|cc|ccc|cc|cc|"
+        index=False, escape=True, float_format="%.2f", column_format="|cc|ccc|cc|cc|"
     )
     latex_table = (
         latex_table.replace("\\bottomrule", "\\hline")
@@ -221,16 +221,28 @@ def sensitivity(
     param_list = file_extract.str[0]
     param_list = param_list.apply(lambda x: x.split("+"))
     df["Crews"] = param_list.str[0].astype(int)
+    df["Cuts"] = file_extract.str[2] == "true"
+    df["Branching strategy"] = file_extract.apply(
+        lambda x: "_".join(x[x.index("branch") + 2 : x.index("heuristic")])
+    )
+    df["Heuristic"] = file_extract.str[-1] == "true.json"
     df["Crew skill"] = param_list.str[1].astype(int) / 20
     df["Crew speed"] = (
         param_list.str[2]
         .astype(float)
         .map({240.0 : "Slow", 640.0 : "Medium", np.inf : "Fast"})
     )
+
+    keep = df["Crews"].isin([20, 30]) 
+    keep = keep & df["Heuristic"] 
+    keep = keep & df["Cuts"] 
+    keep = keep & (df["Branching strategy"] == "linking_dual_max_variance")
+    df = df[keep].reset_index(drop=True)
+    
     df["Pct. gap"] = (
         (df["upper_bounds"] - df["lower_bounds"]) / df["lower_bounds"] * 100
     )
-    df["Pct. gap"] = np.round(df["Pct. gap"] + 1e-12, 2)
+    df["Pct. gap"] = np.round(df["Pct. gap"] + 1e-12, 3)
     df["Fires"] = (0.3 * df["Crews"]).astype(int)
     df["heuristic_times"] = df.groupby("file")["heuristic_times"].transform("cumsum")
     cols = ["file",
@@ -250,7 +262,7 @@ def sensitivity(
     tbl.loc[still_gap, "times"] = 1200
     tbl["times"] = tbl["times"].apply(lambda x: int(np.floor(x)))
     tbl["heuristic_times"] = tbl["heuristic_times"].apply(lambda x: int(np.floor(x)))
-    tbl["Pct. gap"] = tbl["Pct. gap"].apply(lambda x: np.round(x, 2))
+    tbl["Pct. gap"] = tbl["Pct. gap"].apply(lambda x: np.round(x, 3))
     tbl.rename(
         inplace=True,
         columns={
@@ -288,7 +300,6 @@ def sensitivity(
     for col in ["Crews", "Fires", "Crew skill"]:
         repeats = tbl[col] == tbl[col].shift()
         tbl.loc[repeats, col] = ''
-    breakpoint()
     latex_table = tbl.to_latex(
         index=False, float_format="%.2f", escape=False, column_format="|cccc|cccccc|"
     )
@@ -311,6 +322,100 @@ def sensitivity(
         print(latex_table, file=f)
 
 
+def scalability(
+    prefix="data\\experiment_outputs\\branch_price_and_cut\\",
+):
+    df = extract_bb_results(prefix)
+    df["upper_bounds"] = df["upper_bounds"].fillna(np.inf)
+    file_extract = df["file"].apply(lambda x: x.split("_"))
+    param_list = file_extract.str[0]
+    param_list = param_list.apply(lambda x: x.split("+"))
+    df["Crews"] = param_list.str[0].astype(int)
+    df["Cuts"] = file_extract.str[2] == "true"
+    df["Branching strategy"] = file_extract.apply(
+        lambda x: "_".join(x[x.index("branch") + 2 : x.index("heuristic")])
+    )
+    df["Heuristic"] = file_extract.str[-1] == "true.json"
+    df["Crew skill"] = param_list.str[1].astype(int) / 20
+    df["Crew speed"] = (
+        param_list.str[2]
+        .astype(float)
+        .map({240.0 : "Slow", 640.0 : "Medium", np.inf : "Fast"})
+    )
+
+    keep = df["Heuristic"] 
+    keep = keep & df["Cuts"] 
+    keep = keep & (df["Branching strategy"] == "linking_dual_max_variance")
+    keep = keep & (df["Crew speed"] == "Medium")
+    keep = keep & (df["Crew skill"] == 1.00)
+    df = df[keep].reset_index(drop=True)
+    
+    df["Pct. gap"] = (
+        (df["upper_bounds"] - df["lower_bounds"]) / df["lower_bounds"] * 100
+    )
+    df["Pct. gap"] = np.round(df["Pct. gap"] + 1e-12, 3)
+    df["Fires"] = (0.3 * df["Crews"]).astype(int)
+    df["heuristic_times"] = df.groupby("file")["heuristic_times"].transform("cumsum")
+    cols = ["file",
+        "Crews",
+        "Fires",
+        "times",
+        "Pct. gap",
+        "upper_bounds",
+        "lower_bounds",
+    ]
+    tbl = df.drop_duplicates("file", keep="last")[cols].set_index("file")
+    still_gap = tbl["Pct. gap"] > 0
+    tbl.loc[still_gap, "times"] = 1200
+    tbl["times"] = tbl["times"].apply(lambda x: int(np.floor(x)))
+    # tbl["heuristic_times"] = tbl["heuristic_times"].apply(lambda x: int(np.floor(x)))
+    tbl["Pct. gap"] = tbl["Pct. gap"].apply(lambda x: np.round(x, 3))
+    tbl.rename(
+        inplace=True,
+        columns={
+            "upper_bounds": "UB",
+            "lower_bounds": "LB",
+            "times": "Total",
+            "heuristic_times": "Heuristic",
+            "explored_nodes": "Nodes",
+        },
+    )
+
+    root_node = df.drop_duplicates("file", keep="first")[cols].set_index("file")
+    root_node["times"] = root_node["times"].apply(lambda x: int(np.floor(x)))
+    # root_node["heuristic_times"] = root_node["heuristic_times"].apply(
+    #     lambda x: int(np.floor(x))
+    # )
+    root_node["Pct. gap"] = root_node["Pct. gap"].apply(lambda x: np.round(x, 2))
+    root_node.rename(
+        inplace=True,
+        columns={
+            "upper_bounds": "UB",
+            "lower_bounds": "LB",
+            "times": "Time",
+            "explored_nodes": "Nodes",
+        },
+    )
+    root_node.drop(
+        inplace=True,
+        columns=["Crews", "Fires"],
+    )
+    tbl = pd.merge(tbl, root_node, left_index=True, right_index=True, how="inner", validate="1:1", suffixes=["", " root"])
+    tbl = tbl.reset_index(drop=True)
+    latex_table = tbl.to_latex(
+        index=False, float_format="%.2f", escape=False, column_format="c" * len(tbl.columns)
+    )
+    latex_table = (
+        latex_table.replace("\\bottomrule", "\\hline")
+        .replace("\\midrule", "\\hline")
+        .replace("\\toprule", "\\hline")
+    )
+
+    with open("experiments\\figures\\scalability.txt", "w") as f:
+        print(latex_table, file=f)
+
+
+
 def value_of_cuts_and_branching(
     prefix="data\\experiment_outputs\\branch_price_and_cut\\",
 ):
@@ -320,56 +425,86 @@ def value_of_cuts_and_branching(
     param_list = file_extract.str[0]
     param_list = param_list.apply(lambda x: x.split("+"))
     df["Crews"] = param_list.str[0].astype(int)
-    df["Line per crew"] = param_list.str[1].astype(int)
-    df["Travel speed"] = param_list.str[2].astype(float)
     df["Cuts"] = file_extract.str[2] == "true"
-    df["Branching strategy"] = file_extract.apply(
+    df["Branching"] = file_extract.apply(
         lambda x: "_".join(x[x.index("branch") + 2 : x.index("heuristic")])
     )
     df["Heuristic"] = file_extract.str[-1] == "true.json"
+    df["Crew skill"] = param_list.str[1].astype(int) / 20
+    df["Crew speed"] = (
+        param_list.str[2]
+        .astype(float)
+        .map({240.0 : "Slow", 640.0 : "Medium", np.inf : "Fast"})
+    )
+
+    keep = df["Crews"].isin([10, 20]) 
+    keep = keep & (df["Crew skill"] == 1.00)
+    keep = keep & (df["Crew speed"] == "Medium")
+
+    df = df[keep].reset_index(drop=True)
+    
     df["Pct. gap"] = (
         (df["upper_bounds"] - df["lower_bounds"]) / df["lower_bounds"] * 100
     )
-    df["Pct. gap"] = np.round(df["Pct. gap"] + 1e-12, 4)
+    df["Pct. gap"] = np.round(df["Pct. gap"] + 1e-12, 2)
     df["Fires"] = (0.3 * df["Crews"]).astype(int)
     df["heuristic_times"] = df.groupby("file")["heuristic_times"].transform("cumsum")
-    cols = [
+    cols = ["file",
         "Crews",
         "Fires",
-        "Line per crew",
-        "Travel speed",
         "Cuts",
-        "Branching strategy",
         "Heuristic",
+        "Branching",
         "times",
-        "heuristic_times",
-        "explored_nodes",
         "Pct. gap",
         "upper_bounds",
         "lower_bounds",
+        "explored_nodes",
     ]
-    tbl = df.drop_duplicates("file", keep="last")[cols].reset_index(drop=True)
+    tbl = df.drop_duplicates("file", keep="last")[cols].set_index("file")
     still_gap = tbl["Pct. gap"] > 0
-    tbl.loc[still_gap, "times"] = 1200.0
-    tbl["times"] = tbl["times"].apply(lambda x: signif(x, 5))
-    tbl["Pct. gap"] = tbl["Pct. gap"].apply(lambda x: signif(x, 3))
+    tbl.loc[still_gap, "times"] = 1200
+    tbl["times"] = tbl["times"].apply(lambda x: int(np.floor(x)))
+    # tbl["heuristic_times"] = tbl["heuristic_times"].apply(lambda x: int(np.floor(x)))
+    tbl["Pct. gap"] = tbl["Pct. gap"].apply(lambda x: np.round(x, 2))
     tbl.rename(
         inplace=True,
         columns={
             "upper_bounds": "UB",
             "lower_bounds": "LB",
-            "times": "Time",
+            "times": "Total",
             "explored_nodes": "Nodes",
         },
     )
+    tbl["UB"] = tbl["UB"].replace({np.inf : "$\infty$"})
+    tbl["Pct. gap"] = tbl["Pct. gap"].replace({np.inf : "$\infty$"})
+    tbl["Branching"] = tbl["Branching"].replace({"max_variance" : "MV", "most_fractional" : "MF", "linking_dual_max_variance" : "MVLD"})
+    tbl.sort_values(["Crews", "Cuts", "Heuristic", "Branching"], inplace=True)
+    
+    for col in ["Crews", "Fires", "Cuts", "Heuristic", "Branching"]:
+        repeats = tbl[col] == tbl[col].shift()
+        tbl.loc[repeats, col] = ''
+    
     latex_table = tbl.to_latex(
-        index=False, escape=True, float_format="%.4f", column_format="|ccccc|ccccc|"
+        index=False, escape=False, float_format="%.2f", column_format="cccccccccc"
     )
     latex_table = (
         latex_table.replace("\\bottomrule", "\\hline")
         .replace("\\midrule", "\\hline")
         .replace("\\toprule", "\\hline")
     )
+
+    lines = latex_table.split("""\n""")
+    mf_ixs = [i for i, line in enumerate(lines) if (' & ' in line) and (line.split(' & ')[4] == "MF")]
+    for i in mf_ixs:
+        if lines[i].split(' & ')[3] == "False":
+            if lines[i].split(' & ')[2] == "False":
+                lines[i] = r"""\cmidrule(lr){1-10}\n""" + lines[i]
+            else:
+                lines[i] = r"""\cmidrule(lr){3-10}\n""" + lines[i]
+        else:
+            lines[i] = r"""\cmidrule(lr){4-10}\n""" + lines[i]
+    latex_table = """\n""".join(lines)
 
     with open("experiments\\figures\\value_of_cuts_and_branching.txt", "w") as f:
         print(latex_table, file=f)
@@ -434,7 +569,8 @@ def cglp_methods(prefix="data\\experiment_outputs\\cuts_at_root_node\\"):
 
 
 sensitivity()
+scalability()
+value_of_cuts_and_branching()
 dcg_root_node_stats()
 cglp_methods()
-value_of_cuts_and_branching()
 cuts_at_root_node()

@@ -452,7 +452,7 @@ for (num_fires, num_crews, num_time_periods, line_per_crew) ∈ sizes
 		line_per_crew,
 	)
 	t = @elapsed _, _, cost =
-		triage_then_route_by_time_period(crew_models, fire_models, 0.9, 1.0)
+		triage_then_route_by_time_period(crew_models, fire_models, 0.1, 1.0)
 	outputs[num_crews] = (t, cost)
 end
 

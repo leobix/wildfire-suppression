@@ -70,19 +70,6 @@ branch_and_price(
 	soft_heuristic_time_limit = 0.0,
 )
 
-branch_and_price(
-	6,
-	20,
-	14,
-	line_per_crew = 20,
-	travel_speed = 40.0 * 16.0,
-	algo_tracking = true,
-	price_and_cut_file = "timings_ref1.json",
-	cut_loop_max = 0,
-	max_nodes = 1,
-	total_time_limit = 600.0,
-	soft_heuristic_time_limit = 0.0,
-)
 
 branch_and_price(
 	6,

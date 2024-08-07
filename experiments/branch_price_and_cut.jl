@@ -54,7 +54,7 @@ function run_experiment(out_dir, sizes, cuts, branching_rules, heuristic_time_li
             global_logger(ConsoleLogger(io, Logging.Info, show_limited=false))
         end
             
-        explored_nodes, ubs, lbs, columns, heuristic_times, times, time_1 =
+        explored_nodes, ubs, lbs, columns, heuristic_times, times, time_1, _, _ =
             branch_and_price(
                 g,
                 c,

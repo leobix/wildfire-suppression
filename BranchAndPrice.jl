@@ -256,9 +256,12 @@ function branch_and_price(
 	heuristic_single_fire_cuts = false,
 	heuristic_decrease_gub_allots = false,
 	heuristic_single_fire_lift = false,
+	root_node_ip = false,
 	price_and_cut_file = nothing,
 )
 	start_time = time()
+	root_node_ip_sol = 0.0
+	root_node_ip_sol_time = 0.0
 
 	@info "Initializing data structures"
 	# initialize input data
@@ -396,20 +399,18 @@ function branch_and_price(
 		end
 
 		## now that we have done the heuristic, can mess up rmp and lose duals
+		if root_node_ip && (node_explored_count == 1)
 
-		# if (ub / nodes[node_ix].l_bound < 1.001) 
-		# 	t = @elapsed obj, obj_bound, routes, plans =
-		# 		find_integer_solution(
-		# 			nodes[node_ix].master_problem,
-		# 			ub,
-		# 			12000,
-		# 			40000,
-		# 			10.0,)			
-		# 	@info "restore_integrality" t obj obj_bound
-		# 	if obj < nodes[node_ix].u_bound
-		# 		nodes[node_ix].u_bound = obj
-		# 	end
-		# end
+			root_node_ip_sol_time = @elapsed root_node_ip_sol, obj_bound, _, _ =
+				find_integer_solution(
+					nodes[node_ix].master_problem,
+					Inf,
+					1200000,
+					4000000,
+					1200.0,)			
+			@info "restore_integrality" t obj obj_bound
+		end
+
 
 
 		# if this node has an integer solution, check if we have found 
@@ -467,7 +468,7 @@ function branch_and_price(
 		end
 	end
 
-	return explored_nodes, ubs, lbs, columns, heuristic_times, times, time_1
+	return explored_nodes, ubs, lbs, columns, heuristic_times, times, time_1, root_node_ip_sol, root_node_ip_sol_time
 
 end
 

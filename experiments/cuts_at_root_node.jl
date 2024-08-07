@@ -87,7 +87,6 @@ end
 
 # experiment
 sizes = [(3, 10, 14, 20), (6, 20, 14, 20), (9, 30, 14, 20), (12, 40, 14, 20), (15, 50, 14, 20), (18, 60, 14, 20), (21, 70, 14, 20)]
-sizes = [(3, 10, 14, 20), (6, 20, 14, 20)]
 output = []
 for (g, c, t, l) ∈ sizes
     for (key, param_set) in params
@@ -107,8 +106,7 @@ for (g, c, t, l) ∈ sizes
             push!(output, (g, c, t, l, root_sol, root_sol_time))
         end
     end
-    
-    open(args["directory_output"] * "cgip.json", "w") do f
-        JSON.print(f, output, 4)
-    end
+end
+open(args["directory_output"] * "cgip.json", "w") do f
+    JSON.print(f, output, 4)
 end

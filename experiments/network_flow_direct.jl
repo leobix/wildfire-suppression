@@ -180,12 +180,14 @@ integer_outputs = Dict()
 num_crews = 10
 num_fires = 3
 num_time_periods = 14
+crew_speed = 640.0
 
 crew_models = build_crew_models(
 	"data/raw/big_fire",
 	num_fires,
 	num_crews,
 	num_time_periods,
+	crew_speed,
 )
 
 fire_models = build_fire_models(
@@ -193,7 +195,7 @@ fire_models = build_fire_models(
 	num_fires,
 	num_crews,
 	num_time_periods,
-	17
+	20,
 )
 
 # for model ∈ crew_models
@@ -207,16 +209,16 @@ fire_models = build_fire_models(
 full_network_flow(crew_models, fire_models, verbose = false)
 
 
-sizes = [(3, 10, 14), (6, 20, 14), (9, 30, 14), (12, 40, 14), (15, 50, 14)]
-# sizes = [(6, 20, 14)]
+sizes = [(3, 10, 14, 20), (6, 20, 14, 20), (9, 30, 14, 20), (12, 40, 14, 20), (15, 50, 14, 20), (12, 40, 14, 20), (15, 50, 14, 20), (18, 60, 14, 20), (21, 70, 14, 20)]
 
-for (num_fires, num_crews, num_time_periods) ∈ sizes
+for (num_fires, num_crews, num_time_periods, line_per_crew) ∈ sizes
 
 	local_crew_models = build_crew_models(
 		"data/raw/big_fire",
 		num_fires,
 		num_crews,
 		num_time_periods,
+		crew_speed,
 	)
 
 	local_fire_models = build_fire_models(
@@ -224,7 +226,7 @@ for (num_fires, num_crews, num_time_periods) ∈ sizes
 		num_fires,
 		num_crews,
 		num_time_periods,
-		17
+		line_per_crew,
 	)
 
 

@@ -26,14 +26,57 @@ else
 end
 
 # precompile
-branch_and_price(3, 10, 14, algo_tracking = false)
+branch_and_price(3, 10, 14, line_per_crew = 26, algo_tracking = false)
 
 branch_and_price(
 	3,
 	10,
 	14,
-	line_per_crew = 40,
+	line_per_crew = 26,
 	travel_speed = 40.0 * 16.0,
+	algo_tracking = true,
+	price_and_cut_file = "timings_ref1.json",
+	cut_loop_max = 0,
+	max_nodes = 1,
+	total_time_limit = 600.0,
+	soft_heuristic_time_limit = 0.0,
+)
+
+branch_and_price(
+	6,
+	20,
+	14,
+	line_per_crew = 20,
+	travel_speed = 40.0 * 16.0,
+	algo_tracking = true,
+	price_and_cut_file = "timings_ref1.json",
+	cut_loop_max = 0,
+	max_nodes = 1,
+	total_time_limit = 600.0,
+	soft_heuristic_time_limit = 0.0,
+)
+
+branch_and_price(
+	6,
+	20,
+	14,
+	line_per_crew = 20,
+	travel_speed = Inf,
+	algo_tracking = true,
+	price_and_cut_file = "timings_ref1.json",
+	cut_loop_max = 0,
+	max_nodes = 1,
+	total_time_limit = 600.0,
+	soft_heuristic_time_limit = 0.0,
+)
+
+
+branch_and_price(
+	6,
+	20,
+	14,
+	line_per_crew = 20,
+	travel_speed = 20.0 * 16.0,
 	algo_tracking = true,
 	price_and_cut_file = "timings_ref1.json",
 	cut_loop_max = 0,
@@ -75,6 +118,20 @@ branch_and_price(
 	20,
 	14,
 	line_per_crew = 22,
+	travel_speed = 40.0 * 16.0,
+	algo_tracking = true,
+	price_and_cut_file = "timings_ref1.json",
+	cut_loop_max = 0,
+	max_nodes = 1,
+	total_time_limit = 600.0,
+	soft_heuristic_time_limit = 0.0,
+)
+
+branch_and_price(
+	6,
+	20,
+	14,
+	line_per_crew = 24,
 	travel_speed = 40.0 * 16.0,
 	algo_tracking = true,
 	price_and_cut_file = "timings_ref1.json",

@@ -47,8 +47,9 @@ function double_column_generation!!!!(
 	global_fire_allotment_branching_rules::Vector{GlobalFireAllotmentBranchingRule};
 	upper_bound::Float64,
 	timing::Bool,
+	time_limit::Float64 = Inf,
 	improving_column_abs_tolerance::Float64 = 1e-10,
-	local_gap_rel_tolerance::Float64 = 1e-9)
+	local_gap_rel_tolerance::Float64 = 1e-5)
 
 	# initialize timing dictionary
 	details = Dict{String, Float64}()
@@ -157,7 +158,7 @@ function double_column_generation!!!!(
 					(num_fires, num_time_periods),
 				)
 
-				@info "crew route" crew fires_fought
+				@debug "crew route" crew fires_fought
 
 				# add the route to the routes
 				new_route_ix =
@@ -266,6 +267,7 @@ function double_column_generation!!!!(
 				new_plan_ix =
 					add_column_to_plan_data!(fire_plans, fire, cost, crew_demands)
 
+				@debug "fire plan" fire crew_demands
 				# update the master problem
 				add_column_to_master_problem!!(
 					rmp,
@@ -284,8 +286,9 @@ function double_column_generation!!!!(
 			details["fire_subproblems"] += time() - t
 		end
 
+		@debug "total reduced cost" reduced_cost_sum ub reduced_cost_sum / ub local_gap_rel_tolerance
 		continue_iterating =
-			(iteration == 1) || (-reduced_cost_sum / ub > local_gap_rel_tolerance)
+			((iteration == 1) || (-reduced_cost_sum / ub > local_gap_rel_tolerance)) && (time_limit > time() - t)
 
 		# if we have not found columns with enough reduced cost
 		if ~continue_iterating
@@ -454,6 +457,7 @@ function define_restricted_master_problem(
 	set_optimizer_attribute(m, "OptimalityTol", 1e-9)
 	set_optimizer_attribute(m, "FeasibilityTol", 1e-9)
 	set_optimizer_attribute(m, "InfUnbdInfo", 1)
+	# set_optimizer_attribute(m, "OutputFlag", 1)
 
 
 	# decision variables for crew routes and fire plans

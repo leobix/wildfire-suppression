@@ -6,17 +6,17 @@ using JuMP, Gurobi, ArgParse, JSON
 const GRB_ENV = Gurobi.Env()
 
 function get_command_line_args()
-    arg_parse_settings = ArgParseSettings()
-    @add_arg_table arg_parse_settings begin
-        "--debug"
-        help = "run in debug mode, exposing all logging that uses @debug macro"
-        action = :store_true
-        "--directory_output", "-d"
-        help = "directory to write outputs, must exist"
-        arg_type = String
-        default = "data/experiment_outputs/triage_then_route/"
-    end
-    return parse_args(arg_parse_settings)
+	arg_parse_settings = ArgParseSettings()
+	@add_arg_table arg_parse_settings begin
+		"""--debug"""
+		help = "run in debug mode, exposing all logging that uses @debug macro"
+		action = :store_true
+		"--directory_output", "-d"
+		help = "directory to write outputs, must exist"
+		arg_type = String
+		default = "data/experiment_outputs/triage_then_route/"
+	end
+	return parse_args(arg_parse_settings)
 end
 
 function backward_crew_dp_subproblem(
@@ -200,21 +200,28 @@ function triage_then_route_by_time_period(
 			for fire ∈ 1:num_fires
 				crews_present = sum([
 					1 for i ∈ 1:num_crews if
-					(crew_from_type[i] == CM.FIRE_CODE) & (crew_loc_from[i] == fire)
+					(crew_from_type[i] == CM.FIRE_CODE) && (crew_loc_from[i] == fire) && (crew_time_from[i] == curr_time)
 				])
+				# println(fire, crews_present)
+				branching_rule = FireDemandBranchingRule(
+					fire,
+					curr_time,
+					crews_present,
+					"less_than_or_equal",
+					Int64[],
+				)
+				get_branching_rule_fire_prohibited_arcs!(
+					branching_rule,
+					fire_models[fire].long_arcs,
+				)
 				push!(
 					branching_rules[fire],
-					FireDemandBranchingRule(
-						fire,
-						curr_time,
-						crews_present,
-						"less_than_or_equal",
-					),
+					branching_rule,
 				)
 			end
 		end
 
-		@debug "current branching rules" branching_rulesn
+		@debug "current branching rules" branching_rules
 
 		# get the fire triage scores
 		no_suppression_fire_damages = [
@@ -225,6 +232,7 @@ function triage_then_route_by_time_period(
 				branching_rules[fire],
 			) + 1e-6 for fire ∈ 1:num_fires
 		]
+		@info no_suppression_fire_damages
 
 		fire_triage_scores =
 			no_suppression_fire_damages ./ sum(no_suppression_fire_damages)
@@ -235,9 +243,10 @@ function triage_then_route_by_time_period(
 
 		# formulate assignment problem
 		m = direct_model(Gurobi.Optimizer(GRB_ENV))
-		set_optimizer_attribute(m, "OutputFlag", 0) # put this first so others don't print
+		set_optimizer_attribute(m, "OutputFlag", 1) # put this first so others don't print
 		set_optimizer_attribute(m, "OptimalityTol", 1e-9)
 		set_optimizer_attribute(m, "FeasibilityTol", 1e-9)
+		set_optimizer_attribute(m, "TimeLimit", 5)
 		fire_totals =
 			@variable(m, s[g = 1:num_fires, t = curr_time+1:num_times+1] >= 0)
 		for g ∈ 1:num_fires
@@ -284,7 +293,15 @@ function triage_then_route_by_time_period(
 		)
 
 		for crew ∈ 1:num_crews
-			if crew_time_from[crew] == curr_time
+
+			# incorporate crews already assigned from past time long travel
+			if crew_time_from[crew] != curr_time
+				if (crew_from_type[crew] == CM.FIRE_CODE) && (crew_time_from[crew] <= num_times+1)
+					new_rhs = normalized_rhs(linking[crew_loc_from[crew], crew_time_from[crew]]) + 1
+					set_normalized_rhs(linking[crew_loc_from[crew], crew_time_from[crew]], new_rhs)
+				end
+				# println(crew, " ", curr_time)
+			else
 				crew_long_arcs = crew_models[crew].long_arcs
 				potential_arc_ixs =
 					findall(
@@ -302,17 +319,17 @@ function triage_then_route_by_time_period(
 						num_fires + 1 : crew_long_arcs[ix, CM.LOC_TO]
 					time_to = crew_long_arcs[ix, CM.TIME_TO]
 					rest_to = crew_long_arcs[ix, CM.REST_TO]
-					if (time_to >= num_times) ||
-					   reachable_states[crew][loc_to, time_to, rest_to+1]
+					if ((time_to >= num_times) || reachable_states[crew][loc_to, time_to, rest_to+1]) && (loc_to > num_fires || (no_suppression_fire_damages[loc_to] > 1.001e-6))
 						arc_variables[crew, loc_to, time_to, rest_to] =
 							v = @variable(m, binary = true)
+							# println(crew, " ", loc_to, " ", time_to, " ", rest_to)
 						set_objective_coefficient(
 							m,
 							v,
 							-100 * crew_models[crew].arc_costs[ix],
 						) # secondary obj
 						arc_lookup[(crew, loc_to, time_to, rest_to)] = ix
-						if loc_to < num_fires + 1
+						if (loc_to < num_fires + 1) && (time_to <= num_times + 1)
 							set_normalized_coefficient(
 								linking[loc_to, time_to],
 								arc_variables[crew, loc_to, time_to, rest_to],
@@ -334,6 +351,7 @@ function triage_then_route_by_time_period(
 		chosen_variables =
 			[i for i ∈ eachindex(arc_variables) if value(arc_variables[i]) > 0.5]
 		@debug "after solving assignment IP" chosen_variables
+		# println(chosen_variables)
 
 		# update arcs traversed and crew state
 		for (crew, loc_to, time_to, rest_to) ∈ chosen_variables
@@ -389,6 +407,8 @@ end
 args = get_command_line_args()
 outputs = Dict()
 
+crew_speed = 40.0 * 16
+
 # precompile
 sizes = [(3, 10, 14)]
 for (num_fires, num_crews, num_time_periods) ∈ sizes
@@ -398,6 +418,7 @@ for (num_fires, num_crews, num_time_periods) ∈ sizes
 		num_fires,
 		num_crews,
 		num_time_periods,
+		crew_speed,
 	)
 
 	fire_models = build_fire_models(
@@ -405,21 +426,22 @@ for (num_fires, num_crews, num_time_periods) ∈ sizes
 		num_fires,
 		num_crews,
 		num_time_periods,
-		17
+		20,
 	)
 	t = @elapsed _, _, cost =
 		triage_then_route_by_time_period(crew_models, fire_models, 0.9, 1.0)
 	@info "done" num_crews t cost
 end
 
-sizes = [(3, 10, 14), (6, 20, 14), (9, 30, 14), (12, 40, 14), (15, 50, 14)]
-for (num_fires, num_crews, num_time_periods) ∈ sizes
+sizes = [(3, 10, 14, 20), (6, 20, 14, 20), (9, 30, 14, 20), (12, 40, 14, 20), (15, 50, 14, 20), (18, 60, 14, 20), (21, 70, 14, 20)]
+for (num_fires, num_crews, num_time_periods, line_per_crew) ∈ sizes
 
 	crew_models = build_crew_models(
 		"data/raw/big_fire",
 		num_fires,
 		num_crews,
 		num_time_periods,
+		crew_speed,
 	)
 
 	fire_models = build_fire_models(
@@ -427,10 +449,10 @@ for (num_fires, num_crews, num_time_periods) ∈ sizes
 		num_fires,
 		num_crews,
 		num_time_periods,
-		17
+		line_per_crew,
 	)
 	t = @elapsed _, _, cost =
-		triage_then_route_by_time_period(crew_models, fire_models, 0.9, 1.0)
+		triage_then_route_by_time_period(crew_models, fire_models, 0.1, 1.0)
 	outputs[num_crews] = (t, cost)
 end
 

@@ -18,7 +18,7 @@ sns.set_context(
 
 def signif(x, p):
     return np.format_float_positional(
-        x, precision=p, unique=False, fractional=False, trim="k"
+        x, precision=p, unique=False, fractional=False, trim="-"
     )
 
 
@@ -138,8 +138,8 @@ def dcg_root_node_stats(
 
     time_df = time_df.sort_values("num_fires")
     cols = [
-        "num_fires",
         "num_crews",
+        "num_fires",
         "fire_states",
         "fire_arcs",
         "crew_arcs",
@@ -197,7 +197,7 @@ def cuts_at_root_node(prefix="data\\experiment_outputs\\cuts_at_root_node\\"):
     cut_progress["Cut method"].replace("gub_plus_strengthen", "B", inplace=True)
     cut_progress = cut_progress[cut_progress["num_fires"].isin([9, 12, 15])]
     cut_progress.sort_values("Cut method", inplace=True)
-    cut_progress["Cut method"].replace("C", "G-GUB", inplace=True)
+    cut_progress["Cut method"].replace("C", "A-GUB", inplace=True)
     cut_progress["Cut method"].replace("A", "GUB", inplace=True)
     cut_progress["Cut method"].replace("B", "S-GUB", inplace=True)
 
@@ -315,7 +315,12 @@ def sensitivity(
     #     columns=["Nodes", "Crews", "Fires", "Line per crew", "Travel speed"],
     # )
     # tbl = pd.merge(tbl, root_node, left_index=True, right_index=True, how="inner", validate="1:1", suffixes=["", " root"])
+    norm_factor = tbl.groupby(["Crews"])["LB"].transform(min)
+    tbl["LB"] /= norm_factor
+    tbl["UB"] /= norm_factor
     tbl = tbl.reset_index(drop=True)
+    col = "Pct. gap"
+    tbl[col] = tbl[col].apply(lambda x: np.format_float_positional(x, unique=False, precision=2)).astype(str).apply(lambda x: x + "\%")
 
     for col in ["Crews", "Fires", "Crew skill"]:
         repeats = tbl[col] == tbl[col].shift()
@@ -397,7 +402,7 @@ def scalability(
         columns={
             "upper_bounds": "UB",
             "lower_bounds": "LB",
-            "times": "Total",
+            "times": "Time",
             "heuristic_times": "Heuristic",
             "explored_nodes": "Nodes",
         },
@@ -422,9 +427,17 @@ def scalability(
         inplace=True,
         columns=["Crews", "Fires"],
     )
-    tbl = pd.merge(tbl, root_node, left_index=True, right_index=True, how="inner", validate="1:1", suffixes=["", " root"])
+    tbl = pd.merge(root_node, tbl, left_index=True, right_index=True, how="inner", validate="1:1", suffixes=[" root", ""])
     tbl = tbl.reset_index(drop=True)
 
+    with open("data/experiment_outputs/cgip.json", "r") as f:
+        cgip = pd.DataFrame(json.load(f), columns = ["Fires", "Crews", "_", "_", "UB", "Time"])
+    tbl = pd.merge(cgip[["Crews", "Fires", "Time", "UB"]], tbl, on=["Crews", "Fires"], how="inner", validate="1:1", suffixes=[" CGIP", ""])
+    tbl["Time CGIP"] = np.round(np.minimum(tbl["Time CGIP"] + tbl["Time root"], 1200)).astype(int) # todo fix this logic
+    tbl["Pct. gap CGIP"] = (
+    (tbl["UB CGIP"] - tbl["LB root"]) / tbl["LB root"] * 100
+    )
+    tbl["Pct. gap CGIP"] = np.round(tbl["Pct. gap CGIP"] + 1e-12, 3)
     with open(exact_benchmark_path + "output.json", "r") as f:
         d = json.load(f)
     exact_benchmark = pd.DataFrame(d["integer"]).T.reset_index()
@@ -439,18 +452,24 @@ def scalability(
     cols = ['Crews', 'Time', 'Pct. gap', 'UB', 'LB']
     exact_benchmark = exact_benchmark[cols]
     exact_benchmark["Time"] = np.round(exact_benchmark["Time"]).astype(int)
-    tbl = pd.merge(tbl, exact_benchmark, on="Crews", how="inner", validate="1:1", suffixes=["", " Gurobi"])
+    tbl = pd.merge(exact_benchmark, tbl, on="Crews", how="inner", validate="1:1", suffixes=[" Gurobi", ""])
 
-    
-    with open(heuristic_benchmark_path + "output.json", "r") as f:
-        d = json.load(f)
-    triage_then_route = pd.DataFrame(d).T.reset_index()
-    triage_then_route.columns = ["Crews", "Time", "UB"]
-    triage_then_route["Crews"] = triage_then_route["Crews"].astype(int)
-    tbl = pd.merge(tbl, triage_then_route, on="Crews", how="inner", validate="1:1", suffixes=["", " sequential"])
 
-    tbl = tbl[[col for col in tbl.columns if "LB" not in col]]
-    latex_table = tbl.to_latex(
+    # with open(heuristic_benchmark_path + "output.json", "r") as f:
+    #     d = json.load(f)
+    # triage_then_route = pd.DataFrame(d).T.reset_index()
+    # triage_then_route.columns = ["Crews", "Time", "UB"]
+    # triage_then_route["Crews"] = triage_then_route["Crews"].astype(int)
+    # tbl = pd.merge(tbl, triage_then_route, on="Crews", how="inner", validate="1:1", suffixes=["", " sequential"])
+
+    tbl = tbl[[col for col in tbl.columns if "LB" not in col]].sort_values("Crews")
+    cols = ['Crews', 'Fires', 'UB Gurobi', 'Time Gurobi', 'Pct. gap Gurobi',
+            'UB CGIP', 'Time CGIP', 'Pct. gap CGIP', 'UB root', 'Time root', 'Pct. gap root', 
+            'UB', 'Time', 'Pct. gap']
+    for col in cols:
+        if "Pct. gap" in col:
+            tbl[col] = tbl[col].apply(lambda x: signif(x, 3)).astype(str).apply(lambda x: x + "\%")
+    latex_table = tbl[cols].to_latex(
         index=False, float_format="%.2f", escape=False, column_format="c" * len(tbl.columns)
     )
     latex_table = (

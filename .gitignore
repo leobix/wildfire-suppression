@@ -7,4 +7,3 @@
 !**/*.toml
 **/.ipynb_checkpoints/*
 !**/*process_outputs.py
-!data/fire_models/*

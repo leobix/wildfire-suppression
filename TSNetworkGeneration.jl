@@ -920,14 +920,6 @@ function build_fire_models(
             [round_type],
         )
 
-        # write the arc arrays and arc costs to files
-        directory = "data/fire_models/"
-        if !isdir(directory)
-            mkdir(directory)
-        end
-        writedlm(directory * "arc_arrays_" * string(fire) * ".csv", arc_arrays[round_type], ',')
-        writedlm(directory * "arc_costs_" * string(fire) * ".csv", arc_costs[round_type], ',')
-
         # need +1 for the start arcs, tracking times {0, ..., T} but Julia uses 1-indexing
         linking_dual_arc_lookup = Matrix{Vector{Int64}}(undef, num_fires, num_time_periods + 1)
         for g ∈ 1:num_fires

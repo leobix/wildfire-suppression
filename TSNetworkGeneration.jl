@@ -494,18 +494,19 @@ function build_crew_models_from_empirical(
     tau = convert(Array{Int}, ones(num_fires, num_fires))
 
     # TODO fix fire-distances
-    # for now they will all be the same, the mean of the base-fire distances
+    # for now they will all be the same
     fire_dists = zeros(num_fires, num_fires)
     dist = sum(base_fire_dists) / length(base_fire_dists)
     for i in 1:num_fires
         for j in 1:num_fires
             if i != j
                 fire_dists[i, j] = dist
+                tau[i, j] = 2
             end
         end
     end
 
-    tau .+= Int.(round.(fire_dists ./ travel_speed))
+    @info "travel times" tau tau_base_to_fire
 
     # TODO make better crew starts
     current_fire = [1, 2, 3, 1, 4, 5, 2, 3, -1, -1]
@@ -1110,30 +1111,6 @@ function build_fire_models_from_empirical(
     # read in the selected fires
     fire_folder = "data/empirical_fire_models/raw/arc_arrays"
     selected_fires = CSV.read(fire_folder * "/" * "selected_fires.csv", DataFrame)
-
-    # read in the base-to-fire distances
-    base_fire_dists = CSV.read(fire_folder * "/../" * "consolidated_distances.csv", DataFrame)
-
-    # restrict to the fires whose fire_id is in the arc_file column of "selected_fires.csv"
-    base_fire_dists = base_fire_dists[findall(in(selected_fires[:, "fire_id"]), base_fire_dists[:, "fire_id"]), :]
-    
-    # turn the base_fire_dists into a matrix, dropping the columns names and the fire_id column
-    base_fire_dists = Matrix(base_fire_dists[:, 2:end])
-
-    # transpose the matrix so that the rows are the crews and the columns are the fires
-    base_fire_dists = copy(base_fire_dists')
-
-    # TODO fix fire-distances
-    # for now they will all be the same, the mean of the base-fire distances
-    fire_dists = zeros(num_fires, num_fires)
-    dist = sum(base_fire_dists) / length(base_fire_dists)
-    for i in 1:num_fires
-        for j in 1:num_fires
-            if i != j
-                fire_dists[i, j] = dist
-            end
-        end
-    end
 
     for fire in 1:num_fires
 

@@ -427,11 +427,40 @@ function branch_and_price(
 				crew_routes,
 				fire_plans,
 			)
-			@info "new incumbent" fire_allots crew_allots fire_cost crew_cost
+			fire_arcs_used, crew_arcs_used = get_fire_and_crew_arcs_used(nodes[node_ix].master_problem,
+				crew_routes,
+				fire_plans,
+			)
 
-			# write the fire allots and crew allots to a file that can be read by the plotting script
-			NPZ.npzwrite("fire_allots.npy", fire_allots)
-			NPZ.npzwrite("crew_allots.npy", crew_allots)
+			# if it is not a directory, make the directory data/output
+			isdir("data/output") || mkdir("data/output")
+
+			# extract the arc data from the subproblems
+			for fire in 1:num_fires
+				arcs_used = fire_arcs_used[fire]
+				arcs_used = reverse(arcs_used)
+				restricted_long_arcs = fire_models[fire].long_arcs[arcs_used, :]
+				restricted_costs = fire_models[fire].arc_costs[arcs_used]
+				# remove the first column, which is extraneous
+				restricted_long_arcs = restricted_long_arcs[:, 2:end]
+				NPZ.npzwrite("data/output/fire_$(fire)_arcs.npy", restricted_long_arcs)
+				NPZ.npzwrite("data/output/fire_$(fire)_costs.npy", restricted_costs)
+			end
+
+			for crew in 1:num_crews
+				arcs_used = crew_arcs_used[crew]
+				arcs_used = reverse(arcs_used)
+				restricted_long_arcs = crew_models[crew].long_arcs[arcs_used, :]
+				# remove the first column, which is extraneous
+				restricted_long_arcs = restricted_long_arcs[:, 2:end]
+				restricted_costs = crew_models[crew].arc_costs[arcs_used]
+				NPZ.npzwrite("data/output/crew_$(crew)_arcs.npy", restricted_long_arcs)
+				NPZ.npzwrite("data/output/crew_$(crew)_costs.npy", restricted_costs)
+			end
+
+			@info "new incumbent" fire_allots crew_allots fire_cost crew_cost fire_arcs_used crew_arcs_used
+
+
 			ub = nodes[node_ix].u_bound
 			ub_ix = node_ix
 		end

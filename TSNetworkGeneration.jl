@@ -1,5 +1,5 @@
 include("CommonStructs.jl")
-using DataFrames, CSV, DelimitedFiles
+using DataFrames, CSV, DelimitedFiles, Random
 
 module CrewArcArrayIndices
 
@@ -467,13 +467,16 @@ function build_crew_models_from_empirical(
 
     # read in the selected fires
     fire_folder = "data/empirical_fire_models/raw/arc_arrays"
-    selected_fires = CSV.read(fire_folder * "/" * "selected_fires.csv", DataFrame)   
+    selected_fires = CSV.read(fire_folder * "/" * "selected_fires.csv", DataFrame) 
+
+    # get the unique fire ids
+    idx = unique(i -> selected_fires[i, "fire_id"], eachindex(selected_fires[:, "fire_id"]))
 
     # read in the crew locations
-    tau_base_to_fire = CSV.read(fire_folder * "/../" * "consolidated_distances.csv", DataFrame)
+    tau_base_to_fire = CSV.read(fire_folder * "/../" * "base_fire_durations.csv", DataFrame)
 
     # restrict to the fires whose fire_id is in the arc_file column of "selected_fires.csv"
-    tau_base_to_fire = tau_base_to_fire[findall(in(selected_fires[:, "fire_id"]), tau_base_to_fire[:, "fire_id"]), :]
+    tau_base_to_fire = tau_base_to_fire[findall(in(selected_fires[idx, "id"]), tau_base_to_fire[:, "fire_id"]), :]
     
     # turn the tau_base_to_fire into a matrix, dropping the columns names and the fire_id column
     tau_base_to_fire = Matrix(tau_base_to_fire[:, 2:end])
@@ -495,13 +498,21 @@ function build_crew_models_from_empirical(
 
     # TODO fix fire-distances
     # for now they will all be the same
+    raw_fire_dists = CSV.read(fire_folder * "/../" * "fire_distances.csv", DataFrame)
+    dict_fire_dists = Dict()
+    for row in eachrow(raw_fire_dists)
+        dict_fire_dists[row["origin_fire_id"], row["destination_fire_id"]] = row["duration_min"] 
+    end
+
     fire_dists = zeros(num_fires, num_fires)
-    dist = sum(base_fire_dists) / length(base_fire_dists)
+
     for i in 1:num_fires
         for j in 1:num_fires
             if i != j
-                fire_dists[i, j] = dist
-                tau[i, j] = 2
+                duration_min = dict_fire_dists[selected_fires[idx[i], "fire_id"], selected_fires[idx[j], "fire_id"]]
+                duration_days = duration_min / 60 / 24
+                tau[i, j] = round(Int, duration_days) + 1
+                fire_dists[i, j] = duration_days * travel_speed
             end
         end
     end
@@ -509,15 +520,47 @@ function build_crew_models_from_empirical(
     @info "travel times" tau tau_base_to_fire
 
     # TODO make better crew starts
-    current_fire = [1, 2, 3, 1, 4, 5, 2, 3, -1, -1]
-    current_fire = repeat(current_fire, 100)
-    current_fire = current_fire[1:num_crews]
-    rest_by = [15, 15, 10, 10, 8, 8, 8, 5, 5, 4]
-    rest_by = repeat(rest_by, 100)
-    rest_by = rest_by[1:num_crews]
-    rested_periods = [-1, -1, -1, -1, -1, -1, -1, -1, 0, 1]
-    rested_periods = repeat(rested_periods, 100)
-    rested_periods = rested_periods[1:num_crews]
+
+    # get the personnel (type 1 crews) at each fire
+    type_1_crews = selected_fires[idx, "personnel_Crew, Type 1"]
+
+    # since each crew is 20 people, we can divide by 20 to get the number of crews
+    type_1_crews = round.(Int, type_1_crews / 20)
+
+    # now we have to guess where the crews are; we just assign them in order to the fires
+    current_fire = []
+    for i in 1:num_fires
+        append!(current_fire, fill(i, type_1_crews[i]))
+    end
+
+    print(current_fire)
+    print(length(current_fire))
+
+    if length(current_fire) < num_crews
+        append!(current_fire, fill(-1, num_crews - length(current_fire)))
+    elseif length(current_fire) > num_crews
+        error("Not enough crews to assign to fires")
+    end
+
+    # now we have to guess how long the crews have until they have to rest
+    rest_by = []
+    rested_periods = []
+
+    # if a crew is at a fire, they have to rest in some random number of days from 5 to num_time_periods
+    # but we want to seed this for reproducibility
+    
+    Random.seed!(1234)
+    for i in 1:num_crews
+        if current_fire[i] != -1
+            append!(rest_by, rand(5:num_time_periods))
+            append!(rested_periods, -1)
+        else
+            append!(rest_by, num_time_periods)
+            append!(rested_periods, rand(0:1))
+        end
+    end
+
+    @info current_fire rest_by rested_periods
 
     crew_status = LocationAndRestStatus(rest_by, current_fire, rested_periods)
     dists_and_times = DistancesAndTravelTimes(fire_dists, base_fire_dists, tau, tau_base_to_fire)

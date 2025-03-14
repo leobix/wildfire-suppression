@@ -26,13 +26,13 @@ else
 end
 
 # precompile
-io = open("logs_20.txt", "w")
+io = open("logs_60.txt", "w")
 if args["debug"] == true
 	global_logger(ConsoleLogger(io, Logging.Debug, show_limited = false))
 else
 	global_logger(ConsoleLogger(io, Logging.Info, show_limited = false))
 end
-branch_and_price(8, 20, 14, from_empirical = true, travel_speed = 40.0 * 16.0)
+branch_and_price(10, 60, 14, from_empirical = true, travel_speed = 40.0 * 16.0)
 # io = open("logs_40.txt", "w")
 # if args["debug"] == true
 # 	global_logger(ConsoleLogger(io, Logging.Debug, show_limited = false))

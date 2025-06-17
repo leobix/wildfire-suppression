@@ -295,6 +295,8 @@ function branch_and_price(
 	ub_ix::Int = -1
 	routes_best_sol = nothing
 	plans_best_sol = nothing
+	fire_arcs_used = nothing
+	crew_arcs_used = nothing
 
 	## breadth-first search for now, can get smarter/add options
 
@@ -396,6 +398,11 @@ function branch_and_price(
 
 			if heuristic_ub < nodes[node_ix].u_bound
 				nodes[node_ix].u_bound = heuristic_ub
+
+				fire_arcs_used, crew_arcs_used = get_fire_and_crew_arcs_used(ub_rmp,
+					crew_routes,
+					fire_plans,
+				)
 			end
 		end
 
@@ -512,7 +519,7 @@ function branch_and_price(
 		end
 	end
 
-	return explored_nodes, ubs, lbs, columns, heuristic_times, times, time_1, root_node_ip_sol, root_node_ip_sol_time
+	return explored_nodes, ubs, lbs, columns, heuristic_times, times, time_1, root_node_ip_sol, root_node_ip_sol_time, fire_arcs_used, crew_arcs_used
 
 end
 

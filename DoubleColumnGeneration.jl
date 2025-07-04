@@ -445,6 +445,7 @@ function define_restricted_master_problem(
 	cut_data::CutData,
 	fire_allotment_branching_rules::Vector{GlobalFireAllotmentBranchingRule},
 	deferral_stabilization::Bool,
+	fires_to_ignore::Vector{Int64},
 	dual_warm_start::Union{Nothing, DualWarmStart} = nothing,
 )
 
@@ -656,6 +657,14 @@ function define_restricted_master_problem(
 		sum(
 			plan[g, p] * fire_plan_data.plan_costs[g, p]
 			for g ∈ 1:num_fires, p ∈ fire_avail_ixs[g]
+		)
+
+		- 
+
+		# ignore fires that are not started yet
+		sum(
+			plan[g, p] * fire_plan_data.plan_costs[g, p] 
+			for g ∈ fires_to_ignore, p ∈ fire_avail_ixs[g]
 		)
 	)
 

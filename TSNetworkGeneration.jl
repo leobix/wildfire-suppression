@@ -1255,12 +1255,12 @@ function modify_in_arcs_and_out_arcs!(
     Modifies the in_arcs and out_arcs of the time_space_network to remove arcs from the past except for the arcs used.
     """
 
-    arc_array = time_space_network.arc_array
+    arc_array = time_space_network.long_arcs
     n_arcs = length(arc_array[:, 1])
 
     arc_ix_to_keep = Vector{Int64}()
-    for arc_ix in 1:num_arcs
-        if arc_array[arc_ix, FM.TIME_FROM] <= current_time_period
+    for arc_ix in 1:n_arcs
+        if arc_array[arc_ix, FM.TIME_FROM] >= current_time_period
             push!(arc_ix_to_keep, arc_ix)
         elseif arc_ix in arcs_used
             push!(arc_ix_to_keep, arc_ix)
@@ -1274,4 +1274,36 @@ function modify_in_arcs_and_out_arcs!(
     for i in 1:length(time_space_network.state_out_arcs)
         time_space_network.state_out_arcs[i] = [arc_ix for arc_ix in time_space_network.state_out_arcs[i] if arc_ix in arc_ix_to_keep]
     end
+end
+
+function no_fire_anticipation!(
+    crew_time_space_network::TimeSpaceNetwork,
+    fire_start_times::Vector{Int64}
+)
+    """
+    Modifies the crew_time_space_network to remove arcs that anticipate fires before their start time.
+    """
+
+    arc_array = crew_time_space_network.long_arcs
+    n_arcs = length(arc_array[:, 1])
+
+    # get the arcs that anticipate fires
+    arcs_to_remove = Vector{Int64}()
+    for arc_ix in 1:n_arcs
+        if arc_array[arc_ix, CM.TO_TYPE] == CM.FIRE_CODE
+            fire_start_time = fire_start_times[arc_array[arc_ix, CM.LOC_TO]]
+            if arc_array[arc_ix, CM.TIME_FROM] < fire_start_time
+                push!(arcs_to_remove, arc_ix)
+            end
+        end
+    end
+
+    # remove the arcs from the state_in_arcs and state_out_arcs
+    for i in 1:length(crew_time_space_network.state_in_arcs)
+        crew_time_space_network.state_in_arcs[i] = [arc_ix for arc_ix in crew_time_space_network.state_in_arcs[i] if !(arc_ix in arcs_to_remove)]
+    end
+    for i in 1:length(crew_time_space_network.state_out_arcs)
+        crew_time_space_network.state_out_arcs[i] = [arc_ix for arc_ix in crew_time_space_network.state_out_arcs[i] if !(arc_ix in arcs_to_remove)]
+    end
+
 end

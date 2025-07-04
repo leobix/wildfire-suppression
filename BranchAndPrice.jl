@@ -232,6 +232,7 @@ function branch_and_price(
 	num_fires::Int,
 	num_crews::Int,
 	num_time_periods::Int;
+	fires_to_ignore::Vector{Int64} = Int64[],
 	from_empirical = false,
 	line_per_crew = 20,
 	travel_speed = 640.0,
@@ -259,19 +260,26 @@ function branch_and_price(
 	heuristic_single_fire_lift = false,
 	root_node_ip = false,
 	price_and_cut_file = nothing,
+	crew_routes = nothing,
+	fire_plans = nothing, 
+	crew_models  = nothing,
+	fire_models = nothing,
+	cut_data  = nothing,
 )
 	start_time = time()
 	root_node_ip_sol = 0.0
 	root_node_ip_sol_time = 0.0
 
-	@info "Initializing data structures"
-	# initialize input data
-	@time crew_routes, fire_plans, crew_models, fire_models, cut_data =
-		initialize_data_structures(num_fires, num_crews, num_time_periods, line_per_crew, travel_speed, from_empirical = from_empirical)
-	GC.gc()
-	algo_tracking ?
-	(@info "Checkpoint after initializing data structures" time() - start_time) :
-	nothing
+	if crew_routes === nothing
+		@info "Initializing data structures"
+		# initialize input data
+		@time crew_routes, fire_plans, crew_models, fire_models, cut_data =
+			initialize_data_structures(num_fires, num_crews, num_time_periods, line_per_crew, travel_speed, from_empirical = from_empirical)
+		GC.gc()
+		algo_tracking ?
+		(@info "Checkpoint after initializing data structures" time() - start_time) :
+		nothing
+	end
 
 	explored_nodes = []
 	ubs = []
@@ -342,6 +350,7 @@ function branch_and_price(
 			cut_search_enumeration_limit,
 			nothing,
 			GRB_ENV,
+			fires_to_ignore = fires_to_ignore,
 			price_and_cut_soft_time_limit = price_and_cut_soft_time_limit,
 			cut_loop_max = cut_loop_max,
 			relative_improvement_cut_req = relative_improvement_cut_req,
@@ -375,6 +384,7 @@ function branch_and_price(
 					fire_models,
 					cut_search_enumeration_limit,
 					GRB_ENV,
+					fires_to_ignore = fires_to_ignore,
 					routes_best_sol = routes_best_sol,
 					plans_best_sol = plans_best_sol,
 					price_and_cut_soft_time_limit = price_and_cut_soft_time_limit,
@@ -966,6 +976,7 @@ function heuristic_upper_bound!!(
 	single_fire_cuts,
 	decrease_gub_allots,
 	single_fire_lift,
+	fires_to_ignore = Int64[],
 	routes_best_sol = nothing,
 	plans_best_sol = nothing,
 )
@@ -1086,6 +1097,7 @@ function heuristic_upper_bound!!(
 			cut_data,
 			global_rules,
 			false,
+			fires_to_ignore,
 		)
 
 
@@ -1228,6 +1240,7 @@ function explore_node!!(
 	decrease_gub_allots,
 	single_fire_lift,
 	log_cuts_file,
+	fires_to_ignore = Int64[],
 	rel_tol = 1e-9)
 
 	@info "Exploring node" branch_and_bound_node.ix
@@ -1337,6 +1350,7 @@ function explore_node!!(
 		cut_data,
 		global_rules,
 		deferral_stabilization,
+		fires_to_ignore,
 	)
 	@info "Define rmp time (b-and-b)" t
 

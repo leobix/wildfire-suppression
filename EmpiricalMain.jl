@@ -32,7 +32,7 @@ if args["debug"] == true
 else
 	global_logger(ConsoleLogger(io, Logging.Info, show_limited = false))
 end
-explored_nodes, ubs, lbs, columns, heuristic_times, times, time_1, root_node_ip_sol, root_node_ip_sol_time, fire_arcs_used, crew_arcs_used = branch_and_price(20, 60, 14, from_empirical = true, travel_speed = 40.0 * 6.0)
+explored_nodes, ubs, lbs, columns, heuristic_times, times, time_1, root_node_ip_sol, root_node_ip_sol_time, fire_arcs_used, crew_arcs_used = branch_and_price(10, 30, 14, from_empirical = true, travel_speed = 40.0 * 6.0)
 @info "test" fire_arcs_used, crew_arcs_used
 # io = open("logs_40.txt", "w")
 # if args["debug"] == true

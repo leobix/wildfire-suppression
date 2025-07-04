@@ -38,7 +38,6 @@ struct LocationAndRestStatus
 
     rest_by::Vector{Int64}
     current_fire::Vector{Int64}
-    arrive_to_current_fire::Vector{Int64} 
     rested_periods::Vector{Int64}
 end
 
@@ -108,8 +107,8 @@ function generate_arcs(
             crew_status.current_fire[c],
             CM.FIRE_CODE,
             f_to,
-            crew_status.arrive_to_current_fire[c],
-            crew_status.arrive_to_current_fire[c] + dists_and_times.ff_tau[f_to, crew_status.current_fire[c]],
+            0,
+            dists_and_times.ff_tau[f_to, crew_status.current_fire[c]],
             0,
             0,
         ]
@@ -138,7 +137,7 @@ function generate_arcs(
 
     # get base-to-fire arcs from start
     from_start_rf = [
-        [c, CM.BASE_CODE, c, CM.FIRE_CODE, f_to, crew_status.arrive_to_current_fire[c], crew_status.arrive_to_current_fire[c] + dists_and_times.bf_tau[c, f_to], 0, 0]
+        [c, CM.BASE_CODE, c, CM.FIRE_CODE, f_to, 0, dists_and_times.bf_tau[c, f_to], 0, 0]
         for
         c ∈ 1:num_crews, f_to ∈ 1:num_fires if crew_status.current_fire[c] == -1
     ]
@@ -324,7 +323,7 @@ function crew_data_from_path(path, travel_speed::Float64)
 
     return (
         DistancesAndTravelTimes(fire_dists, base_fire_dists, tau, tau_base_to_fire),
-        LocationAndRestStatus(rest_by, current_fire, rested_periods, zeros(Int, length(rest_by))),
+        LocationAndRestStatus(rest_by, current_fire, rested_periods),
     )
 end
 
@@ -1245,4 +1244,34 @@ function build_fire_models_from_empirical(
     end
 
     return fire_models
+end
+
+function modify_in_arcs_and_out_arcs!(
+    time_space_network::TimeSpaceNetwork,
+    current_time_period::Int64,
+    arcs_used::Vector{Int64},
+)
+    """ 
+    Modifies the in_arcs and out_arcs of the time_space_network to remove arcs from the past except for the arcs used.
+    """
+
+    arc_array = time_space_network.arc_array
+    n_arcs = length(arc_array[:, 1])
+
+    arc_ix_to_keep = Vector{Int64}()
+    for arc_ix in 1:num_arcs
+        if arc_array[arc_ix, FM.TIME_FROM] <= current_time_period
+            push!(arc_ix_to_keep, arc_ix)
+        elseif arc_ix in arcs_used
+            push!(arc_ix_to_keep, arc_ix)
+        end
+    end
+
+    # modify the state_in_arcs and state_out_arcs
+    for i in 1:length(time_space_network.state_in_arcs)
+        time_space_network.state_in_arcs[i] = [arc_ix for arc_ix in time_space_network.state_in_arcs[i] if arc_ix in arc_ix_to_keep]
+    end
+    for i in 1:length(time_space_network.state_out_arcs)
+        time_space_network.state_out_arcs[i] = [arc_ix for arc_ix in time_space_network.state_out_arcs[i] if arc_ix in arc_ix_to_keep]
+    end
 end

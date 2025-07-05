@@ -474,13 +474,19 @@ function build_crew_models_from_empirical(
     idx = unique(i -> selected_fires[i, "FIRE_EVENT_ID"], eachindex(selected_fires[:, "FIRE_EVENT_ID"]))
 
     # read in the crew locations
-    tau_base_to_fire = CSV.read(fire_folder * "/../" * "base_fire_durations.csv", DataFrame)
+    tau_base_to_fire = CSV.read(fire_folder * "/../" * "base_fire_distances.csv", DataFrame)
 
     # restrict to the fires whose fire_id is in the arc_file column of "selected_fires.csv"
-    tau_base_to_fire = tau_base_to_fire[findall(in(selected_fires[idx, "id"]), tau_base_to_fire[:, "fire_id"]), :]
+    tau_base_to_fire = tau_base_to_fire[findall(in(selected_fires[idx, "FIRE_EVENT_ID"]), tau_base_to_fire[:, "fire_id"]), :]
+
+
+    # pivot the table long to wide so that the "crew" column is expanded into columns
+    tau_base_to_fire = unstack(tau_base_to_fire, :fire_id, :crew, :duration_min)
     
     # turn the tau_base_to_fire into a matrix, dropping the columns names and the fire_id column
-    tau_base_to_fire = Matrix(tau_base_to_fire[:, 2:end])
+    tau_base_to_fire = Matrix(tau_base_to_fire)
+    tau_base_to_fire = tau_base_to_fire[:, 2:end] # drop the first column (fire ids)
+    println("tau_base_to_fire matrix after unstacking")
 
     # transpose the matrix so that the rows are the crews and the columns are the fires
     tau_base_to_fire = copy(tau_base_to_fire')
@@ -497,6 +503,9 @@ function build_crew_models_from_empirical(
     # add the travel fixed delay to the travel times
     tau_base_to_fire .+= travel_fixed_delay
 
+    # cast to Int
+    tau_base_to_fire = convert(Array{Int}, tau_base_to_fire)
+
     # get the distance from the bases to the fires, assuming travel speed is miles per day
     base_fire_dists = tau_base_to_fire * travel_speed
 
@@ -505,10 +514,11 @@ function build_crew_models_from_empirical(
 
     # TODO fix fire-distances
     # for now they will all be the same
-    raw_fire_dists = CSV.read(fire_folder * "/../" * "fire_distances.csv", DataFrame)
+    raw_fire_dists = CSV.read(fire_folder * "/../" * "fire_to_fire_distances.csv", DataFrame)
     dict_fire_dists = Dict()
     for row in eachrow(raw_fire_dists)
-        dict_fire_dists[row["origin_fire_id"], row["destination_fire_id"]] = row["duration_min"] 
+        dict_fire_dists[row["fire1_id"], row["fire2_id"]] = row["duration_min"] 
+        dict_fire_dists[row["fire2_id"], row["fire1_id"]] = row["duration_min"]
     end
 
     fire_dists = zeros(num_fires, num_fires)
@@ -522,7 +532,6 @@ function build_crew_models_from_empirical(
                     duration_min = 60 * 4
                 else
                     duration_min = dict_fire_dists[selected_fires[idx[i], "FIRE_EVENT_ID"], selected_fires[idx[j], "FIRE_EVENT_ID"]]
-                    print("yes we have one!")
                 end
                 duration_days = duration_min / 60 / 24
                 tau[i, j] = ceil(duration_days * 4) + travel_fixed_delay
@@ -542,19 +551,29 @@ function build_crew_models_from_empirical(
     # since each crew is 20 people, we can divide by 20 to get the number of crews
     type_1_crews = round.(Int, type_1_crews / 20)
 
-    # now we have to guess where the crews are; we just assign them in order to the fires
-    current_fire = []
-    for i in 1:num_fires
-        append!(current_fire, fill(i, type_1_crews[i]))
+    # if the sum of type_1_crews is too large, raise an error
+    if sum(type_1_crews) > num_crews
+        error("Not enough crews to assign to fires")
     end
 
-    print(current_fire)
-    print(length(current_fire))
+    unassigned_crews = 1:num_crews
 
-    if length(current_fire) < num_crews
-        append!(current_fire, fill(-1, num_crews - length(current_fire)))
-    elseif length(current_fire) > num_crews
-        error("Not enough crews to assign to fires")
+    # now we have to guess where the crews are; we just assign them in order to the fires
+    current_fire = [-1 for _ in 1:num_crews]
+    for i in 1:num_fires
+        
+        #  get the closest crews to this fire
+        order = sortperm(
+            [tau_base_to_fire[c, i] for c in unassigned_crews],
+            rev = false,
+        )
+        # assign the crews to the fire, up to the number of crews at this fire
+        for j in 1:type_1_crews[i]
+            crew = unassigned_crews[order[j]]
+            current_fire[crew] = i
+            unassigned_crews = [i for i in unassigned_crews if i != crew]
+        end
+
     end
 
     # now we have to guess how long the crews have until they have to rest

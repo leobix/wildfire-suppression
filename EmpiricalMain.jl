@@ -32,22 +32,29 @@ if args["debug"] == true
 else
 	global_logger(ConsoleLogger(io, Logging.Info, show_limited = false))
 end
-num_fires = 10
-num_crews = 30
+num_fires = 30
+num_crews = 80
 num_time_periods = 14
 travel_speed = 40.0 * 6.0
 GC.gc()
+
+crew_routes, fire_plans, crew_models, fire_models, cut_data = initialize_data_structures(num_fires, num_crews, num_time_periods, 20, travel_speed, from_empirical = true)
+for j in 1:num_crews
+	no_fire_anticipation!(crew_models[j], [fsp.start_time_period for fsp in fire_models])
+end
+
 for t in 0:2
 
-	crew_routes = nothing
-	fire_plans = nothing
-	crew_models = nothing
-	fire_models = nothing
-	cut_data = nothing
+	global crew_routes, fire_plans, crew_models, fire_models, cut_data
+
+	crew_routes = CrewRouteData(Int(floor(6 * 1e6 / num_crews)), num_fires, num_crews, num_time_periods)
+	fire_plans = FirePlanData(Int(floor(6 * 1e6  / num_crews)), num_fires, num_time_periods)
+	cut_data = CutData(num_crews, num_fires, num_time_periods)
 
 	result = branch_and_price(num_fires,
 		num_crews,
 		num_time_periods,
+		current_time = t,
 		from_empirical = true, 
 		travel_speed = travel_speed,
 		crew_routes = crew_routes,
@@ -59,11 +66,11 @@ for t in 0:2
 		# Unpack as many variables as branch_and_price returns, e.g.:
 	explored_nodes, ubs, lbs, columns, heuristic_times, times, time_1, root_node_ip_sol, root_node_ip_sol_time, fire_arcs_used, crew_arcs_used = result
 	@info "test" fire_arcs_used, crew_arcs_used
-	crew_routes, fire_plans, crew_models, fire_models, cut_data = initialize_data_structures(num_fires, num_crews, num_time_periods, 20, travel_speed, from_empirical = true)
+
 	for g in 1:num_fires
-		@info "before modify_in_arcs_and_out_arcs!" fire_models[g].state_in_arcs
+		@debug "before modify_in_arcs_and_out_arcs!" fire_models[g].state_in_arcs
 		modify_in_arcs_and_out_arcs!(fire_models[g], t+1, fire_arcs_used[g])
-		@info "after modify_in_arcs_and_out_arcs!" fire_models[g].state_in_arcs
+		@debug "after modify_in_arcs_and_out_arcs!" fire_models[g].state_in_arcs
 	end
 	for j in 1:num_crews
 		modify_in_arcs_and_out_arcs!(crew_models[j], t+1, crew_arcs_used[j])

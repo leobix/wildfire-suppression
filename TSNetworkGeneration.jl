@@ -115,7 +115,11 @@ function generate_arcs(
         for
         c ∈ 1:num_crews, f_to ∈ 1:num_fires if crew_status.current_fire[c] != -1
     ]
-    from_start_ff = copy(reduce(hcat, from_start_ff)')
+    if length(from_start_ff) > 0
+        from_start_ff = copy(reduce(hcat, from_start_ff)')
+    else
+        from_start_ff = zeros(Int64, 9, 0) # no arcs
+    end
 
     # get base-to-fire arcs
     rf = [
@@ -141,7 +145,11 @@ function generate_arcs(
         for
         c ∈ 1:num_crews, f_to ∈ 1:num_fires if crew_status.current_fire[c] == -1
     ]
-    from_start_rf = copy(reduce(hcat, from_start_rf)')
+    if length(from_start_rf) > 0
+        from_start_rf = copy(reduce(hcat, from_start_rf)')
+    else
+        from_start_rf = zeros(Int64, 9, 0) # no arcs
+    end
 
     # get fire-to-base arcs
     fr = [
@@ -548,8 +556,23 @@ function build_crew_models_from_empirical(
     # get the personnel (type 1 crews) at each fire
     type_1_crews = selected_fires[idx, "personnel_Crew, Type 1"]
 
+    # get the fires that are active at day 0
+    fires_start_day = selected_fires[idx, "start_day_of_sim"]
+    active_fires = findall(fires_start_day .== 0)
+
     # since each crew is 20 people, we can divide by 20 to get the number of crews
     type_1_crews = round.(Int, type_1_crews / 20)
+
+    # but if the fire is not active at day 0, we set the number of crews to 0
+    for i in 1:num_fires
+        if !(i in active_fires)
+            if type_1_crews[i] > 0
+                a = type_1_crews[i]
+                @warn "Fire $i is not active at day 0, setting type_1_crews to 0 from $a"
+            end
+            # type_1_crews[i] = 0
+        end
+    end
 
     # if the sum of type_1_crews is too large, raise an error
     if sum(type_1_crews) > num_crews
@@ -668,7 +691,7 @@ function build_crew_models_from_empirical(
         end
 
         crew_sp =
-            TimeSpaceNetwork(crew_arc_costs, state_in_arcs, state_out_arcs, "crew", crew_arcs, crew_wide_arcs, copy(crew_arc_costs), falses(length(crew_arc_costs)), linking_dual_arc_lookup)
+            TimeSpaceNetwork(crew_arc_costs, state_in_arcs, state_out_arcs, "crew", crew_arcs, crew_wide_arcs, copy(crew_arc_costs), falses(length(crew_arc_costs)), linking_dual_arc_lookup, nothing)
         push!(crew_sps, crew_sp)
     end
 
@@ -756,7 +779,7 @@ function build_crew_models(
         end
 
         crew_sp =
-            TimeSpaceNetwork(crew_arc_costs, state_in_arcs, state_out_arcs, "crew", crew_arcs, crew_wide_arcs, copy(crew_arc_costs), falses(length(crew_arc_costs)), linking_dual_arc_lookup)
+            TimeSpaceNetwork(crew_arc_costs, state_in_arcs, state_out_arcs, "crew", crew_arcs, crew_wide_arcs, copy(crew_arc_costs), falses(length(crew_arc_costs)), linking_dual_arc_lookup, nothing)
         push!(crew_sps, crew_sp)
     end
 
@@ -1162,6 +1185,7 @@ function build_fire_models(
             copy(arc_costs[round_type]),
             falses(length(arc_costs[round_type])),
             linking_dual_arc_lookup,
+            nothing
         )
         push!(fire_models, fire_model)
     end
@@ -1188,6 +1212,7 @@ function build_fire_models_from_empirical(
     # read in the selected fires
     fire_folder = "data/empirical_fire_models/raw/arc_arrays"
     selected_fires = CSV.read(fire_folder * "/" * "selected_fires.csv", DataFrame)
+    fires_start_day = selected_fires[:, "start_day_of_sim"]
 
     for fire in 1:num_fires
 
@@ -1258,6 +1283,7 @@ function build_fire_models_from_empirical(
             copy(arc_costs),
             falses(length(arc_costs)),
             linking_dual_arc_lookup,
+            fires_start_day[fire],
         )
         push!(fire_models, fire_model)
     end

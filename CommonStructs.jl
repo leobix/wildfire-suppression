@@ -19,6 +19,9 @@ struct TimeSpaceNetwork # TODO always make time the first index
 	# precalculate arc lookups to supply-demand linking variables
 	supply_demand_dual_arc_lookup::Matrix{Vector{Int64}}
 
+	# hack for fire models
+	start_time_period::Union{Int64, Nothing}
+
 end
 
 struct CrewRouteData

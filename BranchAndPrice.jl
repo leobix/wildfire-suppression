@@ -87,7 +87,8 @@ function price_and_cut!!!!(
 	cut_search_enumeration_limit::Int64,
 	crew_rules::Vector{CrewAssignmentBranchingRule},
 	fire_rules::Vector{FireDemandBranchingRule},
-	global_fire_allotment_rules::Vector{GlobalFireAllotmentBranchingRule};
+	global_fire_allotment_rules::Vector{GlobalFireAllotmentBranchingRule},
+	fires_to_ignore::Vector{Int64};
 	gub_cover_cuts::Bool,
 	general_gub_cuts::String,
 	single_fire_cuts::Bool,
@@ -131,6 +132,7 @@ function price_and_cut!!!!(
 			crew_rules,
 			fire_rules,
 			global_fire_allotment_rules,
+			fires_to_ignore,
 			timing = log_flag,
 			upper_bound = upper_bound,
 			time_limit = time_limit,
@@ -156,7 +158,6 @@ function price_and_cut!!!!(
 				]),
 			)
 		end
-
 		loop_ix += 1
 
 		if loop_ix > loop_max
@@ -232,7 +233,7 @@ function branch_and_price(
 	num_fires::Int,
 	num_crews::Int,
 	num_time_periods::Int;
-	fires_to_ignore::Vector{Int64} = Int64[],
+	current_time = 0,
 	from_empirical = false,
 	line_per_crew = 20,
 	travel_speed = 640.0,
@@ -279,6 +280,14 @@ function branch_and_price(
 		algo_tracking ?
 		(@info "Checkpoint after initializing data structures" time() - start_time) :
 		nothing
+	end
+
+	fires_to_ignore = Int64[]
+	for fire in 1:num_fires
+		if !isnothing(fire_models[fire].start_time_period) && fire_models[fire].start_time_period > current_time
+			push!(fires_to_ignore, fire)
+			@info "Ignoring fire" fire "because it starts at time" fire_models[fire].start_time_period
+		end
 	end
 
 	explored_nodes = []
@@ -1113,6 +1122,7 @@ function heuristic_upper_bound!!(
 			crew_rules,
 			fire_rules,
 			global_rules,
+			fires_to_ignore,
 			soft_time_limit = price_and_cut_soft_time_limit,
 			loop_max = cut_loop_max,
 			relative_improvement_cut_req = relative_improvement_cut_req,
@@ -1240,10 +1250,10 @@ function explore_node!!(
 	decrease_gub_allots,
 	single_fire_lift,
 	log_cuts_file,
-	fires_to_ignore = Int64[],
+	fires_to_ignore,
 	rel_tol = 1e-9)
 
-	@info "Exploring node" branch_and_bound_node.ix
+	@info "Exploring node" branch_and_bound_node.ix fires_to_ignore
 
 	deferral_stabilization = false
 	# gather global information
@@ -1365,6 +1375,7 @@ function explore_node!!(
 		crew_rules,
 		fire_rules,
 		global_rules,
+		fires_to_ignore,
 		soft_time_limit = price_and_cut_soft_time_limit,
 		loop_max = cut_loop_max,
 		relative_improvement_cut_req = relative_improvement_cut_req,

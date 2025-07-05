@@ -44,7 +44,8 @@ function double_column_generation!!!!(
 	fire_subproblems::Vector{TimeSpaceNetwork},
 	crew_branching_rules::Vector{CrewAssignmentBranchingRule},
 	fire_branching_rules::Vector{FireDemandBranchingRule},
-	global_fire_allotment_branching_rules::Vector{GlobalFireAllotmentBranchingRule};
+	global_fire_allotment_branching_rules::Vector{GlobalFireAllotmentBranchingRule},
+	fires_to_ignore::Vector{Int64};
 	upper_bound::Float64,
 	timing::Bool,
 	time_limit::Float64 = Inf,
@@ -81,6 +82,22 @@ function double_column_generation!!!!(
 	# initialize column generation loop
 	continue_iterating::Bool = true
 	iteration = 0
+
+	# add in dummy plans for the fires_to_ignore
+	for fire in fires_to_ignore
+		# add a dummy plan with cost 0 and no crew demands
+		new_plan_ix =
+			add_column_to_plan_data!(fire_plans, fire, 0.0, zeros(Int64, num_time_periods), Int[])
+		@debug "dummy fire plan" fire new_plan_ix
+		add_column_to_master_problem!!(
+			rmp,
+			cut_data,
+			fire_plans,
+			global_fire_allotment_branching_rules,
+			fire,
+			new_plan_ix,
+		)
+	end
 
 	while continue_iterating
 
@@ -184,7 +201,7 @@ function double_column_generation!!!!(
 		fire_arcs_used = [Int[] for fire ∈ 1:num_fires]
 
 		# for each fire
-		Threads.@threads for fire in 1:num_fires
+		Threads.@threads for fire in [g for g ∈ 1:num_fires if g ∉ fires_to_ignore]
 
 			# generate the local costs of the arcs
 			fire_subproblems[fire].prohibited_arcs .&= false
@@ -243,7 +260,7 @@ function double_column_generation!!!!(
 		
 
 
-		for fire ∈ 1:num_fires
+		for fire ∈ [fire for fire ∈ 1:num_fires if fire ∉ fires_to_ignore]
 
 			objective = fire_objectives[fire]
 			arcs_used = fire_arcs_used[fire]
@@ -448,6 +465,7 @@ function define_restricted_master_problem(
 	fires_to_ignore::Vector{Int64},
 	dual_warm_start::Union{Nothing, DualWarmStart} = nothing,
 )
+	@info "Define restricted master problem" fires_to_ignore
 
 	# get dimensions
 	num_crews, _, num_fires, num_time_periods = size(crew_route_data.fires_fought)

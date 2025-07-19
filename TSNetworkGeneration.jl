@@ -118,7 +118,8 @@ function generate_arcs(
     if length(from_start_ff) > 0
         from_start_ff = copy(reduce(hcat, from_start_ff)')
     else
-        from_start_ff = zeros(Int64, 9, 0) # no arcs
+        # make an empty array of the right size
+        from_start_ff = zeros(Int64, 0, 9)
     end
 
     # get base-to-fire arcs
@@ -147,8 +148,6 @@ function generate_arcs(
     ]
     if length(from_start_rf) > 0
         from_start_rf = copy(reduce(hcat, from_start_rf)')
-    else
-        from_start_rf = zeros(Int64, 9, 0) # no arcs
     end
 
     # get fire-to-base arcs
@@ -184,7 +183,12 @@ function generate_arcs(
         ]
         for c ∈ 1:num_crews if crew_status.current_fire[c] != -1
     ]
-    from_start_fr = copy(reduce(hcat, from_start_fr)')
+    if length(from_start_fr) > 0
+        from_start_fr = copy(reduce(hcat, from_start_fr)')
+    else
+        # make an empty array of the right size
+        from_start_fr = zeros(Int64, 0, 9)
+    end
 
     # get base-to-base arcs
     rr = [
@@ -478,6 +482,9 @@ function build_crew_models_from_empirical(
     fire_folder = "data/empirical_fire_models/raw/arc_arrays"
     selected_fires = CSV.read(fire_folder * "/" * "selected_fires.csv", DataFrame) 
 
+    # sort these by "start_day_of_sim" so that the first fire is the one that starts first
+    selected_fires = sort(selected_fires, :start_day_of_sim)
+
     # get the unique fire ids
     idx = unique(i -> selected_fires[i, "FIRE_EVENT_ID"], eachindex(selected_fires[:, "FIRE_EVENT_ID"]))
 
@@ -494,7 +501,6 @@ function build_crew_models_from_empirical(
     # turn the tau_base_to_fire into a matrix, dropping the columns names and the fire_id column
     tau_base_to_fire = Matrix(tau_base_to_fire)
     tau_base_to_fire = tau_base_to_fire[:, 2:end] # drop the first column (fire ids)
-    println("tau_base_to_fire matrix after unstacking")
 
     # transpose the matrix so that the rows are the crews and the columns are the fires
     tau_base_to_fire = copy(tau_base_to_fire')
@@ -1212,6 +1218,10 @@ function build_fire_models_from_empirical(
     # read in the selected fires
     fire_folder = "data/empirical_fire_models/raw/arc_arrays"
     selected_fires = CSV.read(fire_folder * "/" * "selected_fires.csv", DataFrame)
+
+    # sort these by "start_day_of_sim" so that the first fire is the one that starts first
+    selected_fires = sort(selected_fires, :start_day_of_sim)
+    
     fires_start_day = selected_fires[:, "start_day_of_sim"]
 
     for fire in 1:num_fires
@@ -1295,6 +1305,7 @@ function modify_in_arcs_and_out_arcs!(
     time_space_network::TimeSpaceNetwork,
     current_time_period::Int64,
     arcs_used::Vector{Int64},
+    time_from_ix::Int64
 )
     """ 
     Modifies the in_arcs and out_arcs of the time_space_network to remove arcs from the past except for the arcs used.
@@ -1305,7 +1316,7 @@ function modify_in_arcs_and_out_arcs!(
 
     arc_ix_to_keep = Vector{Int64}()
     for arc_ix in 1:n_arcs
-        if arc_array[arc_ix, FM.TIME_FROM] >= current_time_period
+        if arc_array[arc_ix, time_from_ix] >= current_time_period
             push!(arc_ix_to_keep, arc_ix)
         elseif arc_ix in arcs_used
             push!(arc_ix_to_keep, arc_ix)

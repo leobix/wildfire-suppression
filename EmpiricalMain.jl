@@ -32,8 +32,8 @@ if args["debug"] == true
 else
 	global_logger(ConsoleLogger(io, Logging.Info, show_limited = false))
 end
-num_fires = 30
-num_crews = 80
+num_fires = 9
+num_crews = 35
 num_time_periods = 14
 travel_speed = 40.0 * 6.0
 GC.gc()
@@ -65,15 +65,17 @@ for t in 0:2
 		)
 		# Unpack as many variables as branch_and_price returns, e.g.:
 	explored_nodes, ubs, lbs, columns, heuristic_times, times, time_1, root_node_ip_sol, root_node_ip_sol_time, fire_arcs_used, crew_arcs_used = result
-	@info "test" fire_arcs_used, crew_arcs_used
+	@info "final arcs used" fire_arcs_used, crew_arcs_used
 
 	for g in 1:num_fires
-		@debug "before modify_in_arcs_and_out_arcs!" fire_models[g].state_in_arcs
-		modify_in_arcs_and_out_arcs!(fire_models[g], t+1, fire_arcs_used[g])
-		@debug "after modify_in_arcs_and_out_arcs!" fire_models[g].state_in_arcs
+		@info "before modify_in_arcs_and_out_arcs!" fire_models[g].state_in_arcs fire_models[g].state_out_arcs fire_arcs_used[g]
+		modify_in_arcs_and_out_arcs!(fire_models[g], t+1, fire_arcs_used[g], FM.TIME_FROM)
+		@info "after modify_in_arcs_and_out_arcs!" fire_models[g].state_in_arcs fire_models[g].state_out_arcs
 	end
 	for j in 1:num_crews
-		modify_in_arcs_and_out_arcs!(crew_models[j], t+1, crew_arcs_used[j])
+		@info "before modify_in_arcs_and_out_arcs!" crew_models[j].state_in_arcs crew_models[j].state_out_arcs crew_arcs_used[j]
+		modify_in_arcs_and_out_arcs!(crew_models[j], t+1, crew_arcs_used[j], CM.TIME_FROM)
+		@info "after modify_in_arcs_and_out_arcs!" crew_models[j].state_in_arcs crew_models[j].state_out_arcs
 	end
 
 

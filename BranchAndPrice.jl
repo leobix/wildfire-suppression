@@ -1008,6 +1008,12 @@ function heuristic_upper_bound!!(
 			[i[1] for i in eachindex(explored_bb_node.master_problem.plans[j, :])]
 			for j ∈ 1:num_fires
 		]
+	if isempty(crew_ixs)
+		crew_ixs = [Int64[] for crew in 1:num_crews]
+	end
+	if isempty(fire_ixs)
+		fire_ixs = [Int64[] for fire in 1:num_fires]
+	end
 
 	# add in columns from best solution
 	if ~isnothing(routes_best_sol)
@@ -1092,10 +1098,10 @@ function heuristic_upper_bound!!(
 
 		@info "entering heuristic round" branching_rule.allotment_matrix
 		for rule in crew_rules
-			@info "crew rule" rule
+			@info "crew rule" rule crew_ixs
 		end
 		for rule in fire_rules
-			@info "fire rule" rule
+			@info "fire rule" rule fire_ixs
 		end
 		rmp = define_restricted_master_problem(
 			gurobi_env,

@@ -55,13 +55,13 @@ for fire in 1:num_fires
 	@info "added dummy plan for fire" fire "with index" new_plan_ix
 end
 
-for t in 0:2
+for t in 0:4
 
-	# global crew_routes, fire_plans, crew_models, fire_models, cut_data
+	global crew_routes, fire_plans, crew_models, fire_models, cut_data
 
-	# crew_routes = CrewRouteData(Int(floor(6 * 1e6 / num_crews)), num_fires, num_crews, num_time_periods)
-	# fire_plans = FirePlanData(Int(floor(6 * 1e6  / num_crews)), num_fires, num_time_periods)
-	# cut_data = CutData(num_crews, num_fires, num_time_periods)
+	crew_routes = CrewRouteData(Int(floor(6 * 1e6 / num_crews)), num_fires, num_crews, num_time_periods)
+	fire_plans = FirePlanData(Int(floor(6 * 1e6  / num_crews)), num_fires, num_time_periods)
+	cut_data = CutData(num_crews, num_fires, num_time_periods)
 
 	result = branch_and_price(num_fires,
 		num_crews,
@@ -94,7 +94,34 @@ for t in 0:2
 		@info "after modify_in_arcs_and_out_arcs!" crew_models[j].state_in_arcs crew_models[j].state_out_arcs
 	end
 
+	# now extract the arc data and costs from the fire_arcs_used and crew_arcs_used and the models
+	fire_arcs = Vector{Matrix{Int64}}(undef, num_fires)
+	fire_arc_costs = Vector{Vector{Float64}}(undef, num_fires)
+	crew_arcs = Vector{Matrix{Int64}}(undef, num_crews)
+	crew_arc_costs = Vector{Vector{Float64}}(undef, num_crews)
+	for g in 1:num_fires
+		fire_arcs[g] = fire_models[g].long_arcs[reverse(fire_arcs_used[g]), :]
+		fire_arc_costs[g] = fire_models[g].arc_costs[reverse(fire_arcs_used[g])]
+	end
+	for j in 1:num_crews
+		crew_arcs[j] = crew_models[j].long_arcs[reverse(crew_arcs_used[j]), :]
+		crew_arc_costs[j] = crew_models[j].arc_costs[reverse(crew_arcs_used[j])]
+	end
 
+	# write these to files
+	open("fire_arcs_$(t).json", "w") do file
+		JSON.print(file, fire_arcs)
+	end
+	open("fire_arc_costs_$(t).json", "w") do file
+		JSON.print(file, fire_arc_costs)
+	end
+	open("crew_arcs_$(t).json", "w") do file
+		JSON.print(file, crew_arcs)
+	end
+	open("crew_arc_costs_$(t).json", "w") do file
+		JSON.print(file, crew_arc_costs)
+	end
+	error()
 end
 
 # io = open("logs_40.txt", "w")

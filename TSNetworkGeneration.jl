@@ -640,7 +640,7 @@ function build_crew_models_from_empirical(
         current_fire = current_fire,
         rested_periods = rested_periods,
     )
-    CSV.write(fire_folder * "/../" * "emprical_crew_starts.csv", crew_starts)
+    CSV.write(fire_folder * "/" * "emprical_crew_starts.csv", crew_starts)
 
 
     crew_status = LocationAndRestStatus(rest_by, current_fire, rested_periods)
@@ -1267,9 +1267,15 @@ function build_fire_models_from_empirical(
         fname = selected_fires[fire, "cost_file"]
         arc_costs = readdlm(fire_folder * "/" * fname, ',')
 
+        # need to bump up the time periods by "start_day_of_sim" to account for the fact that
+        # the time periods are relative to the start of the simulation, not the start of the fire
+        start_day = fires_start_day[fire]
+        arc_array[:, FM.TIME_FROM] .+= start_day
+        arc_array[:, FM.TIME_TO] .+= start_day
+
         # we need to append a zero-cost arc for the start
         start_location = arc_array[1, FM.STATE_FROM]
-        new_arc = [-1, start_location, 0, 1, start_location, 0]
+        new_arc = [-1, start_location, 0, 1 + start_day, start_location, 0]
         arc_array = vcat(new_arc', arc_array)
         arc_costs = vcat(0, arc_costs)
 

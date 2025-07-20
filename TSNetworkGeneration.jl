@@ -482,8 +482,11 @@ function build_crew_models_from_empirical(
     fire_folder = "data/empirical_fire_models/raw/arc_arrays"
     selected_fires = CSV.read(fire_folder * "/" * "selected_fires.csv", DataFrame) 
 
-    # sort these by "start_day_of_sim" so that the first fire is the one that starts first
-    selected_fires = sort(selected_fires, :start_day_of_sim)
+    # sort these by "start_day_of_sim" and then by "FIRE_EVENT_ID"
+    selected_fires = sort(selected_fires, [:start_day_of_sim, :FIRE_EVENT_ID])
+
+    # write out these sorted fires to a new file with only the columns we need
+    CSV.write(fire_folder * "/" * "selected_fires_sorted.csv", selected_fires[:, [:FIRE_EVENT_ID, :start_day_of_sim]])
 
     # get the unique fire ids
     idx = unique(i -> selected_fires[i, "FIRE_EVENT_ID"], eachindex(selected_fires[:, "FIRE_EVENT_ID"]))
@@ -494,10 +497,18 @@ function build_crew_models_from_empirical(
     # restrict to the fires whose fire_id is in the arc_file column of "selected_fires.csv"
     tau_base_to_fire = tau_base_to_fire[findall(in(selected_fires[idx, "FIRE_EVENT_ID"]), tau_base_to_fire[:, "fire_id"]), :]
 
-
     # pivot the table long to wide so that the "crew" column is expanded into columns
     tau_base_to_fire = unstack(tau_base_to_fire, :fire_id, :crew, :duration_min)
-    
+
+    # rename tau_base_to_fire fire_id to be "FIRE_EVENT_ID"
+    rename!(tau_base_to_fire, :fire_id => :FIRE_EVENT_ID)
+
+    # merge the tau_base_to_fire with the selected_fires on "FIRE_EVENT_ID" to get data in the same order
+    tau_base_to_fire = rightjoin(tau_base_to_fire, selected_fires[idx, [:FIRE_EVENT_ID, :start_day_of_sim]], on = :FIRE_EVENT_ID)
+
+    # remove the "start_day_of_sim" column from tau_base_to_fire
+    select!(tau_base_to_fire, Not(:start_day_of_sim))
+
     # turn the tau_base_to_fire into a matrix, dropping the columns names and the fire_id column
     tau_base_to_fire = Matrix(tau_base_to_fire)
     tau_base_to_fire = tau_base_to_fire[:, 2:end] # drop the first column (fire ids)
@@ -623,10 +634,23 @@ function build_crew_models_from_empirical(
         end
     end
 
-    @info current_fire rest_by rested_periods
+    # make a CSV file with these three columns and write it
+    crew_starts = DataFrame(
+        rest_by = rest_by,
+        current_fire = current_fire,
+        rested_periods = rested_periods,
+    )
+    CSV.write(fire_folder * "/../" * "emprical_crew_starts.csv", crew_starts)
+
 
     crew_status = LocationAndRestStatus(rest_by, current_fire, rested_periods)
     dists_and_times = DistancesAndTravelTimes(fire_dists, base_fire_dists, tau, tau_base_to_fire)
+
+    # write these four matrices to CSV files as well
+    writedlm(fire_folder * "/" * "input_fire_fire_distances.csv", dists_and_times.ff_dist, ',')
+    writedlm(fire_folder * "/" * "input_base_fire_distances.csv", dists_and_times.bf_dist, ',')
+    writedlm(fire_folder * "/" * "input_fire_fire_travel_times.csv", dists_and_times.ff_tau, ',')
+    writedlm(fire_folder * "/" * "input_base_fire_travel_times.csv", dists_and_times.bf_tau, ',')
 
     arcs = generate_arcs(
         dists_and_times,
@@ -1219,8 +1243,8 @@ function build_fire_models_from_empirical(
     fire_folder = "data/empirical_fire_models/raw/arc_arrays"
     selected_fires = CSV.read(fire_folder * "/" * "selected_fires.csv", DataFrame)
 
-    # sort these by "start_day_of_sim" so that the first fire is the one that starts first
-    selected_fires = sort(selected_fires, :start_day_of_sim)
+    # sort these by "start_day_of_sim" and then by "FIRE_EVENT_ID"
+    selected_fires = sort(selected_fires, [:start_day_of_sim, :FIRE_EVENT_ID])
     
     fires_start_day = selected_fires[:, "start_day_of_sim"]
 

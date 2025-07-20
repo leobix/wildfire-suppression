@@ -85,17 +85,13 @@ function double_column_generation!!!!(
 
 	# add in dummy plans for the fires_to_ignore
 	for fire in fires_to_ignore
-		# add a dummy plan with cost 0 and no crew demands
-		new_plan_ix =
-			add_column_to_plan_data!(fire_plans, fire, 0.0, zeros(Int64, num_time_periods), Int[])
-		@debug "dummy fire plan" fire new_plan_ix
 		add_column_to_master_problem!!(
 			rmp,
 			cut_data,
 			fire_plans,
 			global_fire_allotment_branching_rules,
 			fire,
-			new_plan_ix,
+			1,
 		)
 	end
 

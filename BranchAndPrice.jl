@@ -1269,6 +1269,8 @@ function explore_node!!(
 
 	# if we are at the root node, there are no columns yet, and stabilization applies
 	if isnothing(branch_and_bound_node.parent)
+
+		# TODO in sequential optimization, we can use the solution found at the prior time step
 		crew_ixs = [Int[] for i ∈ 1:num_crews]
 		fire_ixs = [Int[] for i ∈ 1:num_fires]
 		deferral_stabilization = true

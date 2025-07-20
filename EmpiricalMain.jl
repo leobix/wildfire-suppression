@@ -43,13 +43,25 @@ for j in 1:num_crews
 	no_fire_anticipation!(crew_models[j], [fsp.start_time_period for fsp in fire_models])
 end
 
+# add a dummy plan with cost 0 and no crew demands
+for fire in 1:num_fires
+	@info "adding dummy plan for fire" fire
+	new_plan_ix =
+		add_column_to_plan_data!(fire_plans, fire, 0.0, zeros(Int64, num_time_periods), Int[])
+	if new_plan_ix == -1
+		@error "failed to add dummy plan for fire" fire
+		error()
+	end
+	@info "added dummy plan for fire" fire "with index" new_plan_ix
+end
+
 for t in 0:2
 
-	global crew_routes, fire_plans, crew_models, fire_models, cut_data
+	# global crew_routes, fire_plans, crew_models, fire_models, cut_data
 
-	crew_routes = CrewRouteData(Int(floor(6 * 1e6 / num_crews)), num_fires, num_crews, num_time_periods)
-	fire_plans = FirePlanData(Int(floor(6 * 1e6  / num_crews)), num_fires, num_time_periods)
-	cut_data = CutData(num_crews, num_fires, num_time_periods)
+	# crew_routes = CrewRouteData(Int(floor(6 * 1e6 / num_crews)), num_fires, num_crews, num_time_periods)
+	# fire_plans = FirePlanData(Int(floor(6 * 1e6  / num_crews)), num_fires, num_time_periods)
+	# cut_data = CutData(num_crews, num_fires, num_time_periods)
 
 	result = branch_and_price(num_fires,
 		num_crews,
@@ -69,6 +81,10 @@ for t in 0:2
 
 	for g in 1:num_fires
 		@info "before modify_in_arcs_and_out_arcs!" fire_models[g].state_in_arcs fire_models[g].state_out_arcs fire_arcs_used[g]
+		if !isnothing(fire_models[g].start_time_period) && fire_models[g].start_time_period > t
+			@info "fire model start time period is greater than current time, skipping modify_in_arcs_and_out_arcs!" g
+			continue
+		end
 		modify_in_arcs_and_out_arcs!(fire_models[g], t+1, fire_arcs_used[g], FM.TIME_FROM)
 		@info "after modify_in_arcs_and_out_arcs!" fire_models[g].state_in_arcs fire_models[g].state_out_arcs
 	end

@@ -1273,11 +1273,13 @@ function build_fire_models_from_empirical(
         arc_array[:, FM.TIME_FROM] .+= start_day
         arc_array[:, FM.TIME_TO] .+= start_day
 
-        # we need to append a zero-cost arc for the start
+        # we need to append zero-cost arcs for the start
         start_location = arc_array[1, FM.STATE_FROM]
-        new_arc = [-1, start_location, 0, 1 + start_day, start_location, 0]
-        arc_array = vcat(new_arc', arc_array)
-        arc_costs = vcat(0, arc_costs)
+        for t in 0:start_day
+            new_arc = [-1, start_location, t, t+1, start_location, 0]
+            arc_array = vcat(new_arc', arc_array)
+            arc_costs = vcat(0, arc_costs)
+        end
 
         # we should cull the arrays and costs to only include arcs that are feasible
         # for the given number of crews

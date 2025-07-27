@@ -55,7 +55,7 @@ for fire in 1:num_fires
 	@info "added dummy plan for fire" fire "with index" new_plan_ix
 end
 
-for t in 0:4
+for t in 0:2
 
 	global crew_routes, fire_plans, crew_models, fire_models, cut_data
 
@@ -100,28 +100,31 @@ for t in 0:4
 	crew_arcs = Vector{Matrix{Int64}}(undef, num_crews)
 	crew_arc_costs = Vector{Vector{Float64}}(undef, num_crews)
 	for g in 1:num_fires
-		fire_arcs[g] = fire_models[g].long_arcs[reverse(fire_arcs_used[g]), :]
+		fire_arcs[g] = fire_models[g].wide_arcs[:, reverse(fire_arcs_used[g])]
 		fire_arc_costs[g] = fire_models[g].arc_costs[reverse(fire_arcs_used[g])]
 	end
 	for j in 1:num_crews
-		crew_arcs[j] = crew_models[j].long_arcs[reverse(crew_arcs_used[j]), :]
+		crew_arcs[j] = crew_models[j].wide_arcs[:, reverse(crew_arcs_used[j])]
 		crew_arc_costs[j] = crew_models[j].arc_costs[reverse(crew_arcs_used[j])]
 	end
 
 	# write these to files
-	open("fire_arcs_$(t).json", "w") do file
-		JSON.print(file, fire_arcs)
+	for g in 1:num_fires
+		open("data/output/fire_arcs_$(g)_$(t).json", "w") do io
+			JSON.print(io, fire_arcs[g])
+		end
+		open("data/output/fire_arc_costs_$(g)_$(t).json", "w") do io
+			JSON.print(io, fire_arc_costs[g])
+		end
 	end
-	open("fire_arc_costs_$(t).json", "w") do file
-		JSON.print(file, fire_arc_costs)
+	for j in 1:num_crews
+		open("data/output/crew_arcs_$(j)_$(t).json", "w") do io
+			JSON.print(io, crew_arcs[j])
+		end
+		open("data/output/crew_arc_costs_$(j)_$(t).json", "w") do io
+			JSON.print(io, crew_arc_costs[j])
+		end
 	end
-	open("crew_arcs_$(t).json", "w") do file
-		JSON.print(file, crew_arcs)
-	end
-	open("crew_arc_costs_$(t).json", "w") do file
-		JSON.print(file, crew_arc_costs)
-	end
-	error()
 end
 
 # io = open("logs_40.txt", "w")

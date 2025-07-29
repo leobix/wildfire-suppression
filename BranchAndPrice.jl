@@ -416,12 +416,12 @@ function branch_and_price(
 			nodes[node_ix].heuristic_found_master_problem = ub_rmp
 
 			if heuristic_ub < nodes[node_ix].u_bound
-				nodes[node_ix].u_bound = heuristic_ub
+				# nodes[node_ix].u_bound = heuristic_ub
 
-				fire_arcs_used, crew_arcs_used = get_fire_and_crew_arcs_used(ub_rmp,
-					crew_routes,
-					fire_plans,
-				)
+				# fire_arcs_used, crew_arcs_used = get_fire_and_crew_arcs_used(ub_rmp,
+				# 	crew_routes,
+				# 	fire_plans,
+				# )
 			end
 		end
 

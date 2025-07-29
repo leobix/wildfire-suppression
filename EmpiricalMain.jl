@@ -32,8 +32,8 @@ if args["debug"] == true
 else
 	global_logger(ConsoleLogger(io, Logging.Info, show_limited = false))
 end
-num_fires = 9
-num_crews = 35
+num_fires = 14	
+num_crews = 12
 num_time_periods = 14
 travel_speed = 40.0 * 6.0
 GC.gc()
@@ -55,7 +55,7 @@ for fire in 1:num_fires
 	@info "added dummy plan for fire" fire "with index" new_plan_ix
 end
 
-for t in 0:2
+for t in 0:14
 
 	global crew_routes, fire_plans, crew_models, fire_models, cut_data
 

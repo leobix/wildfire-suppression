@@ -200,13 +200,18 @@ for t in 0:14
                 cut_data = cut_data
                 )
 		# Unpack as many variables as branch_and_price returns, e.g.:
-	explored_nodes, ubs, lbs, columns, heuristic_times, times, time_1, root_node_ip_sol, root_node_ip_sol_time, fire_arcs_used, crew_arcs_used = result
-	@info "final arcs used" fire_arcs_used, crew_arcs_used
+        explored_nodes, ubs, lbs, columns, heuristic_times, times, time_1, root_node_ip_sol, root_node_ip_sol_time, fire_arcs_used, crew_arcs_used = result
+        @info "final arcs used" fire_arcs_used, crew_arcs_used
 
-	for g in 1:num_fires
-		@info "before modify_in_arcs_and_out_arcs!" fire_models[g].state_in_arcs fire_models[g].state_out_arcs fire_arcs_used[g]
-		if !isnothing(fire_models[g].start_time_period) && fire_models[g].start_time_period > t
-			@info "fire model start time period is greater than current time, skipping modify_in_arcs_and_out_arcs!" g
+        if isnothing(fire_arcs_used) || isnothing(crew_arcs_used)
+                @error "branch_and_price did not return arc usage information; terminating early"
+                break
+        end
+
+        for g in 1:num_fires
+                @info "before modify_in_arcs_and_out_arcs!" fire_models[g].state_in_arcs fire_models[g].state_out_arcs fire_arcs_used[g]
+                if !isnothing(fire_models[g].start_time_period) && fire_models[g].start_time_period > t
+                        @info "fire model start time period is greater than current time, skipping modify_in_arcs_and_out_arcs!" g
 			continue
 		end
 		modify_in_arcs_and_out_arcs!(fire_models[g], t+1, fire_arcs_used[g], FM.TIME_FROM)

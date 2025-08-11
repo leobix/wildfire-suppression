@@ -30,7 +30,7 @@ function parse_gaccs(str::String)
                 return filter(!=("Alaska"), ALL_GACCS)
         else
                 abbrs = split(s, ",")
-                return [get(GACC_ABBR, a, error("Unknown GACC abbreviation: $a")) for a in abbrs]
+                return [haskey(GACC_ABBR, a) ? GACC_ABBR[a] : error("Unknown GACC abbreviation: $a") for a in abbrs]
         end
 end
 

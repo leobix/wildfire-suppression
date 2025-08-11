@@ -96,7 +96,7 @@ crew_routes, fire_plans, crew_models, fire_models, cut_data, init_info = initial
 for (ix, fire_id) in enumerate(init_info.fire_ids)
         start_day = init_info.start_days[ix]
         crew_list = findall(==(ix), init_info.crew_assignments)
-        @info "Using fire" ix "id" fire_id "start_day" start_day "initial_crews" crew_list
+        @info "Using fire" ix id=fire_id start_day=start_day initial_crews=crew_list
 end
 unassigned_crews = findall(==( -1 ), init_info.crew_assignments)
 if !isempty(unassigned_crews)

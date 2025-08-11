@@ -317,6 +317,8 @@ function crew_data_from_path(path, travel_speed::Float64)
     # (-1 in current_fire means crew is currently at base)
     # (rested_periods is the amount of time crew has been at base, relevant for completing rest)
     crew_starts = CSV.read(path * "/sample_crew_starts.csv", DataFrame)
+    allocation = combine(groupby(crew_starts, :current_fire), nrow => :count)
+    @info "Initial crew allocation" allocation
     rest_by = crew_starts[!, "rest_by"]
     current_fire = crew_starts[!, "current_fire"]
     rested_periods = crew_starts[!, "rested_periods"]

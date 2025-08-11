@@ -32,14 +32,14 @@ sizes = [
 
 l = []
 for (num_fires, num_crews, num_time_periods, line_per_crew, travel_speed) in sizes
-	_, _, crew_models, fire_models, _ =
-		initialize_data_structures(
-			num_fires,
-			num_crews,
-			num_time_periods,
-			line_per_crew,
-			travel_speed,
-		)
+        _, _, crew_models, fire_models, _, _ =
+                initialize_data_structures(
+                        num_fires,
+                        num_crews,
+                        num_time_periods,
+                        line_per_crew,
+                        travel_speed,
+                )
     GC.gc()
 	d = Dict{Any, Any}("crews" => num_crews, "fires" => num_fires)
 	num_crew_arcs = [size(crew_models[i].wide_arcs)[2] for i in 1:num_crews]

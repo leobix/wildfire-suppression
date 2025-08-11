@@ -276,7 +276,7 @@ function branch_and_price(
         if crew_routes === nothing
                 @info "Initializing data structures"
                 # initialize input data
-                @time crew_routes, fire_plans, crew_models, fire_models, cut_data =
+                @time crew_routes, fire_plans, crew_models, fire_models, cut_data, _ =
                         initialize_data_structures(
                                 num_fires,
                                 num_crews,
@@ -564,23 +564,24 @@ function initialize_data_structures(
         firefighters_per_crew::Int64 = 70,
 )
         if !from_empirical
-		crew_models = build_crew_models(
-			"data/raw/big_fire",
-			num_fires,
-			num_crews,
-			num_time_periods,
-			travel_speed,
-		)
+                crew_models = build_crew_models(
+                        "data/raw/big_fire",
+                        num_fires,
+                        num_crews,
+                        num_time_periods,
+                        travel_speed,
+                )
 
-		fire_models = build_fire_models(
-			"data/raw/big_fire",
-			num_fires,
-			num_crews,
-			num_time_periods,
-			line_per_crew
-		)
-	else
-                crew_models = build_crew_models_from_empirical(
+                fire_models = build_fire_models(
+                        "data/raw/big_fire",
+                        num_fires,
+                        num_crews,
+                        num_time_periods,
+                        line_per_crew
+                )
+                info = nothing
+        else
+                crew_models, info = build_crew_models_from_empirical(
                         num_crews, num_fires, num_time_periods, travel_speed;
                         gaccs = gaccs,
                         firefighters_per_crew = firefighters_per_crew,
@@ -597,7 +598,7 @@ function initialize_data_structures(
 	fire_plans = FirePlanData(Int(floor(6 * 1e6  / num_crews)), num_fires, num_time_periods)
 	cut_data = CutData(num_crews, num_fires, num_time_periods)
 
-	return crew_routes, fire_plans, crew_models, fire_models, cut_data
+        return crew_routes, fire_plans, crew_models, fire_models, cut_data, info
 end
 
 # TODO if this is a bottleneck, can cache lower bounds

@@ -56,6 +56,10 @@ args = get_command_line_args()
 crew_gaccs = parse_gaccs(args["crew-gaccs"])
 firefighters_per_crew = args["firefighters-per-crew"]
 
+@info "Arguments" args
+@info "Crew GACCs" crew_gaccs
+@info "Firefighters per crew" firefighters_per_crew
+
 io = open("logs_precompile_5.txt", "w")
 if args["debug"] == true
 	global_logger(ConsoleLogger(io, Logging.Debug, show_limited = false))
@@ -76,7 +80,7 @@ num_time_periods = 14
 travel_speed = 40.0 * 6.0
 GC.gc()
 
-crew_routes, fire_plans, crew_models, fire_models, cut_data = initialize_data_structures(
+crew_routes, fire_plans, crew_models, fire_models, cut_data, init_info = initialize_data_structures(
         num_fires,
         num_crews,
         num_time_periods,
@@ -86,6 +90,18 @@ crew_routes, fire_plans, crew_models, fire_models, cut_data = initialize_data_st
         gaccs = crew_gaccs,
         firefighters_per_crew = firefighters_per_crew,
 )
+
+@info "Total crews" num_crews
+@info "Fire selection criterion" init_info.selection
+for (ix, fire_id) in enumerate(init_info.fire_ids)
+        start_day = init_info.start_days[ix]
+        crew_list = findall(==(ix), init_info.crew_assignments)
+        @info "Using fire" ix "id" fire_id "start_day" start_day "initial_crews" crew_list
+end
+unassigned_crews = findall(==( -1 ), init_info.crew_assignments)
+if !isempty(unassigned_crews)
+        @info "Crews initially without fire assignment" unassigned_crews
+end
 for j in 1:num_crews
 	no_fire_anticipation!(crew_models[j], [fsp.start_time_period for fsp in fire_models])
 end

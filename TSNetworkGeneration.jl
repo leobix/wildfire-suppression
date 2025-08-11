@@ -482,7 +482,7 @@ function build_crew_models_from_empirical(
 
     # read in the selected fires
     fire_folder = "data/empirical_fire_models/raw/arc_arrays"
-    selected_fires = CSV.read(fire_folder * "/" * "selected_fires.csv", DataFrame) 
+    selected_fires = CSV.read(fire_folder * "/" * "selected_fires.csv", DataFrame)
 
     # restrict to fires in the desired GACCs
     selected_fires = selected_fires[in.(selected_fires[:, "GACC"], Ref(gaccs)), :]
@@ -493,8 +493,10 @@ function build_crew_models_from_empirical(
     # write out these sorted fires to a new file with only the columns we need
     CSV.write(fire_folder * "/" * "selected_fires_sorted.csv", selected_fires[:, [:FIRE_EVENT_ID, :start_day_of_sim]])
 
-    # get the unique fire ids
+    # get the unique fire ids and their start days
     idx = unique(i -> selected_fires[i, "FIRE_EVENT_ID"], eachindex(selected_fires[:, "FIRE_EVENT_ID"]))
+    fire_ids = selected_fires[idx, "FIRE_EVENT_ID"]
+    fire_start_days = selected_fires[idx, "start_day_of_sim"]
 
     # read in the crew locations
     tau_base_to_fire = CSV.read(fire_folder * "/../" * "base_fire_distances.csv", DataFrame)
@@ -733,7 +735,15 @@ function build_crew_models_from_empirical(
         push!(crew_sps, crew_sp)
     end
 
-    return crew_sps
+    info = (
+        fire_ids = fire_ids,
+        start_days = fire_start_days,
+        crew_assignments = current_fire,
+        crews_per_fire = type_1_crews,
+        selection = "Filtered to GACCs $(join(gaccs, ",")) and sorted by start_day_of_sim then FIRE_EVENT_ID"
+    )
+
+    return crew_sps, info
 end
 
 

@@ -43,6 +43,10 @@ function get_command_line_args()
                 "--crew-gaccs"
                 help = "Allowed crew GACCs: 'all', 'all_no_ak', or comma-separated list of abbreviations (e.g. GB,NW)"
                 default = "GB"
+                "--firefighters-per-crew"
+                help = "Number of firefighters per crew"
+                arg_type = Int
+                default = 70
         end
         return parse_args(arg_parse_settings)
 end
@@ -50,6 +54,7 @@ end
 
 args = get_command_line_args()
 crew_gaccs = parse_gaccs(args["crew-gaccs"])
+firefighters_per_crew = args["firefighters-per-crew"]
 
 io = open("logs_precompile_5.txt", "w")
 if args["debug"] == true
@@ -71,7 +76,7 @@ num_time_periods = 14
 travel_speed = 40.0 * 6.0
 GC.gc()
 
-crew_routes, fire_plans, crew_models, fire_models, cut_data = initialize_data_structures(num_fires, num_crews, num_time_periods, 20, travel_speed, from_empirical = true, gaccs = crew_gaccs)
+crew_routes, fire_plans, crew_models, fire_models, cut_data = initialize_data_structures(num_fires, num_crews, num_time_periods, firefighters_per_crew, travel_speed, from_empirical = true, gaccs = crew_gaccs)
 for j in 1:num_crews
 	no_fire_anticipation!(crew_models[j], [fsp.start_time_period for fsp in fire_models])
 end

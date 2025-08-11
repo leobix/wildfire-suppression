@@ -2,6 +2,7 @@
 !.gitignore
 !*/
 !*.jl
+!README.md
 !*.bat
 !experiments/shell/*.sh
 !**/*.toml

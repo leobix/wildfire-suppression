@@ -318,7 +318,7 @@ function double_column_generation!!!!(
 					end
 				end
 				continue_iterating = true
-				@info "remove deferrals" iteration
+                            @debug "remove deferrals" iteration
 			end
 		end
 
@@ -334,7 +334,7 @@ function double_column_generation!!!!(
 			end
 
 			if termination_status(rmp.model) != MOI.OPTIMAL
-				@info "non optimal termination status" termination_status(rmp.model)
+                            @debug "non optimal termination status" termination_status(rmp.model)
 			end
 
 
@@ -461,7 +461,7 @@ function define_restricted_master_problem(
 	fires_to_ignore::Vector{Int64},
 	dual_warm_start::Union{Nothing, DualWarmStart} = nothing,
 )
-	@info "Define restricted master problem" fires_to_ignore
+    @debug "Define restricted master problem" fires_to_ignore
 
 	# get dimensions
 	num_crews, _, num_fires, num_time_periods = size(crew_route_data.fires_fought)

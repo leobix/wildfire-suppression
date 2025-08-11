@@ -160,21 +160,21 @@ function price_and_cut!!!!(
 		end
 		loop_ix += 1
 
-		if loop_ix > loop_max
-			@info "halting cut generation early, exceeded max loops" loop_ix loop_max
-			break
-		end
+                if loop_ix > loop_max
+                        @debug "halting cut generation early, exceeded max loops" loop_ix loop_max
+                        break
+                end
 
-		if most_recent_obj / current_obj > 1 - relative_improvement_cut_req
-			@info "halting cut generation early, too small improvement" loop_ix
-			break
-		end
+                if most_recent_obj / current_obj > 1 - relative_improvement_cut_req
+                        @debug "halting cut generation early, too small improvement" loop_ix
+                        break
+                end
 		most_recent_obj = current_obj
 
-		if time() - t > soft_time_limit
-			@info "halting cut generation early, reached cut time limit" soft_time_limit
-			break
-		end
+                if time() - t > soft_time_limit
+                        @debug "halting cut generation early, reached cut time limit" soft_time_limit
+                        break
+                end
 
 		# add cuts
 		t2 = @elapsed num_cuts = find_and_incorporate_knapsack_gub_cuts!!(
@@ -271,12 +271,13 @@ function branch_and_price(
         fire_models = nothing,
         cut_data  = nothing,
 )
-	start_time = time()
-	root_node_ip_sol = 0.0
-	root_node_ip_sol_time = 0.0
+        start_time = time()
+        @info "Starting branch-and-price optimization" fires = num_fires crews = num_crews periods = num_time_periods
+        root_node_ip_sol = 0.0
+        root_node_ip_sol_time = 0.0
 
         if crew_routes === nothing
-                @info "Initializing data structures"
+                @debug "Initializing data structures"
                 # initialize input data
                 @time crew_routes, fire_plans, crew_models, fire_models, cut_data, _ =
                         initialize_data_structures(
@@ -292,16 +293,16 @@ function branch_and_price(
                                 fires_by_gacc = fires_by_gacc,
                         )
 		GC.gc()
-		algo_tracking ?
-		(@info "Checkpoint after initializing data structures" time() - start_time) :
-		nothing
+                algo_tracking ?
+                (@debug "Checkpoint after initializing data structures" time() - start_time) :
+                nothing
 	end
 
 	fires_to_ignore = Int64[]
 	for fire in 1:num_fires
 		if !isnothing(fire_models[fire].start_time_period) && fire_models[fire].start_time_period > current_time
-			push!(fires_to_ignore, fire)
-			@info "Ignoring fire" fire "because it starts at time" fire_models[fire].start_time_period
+                        push!(fires_to_ignore, fire)
+                        @debug "Ignoring fire" fire "because it starts at time" fire_models[fire].start_time_period
 		end
 	end
 
@@ -357,10 +358,10 @@ function branch_and_price(
 		node_ix = unexplored[findmin(node_lbs)[2]]
 
 		# break early if we are close enough to solved
-		if min_lb / ub > 1 - 1e-8
-			@info "Solved to tolerance" min_lb ub
-			break
-		end
+                if min_lb / ub > 1 - 1e-8
+                        @debug "Solved to tolerance" min_lb ub
+                        break
+                end
 
 		# else explore the next node
 		explore_node!!(
@@ -387,10 +388,10 @@ function branch_and_price(
 			branching_strategy = branching_strategy,
 		)
 
-		if time() - start_time > total_time_limit
-			@info "Full time limit reached"
-			break
-		end
+                if time() - start_time > total_time_limit
+                        @debug "Full time limit reached"
+                        break
+                end
 
 		heuristic_time = 0.0
 		if (heuristic_cadence_secs < time() - last_heuristic_time) &&
@@ -421,10 +422,10 @@ function branch_and_price(
 					single_fire_lift = heuristic_single_fire_lift,
 				)
 
-			if time() - start_time > total_time_limit
-				@info "Full time limit reached"
-				break
-			end
+                        if time() - start_time > total_time_limit
+                                @debug "Full time limit reached"
+                                break
+                        end
 
 			heuristic_time = time() - last_heuristic_time
 
@@ -450,7 +451,7 @@ function branch_and_price(
 					1200000,
 					4000000,
 					1200.0,)			
-			@info "restore_integrality" t obj obj_bound
+                        @debug "restore_integrality" t obj obj_bound
 		end
 
 
@@ -499,7 +500,7 @@ function branch_and_price(
 				NPZ.npzwrite("data/output/crew_$(crew)_costs.npy", restricted_costs)
 			end
 
-			@info "new incumbent" fire_allots crew_allots fire_cost crew_cost fire_arcs_used crew_arcs_used
+                        @debug "new incumbent" fire_allots crew_allots fire_cost crew_cost fire_arcs_used crew_arcs_used
 
 
 			ub = nodes[node_ix].u_bound
@@ -511,17 +512,17 @@ function branch_and_price(
 		lb = find_lower_bound(nodes[1])
 
 		# print progress
-		@info "current bounds" node_ix lb ub
+                @debug "current bounds" node_ix lb ub
 		println(lb)
 		println(ub)
 		# go to the next node
-		@info "number of nodes" node_explored_count length(nodes)
-		@info "columns" sum(crew_routes.routes_per_crew) sum(
-			fire_plans.plans_per_fire,
-		)
-		algo_tracking ?
-		(@info "Time check" time() - start_time) :
-		nothing
+                @debug "number of nodes" node_explored_count length(nodes)
+                @debug "columns" sum(crew_routes.routes_per_crew) sum(
+                        fire_plans.plans_per_fire,
+                )
+                algo_tracking ?
+                (@debug "Time check" time() - start_time) :
+                nothing
 
 		if algo_tracking
 			push!(explored_nodes, node_explored_count)
@@ -548,12 +549,12 @@ function branch_and_price(
 		end
 
 		if node_explored_count >= max_nodes
-			@info "Hit node limit, breaking" node_explored_count
-			break
-		end
-	end
-
-	return explored_nodes, ubs, lbs, columns, heuristic_times, times, time_1, root_node_ip_sol, root_node_ip_sol_time, fire_arcs_used, crew_arcs_used
+                        @debug "Hit node limit, breaking" node_explored_count
+                        break
+                end
+        end
+        @info "Branch-and-price optimization complete" lower_bound = lb upper_bound = ub explored_nodes = node_explored_count
+        return explored_nodes, ubs, lbs, columns, heuristic_times, times, time_1, root_node_ip_sol, root_node_ip_sol_time, fire_arcs_used, crew_arcs_used
 
 end
 
@@ -948,7 +949,7 @@ function find_integer_solution(
 	end
 
 	if ~isnothing(warm_start_plans)
-		@info "pushing solution to IP"
+		@debug "pushing solution to IP"
 		plans_ws = 0
 		for i ∈ eachindex(solved_rmp.plans)
 			if (i ∈ eachindex(warm_start_plans)) && (warm_start_plans[i] > 0.99)
@@ -1018,7 +1019,7 @@ function heuristic_upper_bound!!(
 	plans_best_sol = nothing,
 )
 	start_time = time()
-	@info "Finding heuristic upper bound" explored_bb_node.ix
+	@debug "Finding heuristic upper bound" explored_bb_node.ix
 
 	# gather global information
 	num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)
@@ -1049,7 +1050,7 @@ function heuristic_upper_bound!!(
 			if value(routes_best_sol[(crew, route)]) > 0.99
 				if route ∉ crew_ixs[crew]
 					push!(crew_ixs[crew], route)
-					@info "pushing route best sol"
+					@debug "pushing route best sol"
 				end
 			end
 		end
@@ -1058,7 +1059,7 @@ function heuristic_upper_bound!!(
 			if value(plans_best_sol[(fire, plan)]) > 0.99
 				if plan ∉ fire_ixs[fire]
 					push!(fire_ixs[fire], plan)
-					@info "pushing plan best sol"
+					@debug "pushing plan best sol"
 				end
 			end
 		end
@@ -1096,7 +1097,7 @@ function heuristic_upper_bound!!(
 
 		cur_time = time() - start_time
 		if cur_time > soft_time_limit
-			@info "Breaking heuristic round" iter - 1 cur_time soft_time_limit
+			@debug "Breaking heuristic round" iter - 1 cur_time soft_time_limit
 			break
 		end
 
@@ -1124,12 +1125,12 @@ function heuristic_upper_bound!!(
 			deleteat!(fire_ixs[fire], to_delete)
 		end
 
-		@info "entering heuristic round" branching_rule.allotment_matrix
+		@debug "entering heuristic round" branching_rule.allotment_matrix
 		for rule in crew_rules
-			@info "crew rule" rule crew_ixs
+			@debug "crew rule" rule crew_ixs
 		end
 		for rule in fire_rules
-			@info "fire rule" rule fire_ixs
+			@debug "fire rule" rule fire_ixs
 		end
 		rmp = define_restricted_master_problem(
 			gurobi_env,
@@ -1167,7 +1168,7 @@ function heuristic_upper_bound!!(
 			single_fire_lift = single_fire_lift,
 			upper_bound = ub,
 			time_limit = 20.0)
-		@info "Price and cut time (heuristic)" t
+		@debug "Price and cut time (heuristic)" t
 
 		# add in columns from best feasible solution so far
 		if ~isnothing(routes)
@@ -1241,9 +1242,9 @@ function heuristic_upper_bound!!(
 		elseif obj == Inf && ub < Inf
 			@warn "Failure of warm start solution"
 		end
-		@info "found sol" t obj obj_bound
+		@debug "found sol" t obj obj_bound
 		if rounds_since_improvement >= kill_if_no_improvement_rounds
-			@info "Too long since improvement in heuristic, killing early" rounds_since_improvement
+			@debug "Too long since improvement in heuristic, killing early" rounds_since_improvement
 			break
 		end
 
@@ -1257,7 +1258,7 @@ function heuristic_upper_bound!!(
 
 		current_allotment = current_allotment .+ 1
 	end
-	@info "Found heuristic upper bound" ub
+	@debug "Found heuristic upper bound" ub
 
 	return ub, ub_rmp, routes, plans
 end
@@ -1287,7 +1288,7 @@ function explore_node!!(
 	fires_to_ignore,
 	rel_tol = 1e-9)
 
-	@info "Exploring node" branch_and_bound_node.ix fires_to_ignore
+	@debug "Exploring node" branch_and_bound_node.ix fires_to_ignore
 
 	deferral_stabilization = false
 	# gather global information
@@ -1381,7 +1382,7 @@ function explore_node!!(
 		cur_node = cur_node.parent
 
 	end
-	@info "rules" crew_rules fire_rules global_rules
+	@debug "rules" crew_rules fire_rules global_rules
 
 	# define the restricted master problem
 	## TODO how do we handle existing cuts
@@ -1398,7 +1399,7 @@ function explore_node!!(
 		deferral_stabilization,
 		fires_to_ignore,
 	)
-	@info "Define rmp time (b-and-b)" t
+	@debug "Define rmp time (b-and-b)" t
 
 	t = @elapsed price_and_cut!!!!(
 		rmp,
@@ -1423,7 +1424,7 @@ function explore_node!!(
 		single_fire_lift = single_fire_lift,
 		log_progress_file = log_cuts_file)
 
-	@info "Price and cut time (b-and-b)" t
+	@debug "Price and cut time (b-and-b)" t
 	@debug "after price and cut" objective_value(rmp.model) crew_routes.routes_per_crew fire_plans.plans_per_fire
 
 	# extract some data
@@ -1586,7 +1587,7 @@ function explore_node!!(
 			branch_and_bound_node.children = [left_child, right_child]
 
 		end
-		@info "branching rules" left_branching_rule right_branching_rule
+		@debug "branching rules" left_branching_rule right_branching_rule
 	end
 
 	return used_plans, used_routes, binding_cuts

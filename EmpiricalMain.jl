@@ -5,18 +5,51 @@ using JuMP, Gurobi, JSON, Profile, ArgParse, Logging, IterTools
 const GRB_ENV = Gurobi.Env()
 
 
+const GACC_ABBR = Dict(
+        "AK" => "Alaska",
+        "EA" => "Eastern",
+        "GB" => "Great Basin",
+        "NC" => "Northern California",
+        "CA-N" => "Northern California",
+        "NR" => "Northern Rockies",
+        "NW" => "Northwest",
+        "RM" => "Rocky Mountain",
+        "SA" => "Southern",
+        "SC" => "Southern California",
+        "CA-S" => "Southern California",
+        "SW" => "Southwest",
+)
+
+const ALL_GACCS = unique(collect(values(GACC_ABBR)))
+
+function parse_gaccs(str::String)
+        s = uppercase(strip(str))
+        if s == "ALL"
+                return ALL_GACCS
+        elseif s == "ALL_NO_AK"
+                return filter(!=("Alaska"), ALL_GACCS)
+        else
+                abbrs = split(s, ",")
+                return [get(GACC_ABBR, a, error("Unknown GACC abbreviation: $a")) for a in abbrs]
+        end
+end
+
 function get_command_line_args()
-	arg_parse_settings = ArgParseSettings()
-	@add_arg_table arg_parse_settings begin
-		"--debug"
-		help = "run in debug mode, exposing all logging that uses @debug macro"
-		action = :store_true
-	end
-	return parse_args(arg_parse_settings)
+        arg_parse_settings = ArgParseSettings()
+        @add_arg_table arg_parse_settings begin
+                "--debug"
+                help = "run in debug mode, exposing all logging that uses @debug macro"
+                action = :store_true
+                "--crew-gaccs"
+                help = "Allowed crew GACCs: 'all', 'all_no_ak', or comma-separated list of abbreviations (e.g. GB,NW)"
+                default = "GB"
+        end
+        return parse_args(arg_parse_settings)
 end
 
 
 args = get_command_line_args()
+crew_gaccs = parse_gaccs(args["crew-gaccs"])
 
 io = open("logs_precompile_5.txt", "w")
 if args["debug"] == true
@@ -38,7 +71,7 @@ num_time_periods = 14
 travel_speed = 40.0 * 6.0
 GC.gc()
 
-crew_routes, fire_plans, crew_models, fire_models, cut_data = initialize_data_structures(num_fires, num_crews, num_time_periods, 20, travel_speed, from_empirical = true)
+crew_routes, fire_plans, crew_models, fire_models, cut_data = initialize_data_structures(num_fires, num_crews, num_time_periods, 20, travel_speed, from_empirical = true, gaccs = crew_gaccs)
 for j in 1:num_crews
 	no_fire_anticipation!(crew_models[j], [fsp.start_time_period for fsp in fire_models])
 end
@@ -63,16 +96,17 @@ for t in 0:14
 	fire_plans = FirePlanData(Int(floor(6 * 1e6  / num_crews)), num_fires, num_time_periods)
 	cut_data = CutData(num_crews, num_fires, num_time_periods)
 
-	result = branch_and_price(num_fires,
-		num_crews,
-		num_time_periods,
-		current_time = t,
-		from_empirical = true, 
-		travel_speed = travel_speed,
-		crew_routes = crew_routes,
-		fire_plans = fire_plans,
-		crew_models = crew_models,
-		fire_models = fire_models,
+        result = branch_and_price(num_fires,
+                num_crews,
+                num_time_periods,
+                current_time = t,
+                from_empirical = true,
+                gaccs = crew_gaccs,
+                travel_speed = travel_speed,
+                crew_routes = crew_routes,
+                fire_plans = fire_plans,
+                crew_models = crew_models,
+                fire_models = fire_models,
 		cut_data = cut_data
 		)
 		# Unpack as many variables as branch_and_price returns, e.g.:

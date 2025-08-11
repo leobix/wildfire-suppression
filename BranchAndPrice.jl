@@ -230,14 +230,15 @@ function price_and_cut!!!!(
 end
 
 function branch_and_price(
-	num_fires::Int,
-	num_crews::Int,
-	num_time_periods::Int;
-	current_time = 0,
-	from_empirical = false,
-	line_per_crew = 20,
-	travel_speed = 640.0,
-	max_nodes = 10000,
+        num_fires::Int,
+        num_crews::Int,
+        num_time_periods::Int;
+        current_time = 0,
+        from_empirical = false,
+        gaccs = ["Great Basin"],
+        line_per_crew = 20,
+        travel_speed = 640.0,
+        max_nodes = 10000,
 	algo_tracking = false,
 	branching_strategy = "linking_dual_max_variance",
 	cut_search_enumeration_limit = 10000,
@@ -264,8 +265,8 @@ function branch_and_price(
 	crew_routes = nothing,
 	fire_plans = nothing, 
 	crew_models  = nothing,
-	fire_models = nothing,
-	cut_data  = nothing,
+        fire_models = nothing,
+        cut_data  = nothing,
 )
 	start_time = time()
 	root_node_ip_sol = 0.0
@@ -274,8 +275,8 @@ function branch_and_price(
 	if crew_routes === nothing
 		@info "Initializing data structures"
 		# initialize input data
-		@time crew_routes, fire_plans, crew_models, fire_models, cut_data =
-			initialize_data_structures(num_fires, num_crews, num_time_periods, line_per_crew, travel_speed, from_empirical = from_empirical)
+                @time crew_routes, fire_plans, crew_models, fire_models, cut_data =
+                        initialize_data_structures(num_fires, num_crews, num_time_periods, line_per_crew, travel_speed, from_empirical = from_empirical, gaccs = gaccs)
 		GC.gc()
 		algo_tracking ?
 		(@info "Checkpoint after initializing data structures" time() - start_time) :
@@ -543,14 +544,15 @@ function branch_and_price(
 end
 
 function initialize_data_structures(
-	num_fires::Int64,
-	num_crews::Int64,
-	num_time_periods::Int64,
-	line_per_crew::Int64,
-	travel_speed::Float64;
-	from_empirical = false
+        num_fires::Int64,
+        num_crews::Int64,
+        num_time_periods::Int64,
+        line_per_crew::Int64,
+        travel_speed::Float64;
+        from_empirical = false,
+        gaccs = ["Great Basin"],
 )
-	if !from_empirical
+        if !from_empirical
 		crew_models = build_crew_models(
 			"data/raw/big_fire",
 			num_fires,
@@ -567,13 +569,13 @@ function initialize_data_structures(
 			line_per_crew
 		)
 	else
-		crew_models = build_crew_models_from_empirical(
-			num_crews, num_fires, num_time_periods, travel_speed
-		)
-		fire_models = build_fire_models_from_empirical(
-			num_fires, num_crews, num_time_periods
-		)
-	end
+                crew_models = build_crew_models_from_empirical(
+                        num_crews, num_fires, num_time_periods, travel_speed; gaccs = gaccs
+                )
+                fire_models = build_fire_models_from_empirical(
+                        num_fires, num_crews, num_time_periods; gaccs = gaccs
+                )
+        end
 
 
 	crew_routes = CrewRouteData(Int(floor(6 * 1e6 / num_crews)), num_fires, num_crews, num_time_periods)

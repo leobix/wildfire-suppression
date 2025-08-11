@@ -1,16 +1,17 @@
 include("BranchAndPrice.jl")
 
 using JuMP, Gurobi, JSON, Profile, ArgParse, Logging, IterTools
+import Logging: min_enabled_level, shouldlog, handle_message
 
 struct DualLogger <: AbstractLogger
         loggers::NTuple{2,AbstractLogger}
 end
 
-Base.min_enabled_level(l::DualLogger) = min(min_enabled_level(l.loggers[1]), min_enabled_level(l.loggers[2]))
-Base.shouldlog(l::DualLogger, level, _module, group, id) =
+min_enabled_level(l::DualLogger) = min(min_enabled_level(l.loggers[1]), min_enabled_level(l.loggers[2]))
+shouldlog(l::DualLogger, level, _module, group, id) =
         shouldlog(l.loggers[1], level, _module, group, id) ||
         shouldlog(l.loggers[2], level, _module, group, id)
-Base.handle_message(l::DualLogger, level, message, _module, group, id, file, line) = begin
+handle_message(l::DualLogger, level, message, _module, group, id, file, line) = begin
         handle_message(l.loggers[1], level, message, _module, group, id, file, line)
         handle_message(l.loggers[2], level, message, _module, group, id, file, line)
 end

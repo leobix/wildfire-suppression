@@ -478,14 +478,25 @@ function build_crew_models_from_empirical(
     travel_fixed_delay::Int64 = 0;
     gaccs::Vector{String} = ["Great Basin"],
     firefighters_per_crew::Int64 = 70,
+    fires_by_gacc::Dict{String,Vector{Int64}} = Dict{String,Vector{Int64}}(),
 )
 
     # read in the selected fires
     fire_folder = "data/empirical_fire_models/raw/arc_arrays"
     selected_fires = CSV.read(fire_folder * "/" * "selected_fires.csv", DataFrame)
 
-    # restrict to fires in the desired GACCs
-    selected_fires = selected_fires[in.(selected_fires[:, "GACC"], Ref(gaccs)), :]
+    if !isempty(fires_by_gacc)
+        gaccs = collect(keys(fires_by_gacc))
+        mask = falses(nrow(selected_fires))
+        for (gacc, fires) in fires_by_gacc
+            mask .|= (selected_fires[:, "GACC"] .== gacc) .&
+                    in.(selected_fires[:, "FIRE_EVENT_ID"], Ref(fires))
+        end
+        selected_fires = selected_fires[mask, :]
+    else
+        # restrict to fires in the desired GACCs
+        selected_fires = selected_fires[in.(selected_fires[:, "GACC"], Ref(gaccs)), :]
+    end
 
     # sort these by "start_day_of_sim" and then by "FIRE_EVENT_ID"
     selected_fires = sort(selected_fires, [:start_day_of_sim, :FIRE_EVENT_ID])
@@ -1246,6 +1257,7 @@ function build_fire_models_from_empirical(
     num_time_periods::Int64;
     gaccs::Vector{String} = ["Great Basin"],
     firefighters_per_crew::Int64 = 70,
+    fires_by_gacc::Dict{String,Vector{Int64}} = Dict{String,Vector{Int64}}(),
 )
 
     # initialize fire models
@@ -1263,8 +1275,18 @@ function build_fire_models_from_empirical(
     fire_folder = "data/empirical_fire_models/raw/arc_arrays"
     selected_fires = CSV.read(fire_folder * "/" * "selected_fires.csv", DataFrame)
 
-    # restrict to the fires that are in the desired GACCs
-    selected_fires = selected_fires[in.(selected_fires[:, "GACC"], Ref(gaccs)), :]
+    if !isempty(fires_by_gacc)
+        gaccs = collect(keys(fires_by_gacc))
+        mask = falses(nrow(selected_fires))
+        for (gacc, fires) in fires_by_gacc
+            mask .|= (selected_fires[:, "GACC"] .== gacc) .&
+                    in.(selected_fires[:, "FIRE_EVENT_ID"], Ref(fires))
+        end
+        selected_fires = selected_fires[mask, :]
+    else
+        # restrict to the fires that are in the desired GACCs
+        selected_fires = selected_fires[in.(selected_fires[:, "GACC"], Ref(gaccs)), :]
+    end
 
     # sort these by "start_day_of_sim" and then by "FIRE_EVENT_ID"
     selected_fires = sort(selected_fires, [:start_day_of_sim, :FIRE_EVENT_ID])

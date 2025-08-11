@@ -239,6 +239,7 @@ function branch_and_price(
         line_per_crew = 20,
         firefighters_per_crew = 70,
         travel_speed = 640.0,
+        fires_by_gacc::Dict{String,Vector{Int64}} = Dict{String,Vector{Int64}}(),
         max_nodes = 10000,
         algo_tracking = false,
 	branching_strategy = "linking_dual_max_variance",
@@ -286,6 +287,7 @@ function branch_and_price(
                                 from_empirical = from_empirical,
                                 gaccs = gaccs,
                                 firefighters_per_crew = firefighters_per_crew,
+                                fires_by_gacc = fires_by_gacc,
                         )
 		GC.gc()
 		algo_tracking ?
@@ -562,6 +564,7 @@ function initialize_data_structures(
         from_empirical = false,
         gaccs = ["Great Basin"],
         firefighters_per_crew::Int64 = 70,
+        fires_by_gacc::Dict{String,Vector{Int64}} = Dict{String,Vector{Int64}}(),
 )
         if !from_empirical
                 crew_models = build_crew_models(
@@ -585,11 +588,13 @@ function initialize_data_structures(
                         num_crews, num_fires, num_time_periods, travel_speed;
                         gaccs = gaccs,
                         firefighters_per_crew = firefighters_per_crew,
+                        fires_by_gacc = fires_by_gacc,
                 )
                 fire_models = build_fire_models_from_empirical(
                         num_fires, num_crews, num_time_periods;
                         gaccs = gaccs,
                         firefighters_per_crew = firefighters_per_crew,
+                        fires_by_gacc = fires_by_gacc,
                 )
         end
 

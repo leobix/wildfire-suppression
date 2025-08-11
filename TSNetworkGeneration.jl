@@ -594,7 +594,7 @@ function build_crew_models_from_empirical(
                 a = type_1_crews[i]
                 @warn "Fire $i is not active at day 0, setting type_1_crews to 0 from $a"
             end
-            # type_1_crews[i] = 0
+            type_1_crews[i] = 0
         end
     end
 

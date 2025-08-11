@@ -69,7 +69,7 @@ Edit [`EmpiricalMain.jl`](EmpiricalMain.jl) to modify run parameters:
 
 * `num_fires`, `num_crews`, and `num_time_periods` control the size of the case study.
 * `travel_speed = 40.0 * 6.0` encodes a 40 mph average speed for 6 hours of travel per day. Change the second factor to adjust allowed daily travel time.
-* The fourth argument to `initialize_data_structures` is the number of personnel per crew (e.g., change `20` to `70`).
+* Use the `--crew-size` flag in `EmpiricalMain.jl` to control the number of personnel per crew (defaults to `70`).
 
 Save the file and rerun the script to evaluate the new settings.
 

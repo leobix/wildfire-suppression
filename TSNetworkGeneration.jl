@@ -471,10 +471,11 @@ function get_rest_penalties(
 end
 
 function build_crew_models_from_empirical(
-    num_crews::Int64, 
-    num_fires::Int64, 
+    num_crews::Int64,
+    num_fires::Int64,
     num_time_periods::Int64,
     travel_speed::Float64,
+    personnel_per_crew::Int64,
     travel_fixed_delay::Int64 = 0,
 )
 
@@ -583,8 +584,8 @@ function build_crew_models_from_empirical(
     fires_start_day = selected_fires[idx, "start_day_of_sim"]
     active_fires = findall(fires_start_day .== 0)
 
-    # since each crew is 20 people, we can divide by 20 to get the number of crews
-    type_1_crews = round.(Int, type_1_crews / 20)
+    # divide by the number of personnel per crew to get crew counts
+    type_1_crews = round.(Int, type_1_crews / personnel_per_crew)
 
     # but if the fire is not active at day 0, we set the number of crews to 0
     for i in 1:num_fires
@@ -1229,9 +1230,10 @@ function build_fire_models(
 end
 
 function build_fire_models_from_empirical(
-    num_fires::Int64, 
-    num_crews::Int64, 
+    num_fires::Int64,
+    num_crews::Int64,
     num_time_periods::Int64,
+    personnel_per_crew::Int64,
 )
 
     # initialize fire models
@@ -1263,8 +1265,8 @@ function build_fire_models_from_empirical(
         fname = selected_fires[fire, "arc_file"]
         arc_array = readdlm(fire_folder * "/" * fname, ',')
 
-        # divide the last column by 20 (number of personnel per crew)
-        arc_array[:, end] = arc_array[:, end] / 20
+        # convert personnel counts to crews
+        arc_array[:, end] = arc_array[:, end] / personnel_per_crew
 
         # cast to integer, rounding to nearest
         arc_array = convert(Array{Int64}, round.(arc_array))

@@ -543,12 +543,12 @@ function branch_and_price(
 end
 
 function initialize_data_structures(
-	num_fires::Int64,
-	num_crews::Int64,
-	num_time_periods::Int64,
-	line_per_crew::Int64,
-	travel_speed::Float64;
-	from_empirical = false
+        num_fires::Int64,
+        num_crews::Int64,
+        num_time_periods::Int64,
+        personnel_per_crew::Int64,
+        travel_speed::Float64;
+        from_empirical = false
 )
 	if !from_empirical
 		crew_models = build_crew_models(
@@ -559,21 +559,21 @@ function initialize_data_structures(
 			travel_speed,
 		)
 
-		fire_models = build_fire_models(
-			"data/raw/big_fire",
-			num_fires,
-			num_crews,
-			num_time_periods,
-			line_per_crew
-		)
-	else
-		crew_models = build_crew_models_from_empirical(
-			num_crews, num_fires, num_time_periods, travel_speed
-		)
-		fire_models = build_fire_models_from_empirical(
-			num_fires, num_crews, num_time_periods
-		)
-	end
+                fire_models = build_fire_models(
+                        "data/raw/big_fire",
+                        num_fires,
+                        num_crews,
+                        num_time_periods,
+                        personnel_per_crew,
+                )
+        else
+                crew_models = build_crew_models_from_empirical(
+                        num_crews, num_fires, num_time_periods, travel_speed, personnel_per_crew
+                )
+                fire_models = build_fire_models_from_empirical(
+                        num_fires, num_crews, num_time_periods, personnel_per_crew
+                )
+        end
 
 
 	crew_routes = CrewRouteData(Int(floor(6 * 1e6 / num_crews)), num_fires, num_crews, num_time_periods)

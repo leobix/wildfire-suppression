@@ -6,13 +6,17 @@ const GRB_ENV = Gurobi.Env()
 
 
 function get_command_line_args()
-	arg_parse_settings = ArgParseSettings()
-	@add_arg_table arg_parse_settings begin
-		"--debug"
-		help = "run in debug mode, exposing all logging that uses @debug macro"
-		action = :store_true
-	end
-	return parse_args(arg_parse_settings)
+        arg_parse_settings = ArgParseSettings()
+        @add_arg_table arg_parse_settings begin
+                "--debug"
+                help = "run in debug mode, exposing all logging that uses @debug macro"
+                action = :store_true
+                "--crew-size"
+                help = "number of firefighters in each crew"
+                arg_type = Int
+                default = 70
+        end
+        return parse_args(arg_parse_settings)
 end
 
 
@@ -32,13 +36,20 @@ if args["debug"] == true
 else
 	global_logger(ConsoleLogger(io, Logging.Info, show_limited = false))
 end
-num_fires = 14	
+num_fires = 14
 num_crews = 12
 num_time_periods = 14
 travel_speed = 40.0 * 6.0
 GC.gc()
 
-crew_routes, fire_plans, crew_models, fire_models, cut_data = initialize_data_structures(num_fires, num_crews, num_time_periods, 20, travel_speed, from_empirical = true)
+crew_routes, fire_plans, crew_models, fire_models, cut_data = initialize_data_structures(
+        num_fires,
+        num_crews,
+        num_time_periods,
+        args["crew_size"],
+        travel_speed,
+        from_empirical = true,
+)
 for j in 1:num_crews
 	no_fire_anticipation!(crew_models[j], [fsp.start_time_period for fsp in fire_models])
 end

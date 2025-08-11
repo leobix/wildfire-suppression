@@ -236,6 +236,7 @@ function branch_and_price(
         current_time = 0,
         from_empirical = false,
         gaccs = ["Great Basin"],
+        fire_gaccs = gaccs,
         line_per_crew = 20,
         firefighters_per_crew = 70,
         travel_speed = 640.0,
@@ -285,7 +286,8 @@ function branch_and_price(
                                 line_per_crew,
                                 travel_speed,
                                 from_empirical = from_empirical,
-                                gaccs = gaccs,
+                                crew_gaccs = gaccs,
+                                fire_gaccs = fire_gaccs,
                                 firefighters_per_crew = firefighters_per_crew,
                                 fires_by_gacc = fires_by_gacc,
                         )
@@ -562,7 +564,8 @@ function initialize_data_structures(
         line_per_crew::Int64,
         travel_speed::Float64;
         from_empirical = false,
-        gaccs = ["Great Basin"],
+        crew_gaccs = ["Great Basin"],
+        fire_gaccs = crew_gaccs,
         firefighters_per_crew::Int64 = 70,
         fires_by_gacc::Dict{String,Vector{Int64}} = Dict{String,Vector{Int64}}(),
 )
@@ -586,14 +589,15 @@ function initialize_data_structures(
         else
                 crew_models, info = build_crew_models_from_empirical(
                         num_fires, num_time_periods, travel_speed;
-                        gaccs = gaccs,
+                        crew_gaccs = crew_gaccs,
+                        fire_gaccs = fire_gaccs,
                         firefighters_per_crew = firefighters_per_crew,
                         fires_by_gacc = fires_by_gacc,
                 )
                 num_crews = length(crew_models)
                 fire_models = build_fire_models_from_empirical(
                         num_fires, num_crews, num_time_periods;
-                        gaccs = gaccs,
+                        fire_gaccs = fire_gaccs,
                         firefighters_per_crew = firefighters_per_crew,
                         fires_by_gacc = fires_by_gacc,
                 )

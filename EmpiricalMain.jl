@@ -76,7 +76,16 @@ num_time_periods = 14
 travel_speed = 40.0 * 6.0
 GC.gc()
 
-crew_routes, fire_plans, crew_models, fire_models, cut_data = initialize_data_structures(num_fires, num_crews, num_time_periods, firefighters_per_crew, travel_speed, from_empirical = true, gaccs = crew_gaccs)
+crew_routes, fire_plans, crew_models, fire_models, cut_data = initialize_data_structures(
+        num_fires,
+        num_crews,
+        num_time_periods,
+        firefighters_per_crew,
+        travel_speed,
+        from_empirical = true,
+        gaccs = crew_gaccs,
+        firefighters_per_crew = firefighters_per_crew,
+)
 for j in 1:num_crews
 	no_fire_anticipation!(crew_models[j], [fsp.start_time_period for fsp in fire_models])
 end
@@ -108,12 +117,13 @@ for t in 0:14
                 from_empirical = true,
                 gaccs = crew_gaccs,
                 travel_speed = travel_speed,
+                firefighters_per_crew = firefighters_per_crew,
                 crew_routes = crew_routes,
                 fire_plans = fire_plans,
                 crew_models = crew_models,
                 fire_models = fire_models,
-		cut_data = cut_data
-		)
+                cut_data = cut_data
+                )
 		# Unpack as many variables as branch_and_price returns, e.g.:
 	explored_nodes, ubs, lbs, columns, heuristic_times, times, time_1, root_node_ip_sol, root_node_ip_sol_time, fire_arcs_used, crew_arcs_used = result
 	@info "final arcs used" fire_arcs_used, crew_arcs_used

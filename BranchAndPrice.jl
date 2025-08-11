@@ -237,9 +237,10 @@ function branch_and_price(
         from_empirical = false,
         gaccs = ["Great Basin"],
         line_per_crew = 20,
+        firefighters_per_crew = 70,
         travel_speed = 640.0,
         max_nodes = 10000,
-	algo_tracking = false,
+        algo_tracking = false,
 	branching_strategy = "linking_dual_max_variance",
 	cut_search_enumeration_limit = 10000,
 	cut_loop_max = 10,
@@ -272,11 +273,20 @@ function branch_and_price(
 	root_node_ip_sol = 0.0
 	root_node_ip_sol_time = 0.0
 
-	if crew_routes === nothing
-		@info "Initializing data structures"
-		# initialize input data
+        if crew_routes === nothing
+                @info "Initializing data structures"
+                # initialize input data
                 @time crew_routes, fire_plans, crew_models, fire_models, cut_data =
-                        initialize_data_structures(num_fires, num_crews, num_time_periods, line_per_crew, travel_speed, from_empirical = from_empirical, gaccs = gaccs)
+                        initialize_data_structures(
+                                num_fires,
+                                num_crews,
+                                num_time_periods,
+                                line_per_crew,
+                                travel_speed,
+                                from_empirical = from_empirical,
+                                gaccs = gaccs,
+                                firefighters_per_crew = firefighters_per_crew,
+                        )
 		GC.gc()
 		algo_tracking ?
 		(@info "Checkpoint after initializing data structures" time() - start_time) :
@@ -551,6 +561,7 @@ function initialize_data_structures(
         travel_speed::Float64;
         from_empirical = false,
         gaccs = ["Great Basin"],
+        firefighters_per_crew::Int64 = 70,
 )
         if !from_empirical
 		crew_models = build_crew_models(
@@ -570,10 +581,14 @@ function initialize_data_structures(
 		)
 	else
                 crew_models = build_crew_models_from_empirical(
-                        num_crews, num_fires, num_time_periods, travel_speed; gaccs = gaccs
+                        num_crews, num_fires, num_time_periods, travel_speed;
+                        gaccs = gaccs,
+                        firefighters_per_crew = firefighters_per_crew,
                 )
                 fire_models = build_fire_models_from_empirical(
-                        num_fires, num_crews, num_time_periods; gaccs = gaccs
+                        num_fires, num_crews, num_time_periods;
+                        gaccs = gaccs,
+                        firefighters_per_crew = firefighters_per_crew,
                 )
         end
 

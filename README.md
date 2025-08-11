@@ -52,7 +52,13 @@ Use `--firefighters-per-crew` to control the number of personnel assigned to eac
 julia --project=package_dependencies/julia EmpiricalMain.jl --firefighters-per-crew 20
 ```
 
-The run produces JSON files describing crew and fire arcs in `data/output/` and writes `selected_fires_sorted.csv` to `data/empirical_fire_models/raw/arc_arrays/` for visualization.
+Use `--output-folder` to choose where JSON outputs are written (defaults to `data/output/`):
+
+```bash
+julia --project=package_dependencies/julia EmpiricalMain.jl --output-folder my_results
+```
+
+The run produces JSON files describing crew and fire arcs in the specified output directory and writes `selected_fires_sorted.csv` to `data/empirical_fire_models/raw/arc_arrays/` for visualization.
 
 ## 4. Preparing data for new case studies
 
@@ -81,7 +87,7 @@ Save the file and rerun the script to evaluate the new settings.
 
 ## 6. Output
 
-Each invocation writes arc information for every fire and crew to JSON files in `data/output/` with filenames of the form `fire_arcs_<fire>_<time>.json`, `fire_arc_costs_<fire>_<time>.json`, `crew_arcs_<crew>_<time>.json`, and `crew_arc_costs_<crew>_<time>.json`.
+Each invocation writes arc information for every fire and crew to JSON files in the chosen output directory (default `data/output/`) with filenames of the form `fire_arcs_<fire>_<time>.json`, `fire_arc_costs_<fire>_<time>.json`, `crew_arcs_<crew>_<time>.json`, and `crew_arc_costs_<crew>_<time>.json`.
 
 ## 7. Repeating experiments
 

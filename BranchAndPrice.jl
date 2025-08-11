@@ -241,6 +241,7 @@ function branch_and_price(
         firefighters_per_crew = 70,
         travel_speed = 640.0,
         fires_by_gacc::Dict{String,Vector{Int64}} = Dict{String,Vector{Int64}}(),
+        output_folder = "data/output",
         max_nodes = 10000,
         algo_tracking = false,
 	branching_strategy = "linking_dual_max_variance",
@@ -473,8 +474,8 @@ function branch_and_price(
 				fire_plans,
 			)
 
-			# if it is not a directory, make the directory data/output
-			isdir("data/output") || mkdir("data/output")
+                        # ensure the output directory exists
+                        isdir(output_folder) || mkpath(output_folder)
 
 			# extract the arc data from the subproblems
 			for fire in 1:num_fires
@@ -484,8 +485,8 @@ function branch_and_price(
 				restricted_costs = fire_models[fire].arc_costs[arcs_used]
 				# remove the first column, which is extraneous
 				restricted_long_arcs = restricted_long_arcs[:, 2:end]
-				NPZ.npzwrite("data/output/fire_$(fire)_arcs.npy", restricted_long_arcs)
-				NPZ.npzwrite("data/output/fire_$(fire)_costs.npy", restricted_costs)
+                                NPZ.npzwrite(joinpath(output_folder, "fire_$(fire)_arcs.npy"), restricted_long_arcs)
+                                NPZ.npzwrite(joinpath(output_folder, "fire_$(fire)_costs.npy"), restricted_costs)
 			end
 
 			for crew in 1:num_crews
@@ -495,8 +496,8 @@ function branch_and_price(
 				# remove the first column, which is extraneous
 				restricted_long_arcs = restricted_long_arcs[:, 2:end]
 				restricted_costs = crew_models[crew].arc_costs[arcs_used]
-				NPZ.npzwrite("data/output/crew_$(crew)_arcs.npy", restricted_long_arcs)
-				NPZ.npzwrite("data/output/crew_$(crew)_costs.npy", restricted_costs)
+                                NPZ.npzwrite(joinpath(output_folder, "crew_$(crew)_arcs.npy"), restricted_long_arcs)
+                                NPZ.npzwrite(joinpath(output_folder, "crew_$(crew)_costs.npy"), restricted_costs)
 			end
 
 			@info "new incumbent" fire_allots crew_allots fire_cost crew_cost fire_arcs_used crew_arcs_used

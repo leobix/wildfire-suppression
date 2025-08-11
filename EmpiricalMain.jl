@@ -1,6 +1,6 @@
 include("BranchAndPrice.jl")
 
-using JuMP, Gurobi, JSON, Profile, ArgParse, Logging, IterTools
+using JuMP, Gurobi, JSON, Profile, ArgParse, Logging, IterTools, CSV, DataFrames
 import Logging: min_enabled_level, shouldlog, handle_message
 
 struct DualLogger <: AbstractLogger
@@ -67,6 +67,21 @@ function parse_fires_by_gacc(str::String)
         return result
 end
 
+function count_selected_fires(gaccs::Vector{String}, fires_by_gacc::Dict{String,Vector{Int64}})
+        fire_folder = "data/empirical_fire_models/raw/arc_arrays"
+        selected_fires = CSV.read(joinpath(fire_folder, "selected_fires.csv"), DataFrame)
+        if !isempty(fires_by_gacc)
+                mask = falses(nrow(selected_fires))
+                for (gacc, fires) in fires_by_gacc
+                        mask .|= (selected_fires[:, "GACC"] .== gacc) .& in.(selected_fires[:, "FIRE_EVENT_ID"], Ref(fires))
+                end
+                selected_fires = selected_fires[mask, :]
+        else
+                selected_fires = selected_fires[in.(selected_fires[:, "GACC"], Ref(gaccs)), :]
+        end
+        return length(unique(selected_fires[:, "FIRE_EVENT_ID"]))
+end
+
 function get_command_line_args()
         arg_parse_settings = ArgParseSettings()
         @add_arg_table arg_parse_settings begin
@@ -93,10 +108,6 @@ crew_gaccs = parse_gaccs(args["crew-gaccs"])
 firefighters_per_crew = args["firefighters-per-crew"]
 fires_by_gacc = parse_fires_by_gacc(args["fires"])
 
-@info "Arguments" args
-@info "Crew GACCs" crew_gaccs
-@info "Firefighters per crew" firefighters_per_crew
-
 # send logs to both console and file so users can see initialization details
 log_file = open("logs_60.txt", "w")
 if args["debug"] == true
@@ -108,8 +119,13 @@ else
 end
 
 global_logger(DualLogger((console_logger, file_logger)))
-num_fires = 14	
-num_crews = 12
+
+@info "Arguments" args
+@info "Crew GACCs" crew_gaccs
+@info "Firefighters per crew" firefighters_per_crew
+
+num_fires = count_selected_fires(crew_gaccs, fires_by_gacc)
+num_crews = 0
 
 num_time_periods = 14
 travel_speed = 40.0 * 6.0
@@ -128,8 +144,10 @@ crew_routes, fire_plans, crew_models, fire_models, cut_data, init_info = initial
 )
 
 num_crews = length(crew_models)
+num_fires = length(fire_models)
 
 @info "Total crews" num_crews
+@info "Total fires" num_fires
 @info "Fire selection criterion" init_info.selection
 @info "Fires included in optimization" init_info.fire_ids
 @info "Initial crew assignments" init_info.crew_assignments
@@ -223,15 +241,17 @@ for t in 0:14
 			JSON.print(io, fire_arc_costs[g])
 		end
 	end
-	for j in 1:num_crews
-		open("data/output/crew_arcs_$(j)_$(t).json", "w") do io
-			JSON.print(io, crew_arcs[j])
-		end
-		open("data/output/crew_arc_costs_$(j)_$(t).json", "w") do io
-			JSON.print(io, crew_arc_costs[j])
-		end
-	end
+        for j in 1:num_crews
+                open("data/output/crew_arcs_$(j)_$(t).json", "w") do io
+                        JSON.print(io, crew_arcs[j])
+                end
+                open("data/output/crew_arc_costs_$(j)_$(t).json", "w") do io
+                        JSON.print(io, crew_arc_costs[j])
+                end
+        end
 end
+
+close(log_file)
 
 # io = open("logs_40.txt", "w")
 # if args["debug"] == true

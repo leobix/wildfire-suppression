@@ -160,7 +160,7 @@ function cut_generating_LP(gurobi_env,
 		end
 		cartesian_product = product(allotment_option_ixs...)
 		if length(cartesian_product) > cut_search_enumeration_limit
-			@info "CGLP too big for enumeration"
+                    @debug "CGLP too big for enumeration"
 			if method == "adaptive"
 				do_cutting_planes = true
 			end
@@ -313,7 +313,7 @@ function enumerate_minimal_GUB_cover_cuts(
 		loop_count += 1
 		if loop_count >= cut_search_limit_per_time
 			if loop_count > 1
-				@info "Broke cover cut enumeration early" loop_count
+                            @debug "Broke cover cut enumeration early" loop_count
 			end
 			break
 		end

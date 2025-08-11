@@ -221,14 +221,19 @@ for t in 0:14
                 )
                 # Unpack as many variables as branch_and_price returns, e.g.:
         explored_nodes, ubs, lbs, columns, heuristic_times, times, time_1, root_node_ip_sol, root_node_ip_sol_time, fire_arcs_used, crew_arcs_used = result
-	@info "final arcs used" fire_arcs_used, crew_arcs_used
+        @info "final arcs used" fire_arcs_used, crew_arcs_used
 
-	for g in 1:num_fires
-		@info "before modify_in_arcs_and_out_arcs!" fire_models[g].state_in_arcs fire_models[g].state_out_arcs fire_arcs_used[g]
-		if !isnothing(fire_models[g].start_time_period) && fire_models[g].start_time_period > t
-			@info "fire model start time period is greater than current time, skipping modify_in_arcs_and_out_arcs!" g
-			continue
-		end
+        if fire_arcs_used === nothing || crew_arcs_used === nothing
+                @warn "No arc information returned from branch_and_price; stopping early"
+                break
+        end
+
+        for g in 1:num_fires
+                @info "before modify_in_arcs_and_out_arcs!" fire_models[g].state_in_arcs fire_models[g].state_out_arcs fire_arcs_used[g]
+                if !isnothing(fire_models[g].start_time_period) && fire_models[g].start_time_period > t
+                        @info "fire model start time period is greater than current time, skipping modify_in_arcs_and_out_arcs!" g
+                        continue
+                end
 		modify_in_arcs_and_out_arcs!(fire_models[g], t+1, fire_arcs_used[g], FM.TIME_FROM)
 		@info "after modify_in_arcs_and_out_arcs!" fire_models[g].state_in_arcs fire_models[g].state_out_arcs
 	end

@@ -98,6 +98,10 @@ function get_command_line_args()
                 "--fires"
                 help = "Mapping of GACC abbreviations to comma-separated FIRE_EVENT_IDs, separated by semicolons (e.g. GB:1,2;NW:3)"
                 default = ""
+                "--time-limit"
+                help = "Time limit in seconds for the branch-and-price algorithm"
+                arg_type = Float64
+                default = 1800.0
         end
         return parse_args(arg_parse_settings)
 end
@@ -107,9 +111,10 @@ args = get_command_line_args()
 crew_gaccs = parse_gaccs(args["crew-gaccs"])
 firefighters_per_crew = args["firefighters-per-crew"]
 fires_by_gacc = parse_fires_by_gacc(args["fires"])
+time_limit = args["time-limit"]
 
 # send logs to both console and file so users can see initialization details
-log_file = open("logs_60.txt", "w")
+log_file = open("logs_$(Int(time_limit)).txt", "w")
 if args["debug"] == true
         console_logger = ConsoleLogger(stdout, Logging.Debug, show_limited = false)
         file_logger = ConsoleLogger(log_file, Logging.Debug, show_limited = false)
@@ -123,6 +128,7 @@ global_logger(DualLogger((console_logger, file_logger)))
 @info "Arguments" args
 @info "Crew GACCs" crew_gaccs
 @info "Firefighters per crew" firefighters_per_crew
+@info "Total time limit" time_limit
 
 num_fires = count_selected_fires(crew_gaccs, fires_by_gacc)
 num_crews = 0
@@ -197,10 +203,11 @@ for t in 0:14
                 fire_plans = fire_plans,
                 crew_models = crew_models,
                 fire_models = fire_models,
-                cut_data = cut_data
+                cut_data = cut_data,
+                total_time_limit = time_limit,
                 )
-		# Unpack as many variables as branch_and_price returns, e.g.:
-	explored_nodes, ubs, lbs, columns, heuristic_times, times, time_1, root_node_ip_sol, root_node_ip_sol_time, fire_arcs_used, crew_arcs_used = result
+                # Unpack as many variables as branch_and_price returns, e.g.:
+        explored_nodes, ubs, lbs, columns, heuristic_times, times, time_1, root_node_ip_sol, root_node_ip_sol_time, fire_arcs_used, crew_arcs_used = result
 	@info "final arcs used" fire_arcs_used, crew_arcs_used
 
 	for g in 1:num_fires

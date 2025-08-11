@@ -11,9 +11,9 @@ min_enabled_level(l::DualLogger) = min(min_enabled_level(l.loggers[1]), min_enab
 shouldlog(l::DualLogger, level, _module, group, id) =
         shouldlog(l.loggers[1], level, _module, group, id) ||
         shouldlog(l.loggers[2], level, _module, group, id)
-handle_message(l::DualLogger, level, message, _module, group, id, file, line) = begin
-        handle_message(l.loggers[1], level, message, _module, group, id, file, line)
-        handle_message(l.loggers[2], level, message, _module, group, id, file, line)
+handle_message(l::DualLogger, level, message, _module, group, id, file, line; kwargs...) = begin
+        handle_message(l.loggers[1], level, message, _module, group, id, file, line; kwargs...)
+        handle_message(l.loggers[2], level, message, _module, group, id, file, line; kwargs...)
 end
 
 const GRB_ENV = Gurobi.Env()

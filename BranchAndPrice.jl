@@ -585,11 +585,12 @@ function initialize_data_structures(
                 info = nothing
         else
                 crew_models, info = build_crew_models_from_empirical(
-                        num_crews, num_fires, num_time_periods, travel_speed;
+                        num_fires, num_time_periods, travel_speed;
                         gaccs = gaccs,
                         firefighters_per_crew = firefighters_per_crew,
                         fires_by_gacc = fires_by_gacc,
                 )
+                num_crews = length(crew_models)
                 fire_models = build_fire_models_from_empirical(
                         num_fires, num_crews, num_time_periods;
                         gaccs = gaccs,

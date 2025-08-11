@@ -471,7 +471,6 @@ function get_rest_penalties(
 end
 
 function build_crew_models_from_empirical(
-    num_crews::Int64,
     num_fires::Int64,
     num_time_periods::Int64,
     travel_speed::Float64,
@@ -536,6 +535,9 @@ function build_crew_models_from_empirical(
 
     # transpose the matrix so that the rows are the crews and the columns are the fires
     tau_base_to_fire = copy(tau_base_to_fire')
+
+    # determine number of crews from the data
+    num_crews = size(tau_base_to_fire, 1)
 
     # minutes to days
     tau_base_to_fire = tau_base_to_fire / 60 / 24

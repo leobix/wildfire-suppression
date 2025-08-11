@@ -105,9 +105,11 @@ else
         console_logger = ConsoleLogger(stdout, Logging.Info, show_limited = false)
         file_logger = ConsoleLogger(log_file, Logging.Info, show_limited = false)
 end
+
 global_logger(DualLogger((console_logger, file_logger)))
 num_fires = 14	
 num_crews = 12
+
 num_time_periods = 14
 travel_speed = 40.0 * 6.0
 GC.gc()
@@ -123,6 +125,8 @@ crew_routes, fire_plans, crew_models, fire_models, cut_data, init_info = initial
         firefighters_per_crew = firefighters_per_crew,
         fires_by_gacc = fires_by_gacc,
 )
+
+num_crews = length(crew_models)
 
 @info "Total crews" num_crews
 @info "Fire selection criterion" init_info.selection

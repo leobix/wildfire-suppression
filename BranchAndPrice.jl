@@ -473,17 +473,18 @@ function branch_and_price(
 end
 
 function initialize_data_structures(
-	num_fires::Int64,
-	num_crews::Int64,
-	num_time_periods::Int64,
-	line_per_crew::Int64,
-	travel_speed::Float64
+        num_fires::Int64,
+        num_crews::Int64,
+        num_time_periods::Int64,
+        line_per_crew::Int64,
+        travel_speed::Float64
 )
-	crew_models = build_crew_models(
-		"data/raw/big_fire",
-		num_fires,
-		num_crews,
-		num_time_periods,
+        @info "Fires included in optimization" collect(1:num_fires)
+        crew_models = build_crew_models(
+                "data/raw/big_fire",
+                num_fires,
+                num_crews,
+                num_time_periods,
 		travel_speed,
 	)
 

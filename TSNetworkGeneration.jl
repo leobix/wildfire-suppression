@@ -471,19 +471,20 @@ function get_rest_penalties(
 end
 
 function build_crew_models_from_empirical(
-    num_crews::Int64, 
-    num_fires::Int64, 
+    num_crews::Int64,
+    num_fires::Int64,
     num_time_periods::Int64,
     travel_speed::Float64,
-    travel_fixed_delay::Int64 = 0,
+    travel_fixed_delay::Int64 = 0;
+    gaccs::Vector{String} = ["Great Basin"],
 )
 
     # read in the selected fires
     fire_folder = "data/empirical_fire_models/raw/arc_arrays"
     selected_fires = CSV.read(fire_folder * "/" * "selected_fires.csv", DataFrame) 
 
-    # restrict to the fires that are in the GACC "Great Basin"
-    selected_fires = selected_fires[selected_fires[:, "GACC"] .== "Great Basin", :]
+    # restrict to fires in the desired GACCs
+    selected_fires = selected_fires[in.(selected_fires[:, "GACC"], Ref(gaccs)), :]
 
     # sort these by "start_day_of_sim" and then by "FIRE_EVENT_ID"
     selected_fires = sort(selected_fires, [:start_day_of_sim, :FIRE_EVENT_ID])
@@ -497,8 +498,8 @@ function build_crew_models_from_empirical(
     # read in the crew locations
     tau_base_to_fire = CSV.read(fire_folder * "/../" * "base_fire_distances.csv", DataFrame)
 
-    # restrict to the crews that are in GACC "Great Basin"
-    tau_base_to_fire = tau_base_to_fire[tau_base_to_fire[:, "GACC"] .== "Great Basin", :]
+    # restrict to crews in the desired GACCs
+    tau_base_to_fire = tau_base_to_fire[in.(tau_base_to_fire[:, "GACC"], Ref(gaccs)), :]
 
     # restrict to the fires whose fire_id is in the arc_file column of "selected_fires.csv"
     tau_base_to_fire = tau_base_to_fire[findall(in(selected_fires[idx, "FIRE_EVENT_ID"]), tau_base_to_fire[:, "fire_id"]), :]
@@ -1229,9 +1230,10 @@ function build_fire_models(
 end
 
 function build_fire_models_from_empirical(
-    num_fires::Int64, 
-    num_crews::Int64, 
-    num_time_periods::Int64,
+    num_fires::Int64,
+    num_crews::Int64,
+    num_time_periods::Int64;
+    gaccs::Vector{String} = ["Great Basin"],
 )
 
     # initialize fire models
@@ -1249,8 +1251,8 @@ function build_fire_models_from_empirical(
     fire_folder = "data/empirical_fire_models/raw/arc_arrays"
     selected_fires = CSV.read(fire_folder * "/" * "selected_fires.csv", DataFrame)
 
-    # restrict to the fires that are in the GACC "Great Basin"
-    selected_fires = selected_fires[selected_fires[:, "GACC"] .== "Great Basin", :]
+    # restrict to the fires that are in the desired GACCs
+    selected_fires = selected_fires[in.(selected_fires[:, "GACC"], Ref(gaccs)), :]
 
     # sort these by "start_day_of_sim" and then by "FIRE_EVENT_ID"
     selected_fires = sort(selected_fires, [:start_day_of_sim, :FIRE_EVENT_ID])

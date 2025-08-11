@@ -67,7 +67,7 @@ function parse_fires_by_gacc(str::String)
         return result
 end
 
-function count_selected_fires(gaccs::Vector{String}, fires_by_gacc::Dict{String,Vector{Int64}})
+function count_selected_fires(fire_gaccs::Vector{String}, fires_by_gacc::Dict{String,Vector{Int64}})
         fire_folder = "data/empirical_fire_models/raw/arc_arrays"
         selected_fires = CSV.read(joinpath(fire_folder, "selected_fires.csv"), DataFrame)
         if !isempty(fires_by_gacc)
@@ -77,7 +77,7 @@ function count_selected_fires(gaccs::Vector{String}, fires_by_gacc::Dict{String,
                 end
                 selected_fires = selected_fires[mask, :]
         else
-                selected_fires = selected_fires[in.(selected_fires[:, "GACC"], Ref(gaccs)), :]
+                selected_fires = selected_fires[in.(selected_fires[:, "GACC"], Ref(fire_gaccs)), :]
         end
         return length(unique(selected_fires[:, "FIRE_EVENT_ID"]))
 end
@@ -91,6 +91,9 @@ function get_command_line_args()
                 "--crew-gaccs"
                 help = "Allowed crew GACCs: 'all', 'all_no_ak', or comma-separated list of abbreviations (e.g. GB,NW)"
                 default = "GB"
+                "--fire-gaccs"
+                help = "Allowed fire GACCs: 'all', 'all_no_ak', or comma-separated list of abbreviations (e.g. GB,NW). Defaults to crew GACCs if omitted"
+                default = ""
                 "--firefighters-per-crew"
                 help = "Number of firefighters per crew"
                 arg_type = Int
@@ -105,6 +108,7 @@ end
 
 args = get_command_line_args()
 crew_gaccs = parse_gaccs(args["crew-gaccs"])
+fire_gaccs = isempty(args["fire-gaccs"]) ? crew_gaccs : parse_gaccs(args["fire-gaccs"])
 firefighters_per_crew = args["firefighters-per-crew"]
 fires_by_gacc = parse_fires_by_gacc(args["fires"])
 
@@ -122,9 +126,10 @@ global_logger(DualLogger((console_logger, file_logger)))
 
 @info "Arguments" args
 @info "Crew GACCs" crew_gaccs
+@info "Fire GACCs" fire_gaccs
 @info "Firefighters per crew" firefighters_per_crew
 
-num_fires = count_selected_fires(crew_gaccs, fires_by_gacc)
+num_fires = count_selected_fires(fire_gaccs, fires_by_gacc)
 num_crews = 0
 
 num_time_periods = 14
@@ -138,7 +143,8 @@ crew_routes, fire_plans, crew_models, fire_models, cut_data, init_info = initial
         firefighters_per_crew,
         travel_speed,
         from_empirical = true,
-        gaccs = crew_gaccs,
+        crew_gaccs = crew_gaccs,
+        fire_gaccs = fire_gaccs,
         firefighters_per_crew = firefighters_per_crew,
         fires_by_gacc = fires_by_gacc,
 )
@@ -190,6 +196,7 @@ for t in 0:14
                 current_time = t,
                 from_empirical = true,
                 gaccs = crew_gaccs,
+                fire_gaccs = fire_gaccs,
                 travel_speed = travel_speed,
                 firefighters_per_crew = firefighters_per_crew,
                 fires_by_gacc = fires_by_gacc,

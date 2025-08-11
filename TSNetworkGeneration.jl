@@ -475,7 +475,8 @@ function build_crew_models_from_empirical(
     num_time_periods::Int64,
     travel_speed::Float64,
     travel_fixed_delay::Int64 = 0;
-    gaccs::Vector{String} = ["Great Basin"],
+    crew_gaccs::Vector{String} = ["Great Basin"],
+    fire_gaccs::Vector{String} = crew_gaccs,
     firefighters_per_crew::Int64 = 70,
     fires_by_gacc::Dict{String,Vector{Int64}} = Dict{String,Vector{Int64}}(),
 )
@@ -485,7 +486,7 @@ function build_crew_models_from_empirical(
     selected_fires = CSV.read(fire_folder * "/" * "selected_fires.csv", DataFrame)
 
     if !isempty(fires_by_gacc)
-        gaccs = collect(keys(fires_by_gacc))
+        fire_gaccs = collect(keys(fires_by_gacc))
         mask = falses(nrow(selected_fires))
         for (gacc, fires) in fires_by_gacc
             mask .|= (selected_fires[:, "GACC"] .== gacc) .&
@@ -494,7 +495,7 @@ function build_crew_models_from_empirical(
         selected_fires = selected_fires[mask, :]
     else
         # restrict to fires in the desired GACCs
-        selected_fires = selected_fires[in.(selected_fires[:, "GACC"], Ref(gaccs)), :]
+        selected_fires = selected_fires[in.(selected_fires[:, "GACC"], Ref(fire_gaccs)), :]
     end
 
     # sort these by "start_day_of_sim" and then by "FIRE_EVENT_ID"
@@ -512,7 +513,7 @@ function build_crew_models_from_empirical(
     tau_base_to_fire = CSV.read(fire_folder * "/../" * "base_fire_distances.csv", DataFrame)
 
     # restrict to crews in the desired GACCs
-    tau_base_to_fire = tau_base_to_fire[in.(tau_base_to_fire[:, "GACC"], Ref(gaccs)), :]
+    tau_base_to_fire = tau_base_to_fire[in.(tau_base_to_fire[:, "GACC"], Ref(crew_gaccs)), :]
 
     # restrict to the fires whose fire_id is in the arc_file column of "selected_fires.csv"
     tau_base_to_fire = tau_base_to_fire[findall(in(selected_fires[idx, "FIRE_EVENT_ID"]), tau_base_to_fire[:, "fire_id"]), :]
@@ -753,7 +754,7 @@ function build_crew_models_from_empirical(
         start_days = fire_start_days,
         crew_assignments = current_fire,
         crews_per_fire = type_1_crews,
-        selection = "Filtered to GACCs $(join(gaccs, ",")) and sorted by start_day_of_sim then FIRE_EVENT_ID"
+        selection = "Filtered to GACCs $(join(fire_gaccs, ",")) and sorted by start_day_of_sim then FIRE_EVENT_ID"
     )
 
     return crew_sps, info
@@ -1257,7 +1258,7 @@ function build_fire_models_from_empirical(
     num_fires::Int64,
     num_crews::Int64,
     num_time_periods::Int64;
-    gaccs::Vector{String} = ["Great Basin"],
+    fire_gaccs::Vector{String} = ["Great Basin"],
     firefighters_per_crew::Int64 = 70,
     fires_by_gacc::Dict{String,Vector{Int64}} = Dict{String,Vector{Int64}}(),
 )
@@ -1278,7 +1279,7 @@ function build_fire_models_from_empirical(
     selected_fires = CSV.read(fire_folder * "/" * "selected_fires.csv", DataFrame)
 
     if !isempty(fires_by_gacc)
-        gaccs = collect(keys(fires_by_gacc))
+        fire_gaccs = collect(keys(fires_by_gacc))
         mask = falses(nrow(selected_fires))
         for (gacc, fires) in fires_by_gacc
             mask .|= (selected_fires[:, "GACC"] .== gacc) .&
@@ -1287,7 +1288,7 @@ function build_fire_models_from_empirical(
         selected_fires = selected_fires[mask, :]
     else
         # restrict to the fires that are in the desired GACCs
-        selected_fires = selected_fires[in.(selected_fires[:, "GACC"], Ref(gaccs)), :]
+        selected_fires = selected_fires[in.(selected_fires[:, "GACC"], Ref(fire_gaccs)), :]
     end
 
     # sort these by "start_day_of_sim" and then by "FIRE_EVENT_ID"

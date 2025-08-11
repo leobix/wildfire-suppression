@@ -105,6 +105,9 @@ function get_command_line_args()
                 help = "Time limit in seconds for the branch-and-price algorithm"
                 arg_type = Float64
                 default = 1800.0
+                "--output-folder"
+                help = "Directory to store output files"
+                default = "data/output"
         end
         return parse_args(arg_parse_settings)
 end
@@ -116,6 +119,8 @@ fire_gaccs = isempty(args["fire-gaccs"]) ? crew_gaccs : parse_gaccs(args["fire-g
 firefighters_per_crew = args["firefighters-per-crew"]
 fires_by_gacc = parse_fires_by_gacc(args["fires"])
 time_limit = args["time-limit"]
+output_folder = args["output-folder"]
+mkpath(output_folder)
 
 # send logs to both console and file so users can see initialization details
 log_file = open("logs_$(Int(time_limit)).txt", "w")
@@ -212,6 +217,7 @@ for t in 0:14
                 fire_models = fire_models,
                 cut_data = cut_data,
                 total_time_limit = time_limit,
+                output_folder = output_folder,
                 )
                 # Unpack as many variables as branch_and_price returns, e.g.:
         explored_nodes, ubs, lbs, columns, heuristic_times, times, time_1, root_node_ip_sol, root_node_ip_sol_time, fire_arcs_used, crew_arcs_used = result
@@ -246,20 +252,20 @@ for t in 0:14
 		crew_arc_costs[j] = crew_models[j].arc_costs[reverse(crew_arcs_used[j])]
 	end
 
-	# write these to files
-	for g in 1:num_fires
-		open("data/output/fire_arcs_$(g)_$(t).json", "w") do io
-			JSON.print(io, fire_arcs[g])
-		end
-		open("data/output/fire_arc_costs_$(g)_$(t).json", "w") do io
-			JSON.print(io, fire_arc_costs[g])
-		end
-	end
+        # write these to files
+        for g in 1:num_fires
+                open(joinpath(output_folder, "fire_arcs_$(g)_$(t).json"), "w") do io
+                        JSON.print(io, fire_arcs[g])
+                end
+                open(joinpath(output_folder, "fire_arc_costs_$(g)_$(t).json"), "w") do io
+                        JSON.print(io, fire_arc_costs[g])
+                end
+        end
         for j in 1:num_crews
-                open("data/output/crew_arcs_$(j)_$(t).json", "w") do io
+                open(joinpath(output_folder, "crew_arcs_$(j)_$(t).json"), "w") do io
                         JSON.print(io, crew_arcs[j])
                 end
-                open("data/output/crew_arc_costs_$(j)_$(t).json", "w") do io
+                open(joinpath(output_folder, "crew_arc_costs_$(j)_$(t).json"), "w") do io
                         JSON.print(io, crew_arc_costs[j])
                 end
         end

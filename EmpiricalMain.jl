@@ -2,6 +2,19 @@ include("BranchAndPrice.jl")
 
 using JuMP, Gurobi, JSON, Profile, ArgParse, Logging, IterTools
 
+struct DualLogger <: AbstractLogger
+        loggers::NTuple{2,AbstractLogger}
+end
+
+Base.min_enabled_level(l::DualLogger) = min(min_enabled_level(l.loggers[1]), min_enabled_level(l.loggers[2]))
+Base.shouldlog(l::DualLogger, level, _module, group, id) =
+        shouldlog(l.loggers[1], level, _module, group, id) ||
+        shouldlog(l.loggers[2], level, _module, group, id)
+Base.handle_message(l::DualLogger, level, message, _module, group, id, file, line) = begin
+        handle_message(l.loggers[1], level, message, _module, group, id, file, line)
+        handle_message(l.loggers[2], level, message, _module, group, id, file, line)
+end
+
 const GRB_ENV = Gurobi.Env()
 
 
@@ -83,20 +96,16 @@ fires_by_gacc = parse_fires_by_gacc(args["fires"])
 @info "Crew GACCs" crew_gaccs
 @info "Firefighters per crew" firefighters_per_crew
 
-io = open("logs_precompile_5.txt", "w")
+# send logs to both console and file so users can see initialization details
+log_file = open("logs_60.txt", "w")
 if args["debug"] == true
-	global_logger(ConsoleLogger(io, Logging.Debug, show_limited = false))
+        console_logger = ConsoleLogger(stdout, Logging.Debug, show_limited = false)
+        file_logger = ConsoleLogger(log_file, Logging.Debug, show_limited = false)
 else
-	global_logger(ConsoleLogger(io, Logging.Info, show_limited = false))
+        console_logger = ConsoleLogger(stdout, Logging.Info, show_limited = false)
+        file_logger = ConsoleLogger(log_file, Logging.Info, show_limited = false)
 end
-
-# precompile
-io = open("logs_60.txt", "w")
-if args["debug"] == true
-	global_logger(ConsoleLogger(io, Logging.Debug, show_limited = false))
-else
-	global_logger(ConsoleLogger(io, Logging.Info, show_limited = false))
-end
+global_logger(DualLogger((console_logger, file_logger)))
 num_fires = 14	
 num_crews = 12
 num_time_periods = 14
@@ -117,6 +126,8 @@ crew_routes, fire_plans, crew_models, fire_models, cut_data, init_info = initial
 
 @info "Total crews" num_crews
 @info "Fire selection criterion" init_info.selection
+@info "Fires included in optimization" init_info.fire_ids
+@info "Initial crew assignments" init_info.crew_assignments
 for (ix, fire_id) in enumerate(init_info.fire_ids)
         start_day = init_info.start_days[ix]
         crew_list = findall(==(ix), init_info.crew_assignments)

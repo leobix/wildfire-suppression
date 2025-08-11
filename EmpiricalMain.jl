@@ -34,6 +34,25 @@ function parse_gaccs(str::String)
         end
 end
 
+function parse_fires_by_gacc(str::String)
+        s = strip(str)
+        if isempty(s)
+                return Dict{String,Vector{Int64}}()
+        end
+        result = Dict{String,Vector{Int64}}()
+        groups = split(s, ';')
+        for g in groups
+                isempty(strip(g)) && continue
+                parts = split(g, ':')
+                length(parts) == 2 || error("Invalid GACC/fire mapping: $g")
+                gacc_abbr = uppercase(strip(parts[1]))
+                gacc = haskey(GACC_ABBR, gacc_abbr) ? GACC_ABBR[gacc_abbr] : error("Unknown GACC abbreviation: $gacc_abbr")
+                fire_ids = [parse(Int, f) for f in split(strip(parts[2]), ',') if !isempty(strip(f))]
+                result[gacc] = fire_ids
+        end
+        return result
+end
+
 function get_command_line_args()
         arg_parse_settings = ArgParseSettings()
         @add_arg_table arg_parse_settings begin
@@ -47,6 +66,9 @@ function get_command_line_args()
                 help = "Number of firefighters per crew"
                 arg_type = Int
                 default = 70
+                "--fires"
+                help = "Mapping of GACC abbreviations to comma-separated FIRE_EVENT_IDs, separated by semicolons (e.g. GB:1,2;NW:3)"
+                default = ""
         end
         return parse_args(arg_parse_settings)
 end
@@ -55,6 +77,7 @@ end
 args = get_command_line_args()
 crew_gaccs = parse_gaccs(args["crew-gaccs"])
 firefighters_per_crew = args["firefighters-per-crew"]
+fires_by_gacc = parse_fires_by_gacc(args["fires"])
 
 io = open("logs_precompile_5.txt", "w")
 if args["debug"] == true
@@ -85,6 +108,7 @@ crew_routes, fire_plans, crew_models, fire_models, cut_data = initialize_data_st
         from_empirical = true,
         gaccs = crew_gaccs,
         firefighters_per_crew = firefighters_per_crew,
+        fires_by_gacc = fires_by_gacc,
 )
 for j in 1:num_crews
 	no_fire_anticipation!(crew_models[j], [fsp.start_time_period for fsp in fire_models])
@@ -118,6 +142,7 @@ for t in 0:14
                 gaccs = crew_gaccs,
                 travel_speed = travel_speed,
                 firefighters_per_crew = firefighters_per_crew,
+                fires_by_gacc = fires_by_gacc,
                 crew_routes = crew_routes,
                 fire_plans = fire_plans,
                 crew_models = crew_models,

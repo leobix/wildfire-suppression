@@ -478,6 +478,7 @@ function build_crew_models_from_empirical(
     crew_gaccs::Vector{String} = ["Great Basin"],
     fire_gaccs::Vector{String} = crew_gaccs,
     firefighters_per_crew::Int64 = 70,
+    initial_firefighters_per_crew::Int64 = 20,
     fires_by_gacc::Dict{String,Vector{Int64}} = Dict{String,Vector{Int64}}(),
 )
 
@@ -601,8 +602,8 @@ function build_crew_models_from_empirical(
     fires_start_day = selected_fires[idx, "start_day_of_sim"]
     active_fires = findall(fires_start_day .== 0)
 
-    # convert personnel counts to crew counts using the crew size
-    type_1_crews = round.(Int, type_1_crews / firefighters_per_crew)
+    # convert personnel counts to crew counts using the initial crew size
+    type_1_crews = round.(Int, type_1_crews / initial_firefighters_per_crew)
 
     # but if the fire is not active at day 0, we set the number of crews to 0
     for i in 1:num_fires

@@ -98,6 +98,10 @@ function get_command_line_args()
                 help = "Number of firefighters per crew"
                 arg_type = Int
                 default = 70
+                "--personnel-per-crew"
+                help = "Personnel count representing one crew when initializing from empirical data"
+                arg_type = Int
+                default = 20
                 "--fires"
                 help = "Mapping of GACC abbreviations to comma-separated FIRE_EVENT_IDs, separated by semicolons (e.g. GB:1,2;NW:3)"
                 default = ""
@@ -117,6 +121,7 @@ args = get_command_line_args()
 crew_gaccs = parse_gaccs(args["crew-gaccs"])
 fire_gaccs = isempty(args["fire-gaccs"]) ? crew_gaccs : parse_gaccs(args["fire-gaccs"])
 firefighters_per_crew = args["firefighters-per-crew"]
+personnel_per_crew = args["personnel-per-crew"]
 fires_by_gacc = parse_fires_by_gacc(args["fires"])
 time_limit = args["time-limit"]
 output_folder = args["output-folder"]
@@ -138,6 +143,7 @@ global_logger(DualLogger((console_logger, file_logger)))
 @info "Crew GACCs" crew_gaccs
 @info "Fire GACCs" fire_gaccs
 @info "Firefighters per crew" firefighters_per_crew
+@info "Personnel per crew" personnel_per_crew
 @info "Total time limit" time_limit
 
 num_fires = count_selected_fires(fire_gaccs, fires_by_gacc)
@@ -157,6 +163,7 @@ crew_routes, fire_plans, crew_models, fire_models, cut_data, init_info = initial
         crew_gaccs = crew_gaccs,
         fire_gaccs = fire_gaccs,
         firefighters_per_crew = firefighters_per_crew,
+        initial_firefighters_per_crew = personnel_per_crew,
         fires_by_gacc = fires_by_gacc,
 )
 
@@ -210,6 +217,7 @@ for t in 0:14
                 fire_gaccs = fire_gaccs,
                 travel_speed = travel_speed,
                 firefighters_per_crew = firefighters_per_crew,
+                initial_firefighters_per_crew = personnel_per_crew,
                 fires_by_gacc = fires_by_gacc,
                 crew_routes = crew_routes,
                 fire_plans = fire_plans,

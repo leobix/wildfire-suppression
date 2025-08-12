@@ -239,6 +239,7 @@ function branch_and_price(
         fire_gaccs = gaccs,
         line_per_crew = 20,
         firefighters_per_crew = 70,
+        initial_firefighters_per_crew = 20,
         travel_speed = 640.0,
         fires_by_gacc::Dict{String,Vector{Int64}} = Dict{String,Vector{Int64}}(),
         output_folder = "data/output",
@@ -291,6 +292,7 @@ function branch_and_price(
                                 crew_gaccs = gaccs,
                                 fire_gaccs = fire_gaccs,
                                 firefighters_per_crew = firefighters_per_crew,
+                                initial_firefighters_per_crew = initial_firefighters_per_crew,
                                 fires_by_gacc = fires_by_gacc,
                         )
 		GC.gc()
@@ -569,6 +571,7 @@ function initialize_data_structures(
         crew_gaccs = ["Great Basin"],
         fire_gaccs = crew_gaccs,
         firefighters_per_crew::Int64 = 70,
+        initial_firefighters_per_crew::Int64 = 20,
         fires_by_gacc::Dict{String,Vector{Int64}} = Dict{String,Vector{Int64}}(),
 )
         if !from_empirical
@@ -594,6 +597,7 @@ function initialize_data_structures(
                         crew_gaccs = crew_gaccs,
                         fire_gaccs = fire_gaccs,
                         firefighters_per_crew = firefighters_per_crew,
+                        initial_firefighters_per_crew = initial_firefighters_per_crew,
                         fires_by_gacc = fires_by_gacc,
                 )
                 num_crews = length(crew_models)

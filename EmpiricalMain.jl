@@ -200,7 +200,7 @@ for fire in 1:num_fires
 	@info "added dummy plan for fire" fire "with index" new_plan_ix
 end
 
-for t in 0:14
+for t in 0:num_time_periods-1
 
 	global crew_routes, fire_plans, crew_models, fire_models, cut_data
 

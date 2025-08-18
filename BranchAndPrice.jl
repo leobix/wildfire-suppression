@@ -397,6 +397,8 @@ function branch_and_price(
                 end
 
 		heuristic_time = 0.0
+		heuristic_ub = Inf
+		found_from_heuristic = false
 		if (heuristic_cadence_secs < time() - last_heuristic_time) &&
 		   (soft_heuristic_time_limit > 0.0) && (lb / ub < 1 - 1e-3) # gurobi has 1e-4 tol I can't fix
 		   last_heuristic_time = time()	
@@ -435,12 +437,13 @@ function branch_and_price(
 			nodes[node_ix].heuristic_found_master_problem = ub_rmp
 
 			if heuristic_ub < nodes[node_ix].u_bound
-				# nodes[node_ix].u_bound = heuristic_ub
+				nodes[node_ix].u_bound = heuristic_ub
+				found_from_heuristic = true
 
-				# fire_arcs_used, crew_arcs_used = get_fire_and_crew_arcs_used(ub_rmp,
-				# 	crew_routes,
-				# 	fire_plans,
-				# )
+				fire_arcs_used, crew_arcs_used = get_fire_and_crew_arcs_used(ub_rmp,
+					crew_routes,
+					fire_plans,
+				)
 			end
 		end
 
@@ -464,21 +467,24 @@ function branch_and_price(
 		# TODO keep track if it comes from heuristic or no
 		if nodes[node_ix].u_bound < ub
 
-			fire_allots, crew_allots = get_fire_and_crew_incumbent_weighted_average(nodes[node_ix].master_problem,
-				crew_routes,
-				fire_plans,
-			)
-			fire_cost, crew_cost = get_cost_due_to_fires_and_crews(nodes[node_ix].master_problem,
-				crew_routes,
-				fire_plans,
-			)
-			fire_arcs_used, crew_arcs_used = get_fire_and_crew_arcs_used(nodes[node_ix].master_problem,
-				crew_routes,
-				fire_plans,
-			)
+			# fire_allots, crew_allots = get_fire_and_crew_incumbent_weighted_average(nodes[node_ix].master_problem,
+			# 	crew_routes,
+			# 	fire_plans,
+			# )
+			# fire_cost, crew_cost = get_cost_due_to_fires_and_crews(nodes[node_ix].master_problem,
+			# 	crew_routes,
+			# 	fire_plans,
+			# )
+			if (found_from_heuristic == false)
+				fire_arcs_used, crew_arcs_used = get_fire_and_crew_arcs_used(
+					nodes[node_ix].master_problem,
+					crew_routes,
+					fire_plans,
+				)
+			end
 
-                        # ensure the output directory exists
-                        isdir(output_folder) || mkpath(output_folder)
+			# ensure the output directory exists
+			isdir(output_folder) || mkpath(output_folder)
 
 			# extract the arc data from the subproblems
 			for fire in 1:num_fires
@@ -503,7 +509,6 @@ function branch_and_price(
                                 NPZ.npzwrite(joinpath(output_folder, "crew_$(crew)_costs.npy"), restricted_costs)
 			end
 
-                        @debug "new incumbent" fire_allots crew_allots fire_cost crew_cost fire_arcs_used crew_arcs_used
 
 
 			ub = nodes[node_ix].u_bound
@@ -1033,21 +1038,14 @@ function heuristic_upper_bound!!(
 
 	# keep all columns from explored node
 	crew_ixs =
-		[
-			[i[1] for i in eachindex(explored_bb_node.master_problem.routes[j, :])]
+		[Vector{Int64}([i[1] for i in eachindex(explored_bb_node.master_problem.routes[j, :])])
 			for j ∈ 1:num_crews
 		]
 	fire_ixs =
 		[
-			[i[1] for i in eachindex(explored_bb_node.master_problem.plans[j, :])]
+			Vector{Int64}([i[1] for i in eachindex(explored_bb_node.master_problem.plans[j, :])])
 			for j ∈ 1:num_fires
 		]
-	if isempty(crew_ixs)
-		crew_ixs = [Int64[] for crew in 1:num_crews]
-	end
-	if isempty(fire_ixs)
-		fire_ixs = [Int64[] for fire in 1:num_fires]
-	end
 
 	# add in columns from best solution
 	if ~isnothing(routes_best_sol)
@@ -1068,6 +1066,13 @@ function heuristic_upper_bound!!(
 				end
 			end
 		end
+	end
+
+	if isempty(crew_ixs)
+		crew_ixs = [Int64[] for crew in 1:num_crews]
+	end
+	if isempty(fire_ixs)
+		fire_ixs = [Int64[] for fire in 1:num_fires]
 	end
 
 	# grab any fire and crew branching rules
@@ -1130,6 +1135,13 @@ function heuristic_upper_bound!!(
 			deleteat!(fire_ixs[fire], to_delete)
 		end
 
+		if isempty(crew_ixs)
+			crew_ixs = [Int64[] for crew in 1:num_crews]
+		end
+		if isempty(fire_ixs)
+			fire_ixs = [Int64[] for fire in 1:num_fires]
+		end
+
 		@debug "entering heuristic round" branching_rule.allotment_matrix
 		for rule in crew_rules
 			@debug "crew rule" rule crew_ixs
@@ -1137,6 +1149,7 @@ function heuristic_upper_bound!!(
 		for rule in fire_rules
 			@debug "fire rule" rule fire_ixs
 		end
+		@info "crew_ixs and fire_ixs" crew_ixs fire_ixs
 		rmp = define_restricted_master_problem(
 			gurobi_env,
 			crew_routes,
@@ -1215,6 +1228,13 @@ function heuristic_upper_bound!!(
 		crew_ixs = [[i[1] for i in eachindex(rmp.routes[j, :])] for j ∈ 1:num_crews]
 		fire_ixs = [[i[1] for i in eachindex(rmp.plans[j, :])] for j ∈ 1:num_fires]
 
+		if isempty(crew_ixs)
+			crew_ixs = [Int64[] for crew in 1:num_crews]
+		end
+		if isempty(fire_ixs)
+			fire_ixs = [Int64[] for fire in 1:num_fires]
+		end
+
 
 		lb_node =
 			rmp.termination_status == MOI.LOCALLY_SOLVED ?
@@ -1253,13 +1273,7 @@ function heuristic_upper_bound!!(
 			break
 		end
 
-		fire_allots, _ =
-			get_fire_and_crew_incumbent_weighted_average(ub_rmp,
-				crew_routes,
-				fire_plans,
-			)
-
-		@debug "solution bounds" t lb_node ub obj obj_bound fire_allots
+		@debug "solution bounds" t lb_node ub obj obj_bound 
 
 		current_allotment = current_allotment .+ 1
 	end
@@ -1322,12 +1336,12 @@ function explore_node!!(
 			# TODO this should be cleaner with new ix data structure kept with rmp
 			crew_ixs =
 				[
-					[i[1] for i in eachindex(parent_rmp.routes[j, :])] for
+					Vector{Int64}([i[1] for i in eachindex(parent_rmp.routes[j, :])]) for
 					j ∈ 1:num_crews
 				]
 			fire_ixs =
 				[
-					[i[1] for i in eachindex(parent_rmp.plans[j, :])] for
+					Vector{Int64}([i[1] for i in eachindex(parent_rmp.plans[j, :])]) for
 					j ∈ 1:num_fires
 				]
 		else

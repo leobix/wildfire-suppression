@@ -64,6 +64,21 @@ Use `--output-folder` to choose where JSON outputs are written (defaults to `dat
 julia --project=package_dependencies/julia EmpiricalMain.jl --output-folder my_results
 ```
 
+Use `--crew-gaccs` and `--fire-gaccs` to restrict crews and fires by Geographic Area Coordination Center (GACC). Both flags accept comma-separated abbreviations from the list below:
+
+- `AK` – Alaska
+- `EA` – Eastern
+- `GB` – Great Basin
+- `NC` or `CA-N` – Northern California
+- `NR` – Northern Rockies
+- `NW` – Northwest
+- `RM` – Rocky Mountain
+- `SA` – Southern
+- `SC` or `CA-S` – Southern California
+- `SW` – Southwest
+
+Convenience options are also available: `all` includes every GACC, while `all_no_ak` includes all of them except Alaska.
+
 The run produces JSON files describing crew and fire arcs in the specified output directory and writes `selected_fires_sorted.csv` to `data/empirical_fire_models/raw/arc_arrays/` for visualization.
 
 ## 4. Preparing data for new case studies

@@ -52,6 +52,12 @@ Use `--firefighters-per-crew` to control the number of personnel assigned to eac
 julia --project=package_dependencies/julia EmpiricalMain.jl --firefighters-per-crew 20
 ```
 
+Use `--input-folder` to choose where the script looks for input CSV files (defaults to `data/empirical_fire_models/raw/arc_arrays/`):
+
+```bash
+julia --project=package_dependencies/julia EmpiricalMain.jl --input-folder my_inputs
+```
+
 Use `--output-folder` to choose where JSON outputs are written (defaults to `data/output/`):
 
 ```bash

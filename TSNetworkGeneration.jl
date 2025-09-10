@@ -480,10 +480,10 @@ function build_crew_models_from_empirical(
     firefighters_per_crew::Int64 = 70,
     initial_firefighters_per_crew::Int64 = 20,
     fires_by_gacc::Dict{String,Vector{Int64}} = Dict{String,Vector{Int64}}(),
+    fire_folder::String = "data/empirical_fire_models/raw/arc_arrays",
 )
 
     # read in the selected fires
-    fire_folder = "data/empirical_fire_models/raw/arc_arrays"
     selected_fires = CSV.read(fire_folder * "/" * "selected_fires.csv", DataFrame)
 
     if !isempty(fires_by_gacc)
@@ -1262,6 +1262,7 @@ function build_fire_models_from_empirical(
     fire_gaccs::Vector{String} = ["Great Basin"],
     firefighters_per_crew::Int64 = 70,
     fires_by_gacc::Dict{String,Vector{Int64}} = Dict{String,Vector{Int64}}(),
+    fire_folder::String = "data/empirical_fire_models/raw/arc_arrays",
 )
 
     # initialize fire models
@@ -1276,7 +1277,6 @@ function build_fire_models_from_empirical(
     end
 
     # read in the selected fires
-    fire_folder = "data/empirical_fire_models/raw/arc_arrays"
     selected_fires = CSV.read(fire_folder * "/" * "selected_fires.csv", DataFrame)
 
     if !isempty(fires_by_gacc)

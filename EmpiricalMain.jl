@@ -67,9 +67,12 @@ function parse_fires_by_gacc(str::String)
         return result
 end
 
-function count_selected_fires(fire_gaccs::Vector{String}, fires_by_gacc::Dict{String,Vector{Int64}})
-        fire_folder = "data/empirical_fire_models/raw/arc_arrays"
-        selected_fires = CSV.read(joinpath(fire_folder, "selected_fires.csv"), DataFrame)
+function count_selected_fires(
+        fire_gaccs::Vector{String},
+        fires_by_gacc::Dict{String,Vector{Int64}},
+        input_folder::String,
+)
+        selected_fires = CSV.read(joinpath(input_folder, "selected_fires.csv"), DataFrame)
         if !isempty(fires_by_gacc)
                 mask = falses(nrow(selected_fires))
                 for (gacc, fires) in fires_by_gacc
@@ -109,6 +112,9 @@ function get_command_line_args()
                 help = "Time limit in seconds for the branch-and-price algorithm"
                 arg_type = Float64
                 default = 1800.0
+                "--input-folder"
+                help = "Directory containing input files"
+                default = "data/empirical_fire_models/raw/arc_arrays"
                 "--output-folder"
                 help = "Directory to store output files"
                 default = "data/output"
@@ -124,6 +130,7 @@ firefighters_per_crew = args["firefighters-per-crew"]
 personnel_per_crew = args["personnel-per-crew"]
 fires_by_gacc = parse_fires_by_gacc(args["fires"])
 time_limit = args["time-limit"]
+input_folder = args["input-folder"]
 output_folder = args["output-folder"]
 mkpath(output_folder)
 
@@ -146,7 +153,7 @@ global_logger(DualLogger((console_logger, file_logger)))
 @info "Personnel per crew" personnel_per_crew
 @info "Total time limit" time_limit
 
-num_fires = count_selected_fires(fire_gaccs, fires_by_gacc)
+num_fires = count_selected_fires(fire_gaccs, fires_by_gacc, input_folder)
 num_crews = 0
 
 num_time_periods = 14
@@ -159,6 +166,7 @@ crew_routes, fire_plans, crew_models, fire_models, cut_data, init_info = initial
         num_time_periods,
         firefighters_per_crew,
         travel_speed,
+        input_folder = input_folder,
         from_empirical = true,
         crew_gaccs = crew_gaccs,
         fire_gaccs = fire_gaccs,
@@ -219,6 +227,7 @@ for t in 0:14
                 firefighters_per_crew = firefighters_per_crew,
                 initial_firefighters_per_crew = personnel_per_crew,
                 fires_by_gacc = fires_by_gacc,
+                input_folder = input_folder,
                 crew_routes = crew_routes,
                 fire_plans = fire_plans,
                 crew_models = crew_models,

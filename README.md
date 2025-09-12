@@ -88,6 +88,7 @@ All raw data files live in `data/empirical_fire_models/raw/arc_arrays/`. To run 
 * **Fire and base distances**
   * `fire_fire_distances.csv` – pairwise distances between fires.
   * `base_fire_distances.csv` – distances from each crew base to each fire.
+  * Place both files in the same directory passed via `--input-folder`.
 * **Selected fires**
   * `selected_fires.csv` – list of fires to include. After a run, the script produces `selected_fires_sorted.csv` in the same folder.
 * **Arc descriptions and costs**

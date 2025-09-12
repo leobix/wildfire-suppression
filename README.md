@@ -52,7 +52,7 @@ Use `--firefighters-per-crew` to control the number of personnel assigned to eac
 julia --project=package_dependencies/julia EmpiricalMain.jl --firefighters-per-crew 20
 ```
 
-Use `--input-folder` to choose where the script looks for input CSV files (defaults to `data/empirical_fire_models/raw/arc_arrays/`):
+Use `--input-folder` to choose where the script looks for input CSV files. You can pass either a full path or the name of a dataset under `data/empirical_fire_models` (defaults to `raw` which resolves to `data/empirical_fire_models/raw/arc_arrays/`):
 
 ```bash
 julia --project=package_dependencies/julia EmpiricalMain.jl --input-folder my_inputs
@@ -79,11 +79,11 @@ Use `--crew-gaccs` and `--fire-gaccs` to restrict crews and fires by Geographic 
 
 Convenience options are also available: `all` includes every GACC, while `all_no_ak` includes all of them except Alaska.
 
-The run produces JSON files describing crew and fire arcs in the specified output directory and writes `selected_fires_sorted.csv` to `data/empirical_fire_models/raw/arc_arrays/` for visualization.
+The run produces JSON files describing crew and fire arcs in the specified output directory and writes `selected_fires_sorted.csv` to the resolved input folder for visualization.
 
 ## 4. Preparing data for new case studies
 
-All raw data files live in `data/empirical_fire_models/raw/arc_arrays/`. To run a new experiment, replace or augment the following files:
+By default, raw data files live in `data/empirical_fire_models/raw/arc_arrays/`. To run a new experiment, place the following files in the directory passed via `--input-folder` and replace or augment them as needed:
 
 * **Fire and base distances**
   * `fire_fire_distances.csv` – pairwise distances between fires.
@@ -95,7 +95,7 @@ All raw data files live in `data/empirical_fire_models/raw/arc_arrays/`. To run 
   * `arc_arrays_*.csv` – one file per fire containing the state transition arcs. The filename should follow `arc_arrays_<NIFCID>_<FIRENAME>_day0.csv`.
   * `arc_costs_*.csv` – cost of each arc, matched to the corresponding `arc_arrays_*` file: `arc_costs_<NIFCID>_<FIRENAME>_day0.csv`.
 
-Place each new CSV in `data/empirical_fire_models/raw/arc_arrays/` using the same naming pattern. The program automatically loads every `arc_arrays_*.csv` and `arc_costs_*.csv` present.
+Place each new CSV in that input directory using the same naming pattern. The program automatically loads every `arc_arrays_*.csv` and `arc_costs_*.csv` present.
 
 ## 5. Tweaking experiment parameters
 

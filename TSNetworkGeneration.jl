@@ -511,7 +511,7 @@ function build_crew_models_from_empirical(
     fire_start_days = selected_fires[idx, "start_day_of_sim"]
 
     # read in the crew locations
-    tau_base_to_fire = CSV.read(fire_folder * "/../" * "base_fire_distances.csv", DataFrame)
+    tau_base_to_fire = CSV.read(fire_folder * "/" * "base_fire_distances.csv", DataFrame)
 
     # restrict to crews in the desired GACCs
     tau_base_to_fire = tau_base_to_fire[in.(tau_base_to_fire[:, "GACC"], Ref(crew_gaccs)), :]
@@ -564,7 +564,7 @@ function build_crew_models_from_empirical(
 
     # TODO fix fire-distances
     # for now they will all be the same
-    raw_fire_dists = CSV.read(fire_folder * "/../" * "fire_to_fire_distances.csv", DataFrame)
+    raw_fire_dists = CSV.read(fire_folder * "/" * "fire_to_fire_distances.csv", DataFrame)
     dict_fire_dists = Dict()
     for row in eachrow(raw_fire_dists)
         dict_fire_dists[row["fire1_id"], row["fire2_id"]] = row["duration_min"] 

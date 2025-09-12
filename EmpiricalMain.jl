@@ -85,6 +85,24 @@ function count_selected_fires(
         return length(unique(selected_fires[:, "FIRE_EVENT_ID"]))
 end
 
+function resolve_input_folder(folder::String)
+        # if the provided path already points to a folder with selected_fires.csv, use it
+        if isfile(joinpath(folder, "selected_fires.csv"))
+                return folder
+        end
+        # check for an arc_arrays subdirectory
+        arc_path = joinpath(folder, "arc_arrays")
+        if isfile(joinpath(arc_path, "selected_fires.csv"))
+                return arc_path
+        end
+        # otherwise look relative to data/empirical_fire_models
+        candidate = joinpath("data", "empirical_fire_models", folder, "arc_arrays")
+        if isfile(joinpath(candidate, "selected_fires.csv"))
+                return candidate
+        end
+        error("Input folder $folder not found or missing selected_fires.csv")
+end
+
 function get_command_line_args()
         arg_parse_settings = ArgParseSettings()
         @add_arg_table arg_parse_settings begin
@@ -113,8 +131,8 @@ function get_command_line_args()
                 arg_type = Float64
                 default = 1800.0
                 "--input-folder"
-                help = "Directory containing input files"
-                default = "data/empirical_fire_models/raw/arc_arrays"
+                help = "Directory containing input files (full path or dataset under data/empirical_fire_models)"
+                default = "raw"
                 "--output-folder"
                 help = "Directory to store output files"
                 default = "data/output"
@@ -130,7 +148,7 @@ firefighters_per_crew = args["firefighters-per-crew"]
 personnel_per_crew = args["personnel-per-crew"]
 fires_by_gacc = parse_fires_by_gacc(args["fires"])
 time_limit = args["time-limit"]
-input_folder = args["input-folder"]
+input_folder = resolve_input_folder(args["input-folder"])
 output_folder = args["output-folder"]
 mkpath(output_folder)
 

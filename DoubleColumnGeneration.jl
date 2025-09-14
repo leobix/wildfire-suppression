@@ -1078,7 +1078,12 @@ function get_fire_and_crew_arcs_used(
 		if value(solved_rmp.plans[ix]) > 0.99
 			f = ix[1]
 			plan = ix[2]
-			fire_arcs_used[f] = fire_plans.arcs_used[f, plan]
+			# Guard against uninitialized plan columns in FirePlanData
+			if (plan <= fire_plans.plans_per_fire[f]) && isassigned(fire_plans.arcs_used, f, plan)
+				fire_arcs_used[f] = fire_plans.arcs_used[f, plan]
+			else
+				fire_arcs_used[f] = Int64[]
+			end
 		end
 	end
 
@@ -1091,7 +1096,12 @@ function get_fire_and_crew_arcs_used(
 		if value(solved_rmp.routes[ix]) > 0.99
 			c = ix[1]
 			route = ix[2]
-			crew_arcs_used[c] = crew_routes.arcs_used[c, route]
+			# Guard against uninitialized route columns in CrewRouteData
+			if (route <= crew_routes.routes_per_crew[c]) && isassigned(crew_routes.arcs_used, c, route)
+				crew_arcs_used[c] = crew_routes.arcs_used[c, route]
+			else
+				crew_arcs_used[c] = Int64[]
+			end
 		end
 	end
 

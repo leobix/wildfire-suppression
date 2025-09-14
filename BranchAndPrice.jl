@@ -878,21 +878,16 @@ function find_integer_solution(
 	## find variables we will be allowed to use
 
 	# get keys in vector form
-	plan_keys = [i for i in eachindex(rc_plans)]
+	plan_keys = collect(eachindex(rc_plans))
 
-	# get teduced costs in vector form
-	plan_values = [rc_plans[ix] for ix in plan_keys]
+	# get reduced costs in a concretely-typed vector
+	plan_values = Float64[rc_plans[ix] for ix in plan_keys]
 
-	# get the indices of the first "fire_column_limit" indices of plan_values
-	sorted_plan_ixs = Int.(plan_values .* 0)
-	used_plan_ixs =
-		[
-			i for
-			i in partialsortperm!(sorted_plan_ixs, plan_values, 1:fire_column_limit)
-		]
+	# get the indices of the first "fire_column_limit" values of plan_values
+	used_plan_ixs = collect(partialsortperm(plan_values, 1:fire_column_limit))
 
-	# get the max reduced cost selected
-	max_plan_rc = plan_values[sorted_plan_ixs[fire_column_limit]]
+	# get the max reduced cost among the selected
+	max_plan_rc = plan_values[used_plan_ixs[end]]
 
 	# if this reduced cost is too high for the upper bound
 	if lp_objective + max_plan_rc > upper_bound + 1e-7
@@ -913,15 +908,11 @@ function find_integer_solution(
 	unused_plan_keys = [i for i in plan_keys if i ∉ used_plan_keys]
 
 
-	route_keys = [i for i in eachindex(rc_routes)]
-	route_values = [rc_routes[ix] for ix in route_keys]
-	sorted_route_ixs = Int.(route_values .* 0)
-	used_route_ixs =
-		[
-			i for i in
-			partialsortperm!(sorted_route_ixs, route_values, 1:crew_column_limit)
-		]
-	max_route_rc = route_values[sorted_route_ixs[crew_column_limit]]
+	route_keys = collect(eachindex(rc_routes))
+	route_values = Float64[rc_routes[ix] for ix in route_keys]
+	used_route_ixs = collect(partialsortperm(route_values, 1:crew_column_limit))
+	# get the max reduced cost among the selected
+	max_route_rc = route_values[used_route_ixs[end]]
 
 	# if this reduced cost is too high for the upper bound
 	if lp_objective + max_route_rc > upper_bound + 1e-7

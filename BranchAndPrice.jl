@@ -328,8 +328,12 @@ function branch_and_price(
 	push!(nodes, first_node)
 
 	# initialize global variables to track in branch-and-bound tree
-	ub = Inf
-	lb = 0
+    ub = Inf
+    lb = 0
+    # minimal periodic/triggered printing of bounds
+    last_bounds_print_time = time()
+    prev_lb = lb
+    prev_ub = ub
 	ub_ix::Int = -1
 	routes_best_sol = nothing
 	plans_best_sol = nothing
@@ -519,12 +523,15 @@ function branch_and_price(
 
 		# calculate the best current lower bound by considering all nodes with
 		# fully explored children 
-		lb = find_lower_bound(nodes[1])
+            lb = find_lower_bound(nodes[1])
 
-		# print progress
-                @debug "current bounds" node_ix lb ub
-		println(lb)
-		println(ub)
+            # minimal progress printing of bounds
+            if (ub < prev_ub - 1e-9) || (lb > prev_lb + 1e-9) || (time() - last_bounds_print_time > 10.0)
+                @info "bounds" lower_bound = lb upper_bound = ub
+                prev_lb = lb
+                prev_ub = ub
+                last_bounds_print_time = time()
+            end
 		# go to the next node
                 @debug "number of nodes" node_explored_count length(nodes)
                 @debug "columns" sum(crew_routes.routes_per_crew) sum(
@@ -581,6 +588,7 @@ function initialize_data_structures(
         firefighters_per_crew::Int64 = 70,
         initial_firefighters_per_crew::Int64 = 20,
         fires_by_gacc::Dict{String,Vector{Int64}} = Dict{String,Vector{Int64}}(),
+        sorted_fire_output_folder::Union{Nothing,String} = nothing,
 )
         if !from_empirical
                 crew_models = build_crew_models(
@@ -608,6 +616,7 @@ function initialize_data_structures(
                         initial_firefighters_per_crew = initial_firefighters_per_crew,
                         fires_by_gacc = fires_by_gacc,
                         fire_folder = input_folder,
+                        sorted_fire_output_folder = sorted_fire_output_folder,
                 )
                 num_crews = length(crew_models)
                 fire_models = build_fire_models_from_empirical(
@@ -886,22 +895,24 @@ function find_integer_solution(
 	# get the indices of the first "fire_column_limit" values of plan_values
 	used_plan_ixs = collect(partialsortperm(plan_values, 1:fire_column_limit))
 
-	# get the max reduced cost among the selected
-	max_plan_rc = plan_values[used_plan_ixs[end]]
+    # get the max reduced cost among the selected (guard empty)
+    if !isempty(used_plan_ixs)
+        max_plan_rc = plan_values[used_plan_ixs[end]]
 
-	# if this reduced cost is too high for the upper bound
-	if lp_objective + max_plan_rc > upper_bound + 1e-7
+        # if this reduced cost is too high for the upper bound
+        if lp_objective + max_plan_rc > upper_bound + 1e-7
 
-		# delete elements of used_plan_ixs
-		to_delete = Int64[]
-		for (i, ix) in enumerate(used_plan_ixs)
-			if lp_objective + plan_values[ix] > upper_bound + 1e-7
-				push!(to_delete, i)
-			end
-		end
-		@debug "removing fire plans due to reduced-cost bound" length(to_delete)
-		deleteat!(used_plan_ixs, to_delete)
-	end
+            # delete elements of used_plan_ixs
+            to_delete = Int64[]
+            for (i, ix) in enumerate(used_plan_ixs)
+                if lp_objective + plan_values[ix] > upper_bound + 1e-7
+                    push!(to_delete, i)
+                end
+            end
+            @debug "removing fire plans due to reduced-cost bound" length(to_delete)
+            deleteat!(used_plan_ixs, to_delete)
+        end
+    end
 
 	# get the keys corresponding to these indices
 	used_plan_keys = plan_keys[used_plan_ixs]
@@ -911,23 +922,25 @@ function find_integer_solution(
 	route_keys = collect(eachindex(rc_routes))
 	route_values = Float64[rc_routes[ix] for ix in route_keys]
 	used_route_ixs = collect(partialsortperm(route_values, 1:crew_column_limit))
-	# get the max reduced cost among the selected
-	max_route_rc = route_values[used_route_ixs[end]]
+    # get the max reduced cost among the selected (guard empty)
+    if !isempty(used_route_ixs)
+        max_route_rc = route_values[used_route_ixs[end]]
 
-	# if this reduced cost is too high for the upper bound
-	if lp_objective + max_route_rc > upper_bound + 1e-7
+        # if this reduced cost is too high for the upper bound
+        if lp_objective + max_route_rc > upper_bound + 1e-7
 
-		# delete elements of used_route_ixs
-		to_delete = Int64[]
-		for (i, ix) in enumerate(used_route_ixs)
-			if lp_objective + route_values[ix] > upper_bound + 1e-7
-				push!(to_delete, i)
-			end
-		end
-		@debug "removing crew routes due to reduced-cost bound" length(to_delete)
+            # delete elements of used_route_ixs
+            to_delete = Int64[]
+            for (i, ix) in enumerate(used_route_ixs)
+                if lp_objective + route_values[ix] > upper_bound + 1e-7
+                    push!(to_delete, i)
+                end
+            end
+            @debug "removing crew routes due to reduced-cost bound" length(to_delete)
 
-		deleteat!(used_route_ixs, to_delete)
-	end
+            deleteat!(used_route_ixs, to_delete)
+        end
+    end
 
 	used_route_keys = route_keys[used_route_ixs]
 	unused_route_keys = [i for i in route_keys if i ∉ used_route_keys]
@@ -1032,16 +1045,16 @@ function heuristic_upper_bound!!(
 
 	cut_data = deepcopy(explored_bb_node.cut_data)
 
-	# keep all columns from explored node
-	crew_ixs =
-		[Vector{Int64}([i[1] for i in eachindex(explored_bb_node.master_problem.routes[j, :])])
-			for j ∈ 1:num_crews
-		]
-	fire_ixs =
-		[
-			Vector{Int64}([i[1] for i in eachindex(explored_bb_node.master_problem.plans[j, :])])
-			for j ∈ 1:num_fires
-		]
+    # keep all columns from explored node
+    crew_ixs =
+        [Vector{Int64}([i[1] for i in eachindex(explored_bb_node.master_problem.routes[j, :])])
+            for j ∈ 1:num_crews
+        ]
+    fire_ixs =
+        [
+            Vector{Int64}([i[1] for i in eachindex(explored_bb_node.master_problem.plans[j, :])])
+            for j ∈ 1:num_fires
+        ]
 
 	# add in columns from best solution
 	if ~isnothing(routes_best_sol)
@@ -1145,7 +1158,7 @@ function heuristic_upper_bound!!(
 		for rule in fire_rules
 			@debug "fire rule" rule fire_ixs
 		end
-		@info "crew_ixs and fire_ixs" crew_ixs fire_ixs
+	@debug "crew_ixs and fire_ixs" crew_ixs fire_ixs
 		rmp = define_restricted_master_problem(
 			gurobi_env,
 			crew_routes,
@@ -1221,8 +1234,8 @@ function heuristic_upper_bound!!(
 		set_normalized_rhs.(rmp.fire_allotment_branches, -10000)
 		optimize!(rmp.model)
 
-		crew_ixs = [[i[1] for i in eachindex(rmp.routes[j, :])] for j ∈ 1:num_crews]
-		fire_ixs = [[i[1] for i in eachindex(rmp.plans[j, :])] for j ∈ 1:num_fires]
+            crew_ixs = [Vector{Int64}([i[1] for i in eachindex(rmp.routes[j, :])]) for j ∈ 1:num_crews]
+            fire_ixs = [Vector{Int64}([i[1] for i in eachindex(rmp.plans[j, :])]) for j ∈ 1:num_fires]
 
 		if isempty(crew_ixs)
 			crew_ixs = [Int64[] for crew in 1:num_crews]
@@ -1255,14 +1268,16 @@ function heuristic_upper_bound!!(
 				warm_start_routes = routes,
 			)
 
-		rounds_since_improvement += 1
-		if obj < ub - 1e-9
-			ub = obj
-			ub_rmp = rmp
-			rounds_since_improvement = 0
-		elseif obj == Inf && ub < Inf
-			@warn "Failure of warm start solution"
-		end
+        rounds_since_improvement += 1
+        if obj < ub - 1e-9
+            ub = obj
+            ub_rmp = rmp
+            rounds_since_improvement = 0
+            # minimal heuristic progress print when UB improves
+            @info "heuristic bounds" lower_bound = lb_node upper_bound = ub
+        elseif obj == Inf && ub < Inf
+            @warn "Failure of warm start solution"
+        end
 		@debug "found sol" t obj obj_bound
 		if rounds_since_improvement >= kill_if_no_improvement_rounds
 			@debug "Too long since improvement in heuristic, killing early" rounds_since_improvement
@@ -1312,12 +1327,12 @@ function explore_node!!(
 	## get the columns with which to initialize restricted master problem
 
 	# if we are at the root node, there are no columns yet, and stabilization applies
-	if isnothing(branch_and_bound_node.parent)
+        if isnothing(branch_and_bound_node.parent)
 
 		# TODO in sequential optimization, we can use the solution found at the prior time step
-		crew_ixs = [Int[] for i ∈ 1:num_crews]
-		fire_ixs = [Int[] for i ∈ 1:num_fires]
-		deferral_stabilization = true
+            crew_ixs = [Int[] for i ∈ 1:num_crews]
+            fire_ixs = [Int[] for i ∈ 1:num_fires]
+            deferral_stabilization = true
 
 	else
 		# if we are not at the root node, there are a lot of options here, but

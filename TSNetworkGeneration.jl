@@ -1323,7 +1323,7 @@ function build_fire_models_from_empirical(
 
         # need to bump up the time periods by "start_day_of_sim" to account for the fact that
         # the time periods are relative to the start of the simulation, not the start of the fire
-        start_day = fires_start_day[fire]
+        start_day = max(0, fires_start_day[fire])
         arc_array[:, FM.TIME_FROM] .+= start_day
         arc_array[:, FM.TIME_TO] .+= start_day
 
@@ -1379,7 +1379,7 @@ function build_fire_models_from_empirical(
             copy(arc_costs),
             falses(length(arc_costs)),
             linking_dual_arc_lookup,
-            fires_start_day[fire],
+            start_day,
         )
         push!(fire_models, fire_model)
     end

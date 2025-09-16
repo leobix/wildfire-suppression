@@ -324,27 +324,6 @@ function double_column_generation!!!!(
 
         if continue_iterating
 
-            # fallback: if no columns were added for a crew or a fire, add the dummy column
-            # to keep the RMP feasible for optimization. This does not seed dummies up front;
-            # it only activates them if DCG failed to generate any real columns this round.
-            for c ∈ 1:num_crews
-                if isempty(rmp.crew_column_ixs[c]) && crew_routes.routes_per_crew[c] >= 1
-                    add_column_to_master_problem!!(rmp, cut_data, crew_routes, c, 1)
-                end
-            end
-            for g ∈ 1:num_fires
-                if isempty(rmp.fire_column_ixs[g]) && fire_plans.plans_per_fire[g] >= 1
-                    add_column_to_master_problem!!(
-                        rmp,
-                        cut_data,
-                        fire_plans,
-                        global_fire_allotment_branching_rules,
-                        g,
-                        1,
-                    )
-                end
-            end
-
 			# TODO dual warm start passed in here
 			if timing
 				t = time()
@@ -407,7 +386,16 @@ function double_column_generation!!!!(
 						)
 				end
 
-				scale = upper_bound / dual_costs
+				scale = 1.0
+				if isfinite(upper_bound) && isfinite(dual_costs) && (abs(dual_costs) > 1e-9)
+					scale = upper_bound / dual_costs
+					if !isfinite(scale)
+						@debug "Dual scaling produced non-finite scale, skipping" upper_bound dual_costs
+						scale = 1.0
+					end
+				else
+					@debug "Skipping dual scaling" upper_bound dual_costs
+				end
 				fire_duals = fire_duals .* scale
 				crew_duals = crew_duals .* scale
 				linking_duals = linking_duals .* scale

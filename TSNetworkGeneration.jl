@@ -481,6 +481,7 @@ function build_crew_models_from_empirical(
     initial_firefighters_per_crew::Int64 = 20,
     fires_by_gacc::Dict{String,Vector{Int64}} = Dict{String,Vector{Int64}}(),
     fire_folder::String = "data/empirical_fire_models/raw/arc_arrays",
+    sorted_fire_output_folder::Union{Nothing,String} = nothing,
 )
 
     # read in the selected fires
@@ -503,7 +504,11 @@ function build_crew_models_from_empirical(
     selected_fires = sort(selected_fires, [:start_day_of_sim, :FIRE_EVENT_ID])
 
     # write out these sorted fires to a new file with only the columns we need
-    CSV.write(fire_folder * "/" * "selected_fires_sorted.csv", selected_fires[:, [:FIRE_EVENT_ID, :start_day_of_sim]])
+    sorted_subset = selected_fires[:, [:FIRE_EVENT_ID, :start_day_of_sim]]
+    CSV.write(fire_folder * "/" * "selected_fires_sorted.csv", sorted_subset)
+    if !isnothing(sorted_fire_output_folder)
+        CSV.write(joinpath(sorted_fire_output_folder, "selected_fires_sorted.csv"), sorted_subset)
+    end
 
     # get the unique fire ids and their start days
     idx = unique(i -> selected_fires[i, "FIRE_EVENT_ID"], eachindex(selected_fires[:, "FIRE_EVENT_ID"]))

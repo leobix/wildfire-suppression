@@ -322,13 +322,34 @@ function double_column_generation!!!!(
 			end
 		end
 
-		if continue_iterating
+        if continue_iterating
+
+            # fallback: if no columns were added for a crew or a fire, add the dummy column
+            # to keep the RMP feasible for optimization. This does not seed dummies up front;
+            # it only activates them if DCG failed to generate any real columns this round.
+            for c ∈ 1:num_crews
+                if isempty(rmp.crew_column_ixs[c]) && crew_routes.routes_per_crew[c] >= 1
+                    add_column_to_master_problem!!(rmp, cut_data, crew_routes, c, 1)
+                end
+            end
+            for g ∈ 1:num_fires
+                if isempty(rmp.fire_column_ixs[g]) && fire_plans.plans_per_fire[g] >= 1
+                    add_column_to_master_problem!!(
+                        rmp,
+                        cut_data,
+                        fire_plans,
+                        global_fire_allotment_branching_rules,
+                        g,
+                        1,
+                    )
+                end
+            end
 
 			# TODO dual warm start passed in here
 			if timing
 				t = time()
 			end
-			optimize!(rmp.model)
+            optimize!(rmp.model)
 			if timing
 				details["master_problem"] += (time() - t)
 			end

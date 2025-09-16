@@ -221,35 +221,6 @@ for t in 0:num_time_periods
 
     crew_routes = CrewRouteData(Int(floor(6 * 1e6 / num_crews)), num_fires, num_crews, num_time_periods)
     fire_plans = FirePlanData(Int(floor(6 * 1e6  / num_crews)), num_fires, num_time_periods)
-    # add a dummy plan with cost 0 and no crew demands (per iteration, after reinit)
-    for fire in 1:num_fires
-        @debug "adding dummy plan for fire" fire
-        new_plan_ix = add_column_to_plan_data!(
-            fire_plans,
-            fire,
-            0.0,
-            zeros(Int64, num_time_periods),
-            Int[],
-        )
-        if new_plan_ix == -1
-            @error "failed to add dummy plan for fire" fire
-            error()
-        end
-        @debug "added dummy plan for fire" fire "with index" new_plan_ix
-    end
-
-    # add a dummy route per crew with cost 0 and no fires fought
-    for crew in 1:num_crews
-        fires_fought = falses(num_fires, num_time_periods)
-        new_route_ix = add_column_to_route_data!(
-            crew_routes,
-            crew,
-            0.0,
-            fires_fought,
-            Int[],
-        )
-        @debug "added dummy route for crew" crew "with index" new_route_ix
-    end
 	cut_data = CutData(num_crews, num_fires, num_time_periods)
 
         result = branch_and_price(num_fires,

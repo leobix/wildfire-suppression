@@ -191,6 +191,7 @@ crew_routes, fire_plans, crew_models, fire_models, cut_data, init_info = initial
         firefighters_per_crew = firefighters_per_crew,
         initial_firefighters_per_crew = personnel_per_crew,
         fires_by_gacc = fires_by_gacc,
+        sorted_fire_output_folder = output_folder,
 )
 
 num_crews = length(crew_models)
@@ -214,24 +215,41 @@ for j in 1:num_crews
 	no_fire_anticipation!(crew_models[j], [fsp.start_time_period for fsp in fire_models])
 end
 
-# add a dummy plan with cost 0 and no crew demands
-for fire in 1:num_fires
-	@info "adding dummy plan for fire" fire
-	new_plan_ix =
-		add_column_to_plan_data!(fire_plans, fire, 0.0, zeros(Int64, num_time_periods), Int[])
-	if new_plan_ix == -1
-		@error "failed to add dummy plan for fire" fire
-		error()
-	end
-	@info "added dummy plan for fire" fire "with index" new_plan_ix
-end
-
 for t in 0:num_time_periods
 
-	global crew_routes, fire_plans, crew_models, fire_models, cut_data
+    global crew_routes, fire_plans, crew_models, fire_models, cut_data
 
-	crew_routes = CrewRouteData(Int(floor(6 * 1e6 / num_crews)), num_fires, num_crews, num_time_periods)
-	fire_plans = FirePlanData(Int(floor(6 * 1e6  / num_crews)), num_fires, num_time_periods)
+    crew_routes = CrewRouteData(Int(floor(6 * 1e6 / num_crews)), num_fires, num_crews, num_time_periods)
+    fire_plans = FirePlanData(Int(floor(6 * 1e6  / num_crews)), num_fires, num_time_periods)
+    # add a dummy plan with cost 0 and no crew demands (per iteration, after reinit)
+    for fire in 1:num_fires
+        @debug "adding dummy plan for fire" fire
+        new_plan_ix = add_column_to_plan_data!(
+            fire_plans,
+            fire,
+            0.0,
+            zeros(Int64, num_time_periods),
+            Int[],
+        )
+        if new_plan_ix == -1
+            @error "failed to add dummy plan for fire" fire
+            error()
+        end
+        @debug "added dummy plan for fire" fire "with index" new_plan_ix
+    end
+
+    # add a dummy route per crew with cost 0 and no fires fought
+    for crew in 1:num_crews
+        fires_fought = falses(num_fires, num_time_periods)
+        new_route_ix = add_column_to_route_data!(
+            crew_routes,
+            crew,
+            0.0,
+            fires_fought,
+            Int[],
+        )
+        @debug "added dummy route for crew" crew "with index" new_route_ix
+    end
 	cut_data = CutData(num_crews, num_fires, num_time_periods)
 
         result = branch_and_price(num_fires,
@@ -256,7 +274,7 @@ for t in 0:num_time_periods
                 )
                 # Unpack as many variables as branch_and_price returns, e.g.:
         explored_nodes, ubs, lbs, columns, heuristic_times, times, time_1, root_node_ip_sol, root_node_ip_sol_time, fire_arcs_used, crew_arcs_used = result
-        @info "final arcs used" fire_arcs_used, crew_arcs_used
+        @debug "final arcs used" fire_arcs_used, crew_arcs_used
 
         if fire_arcs_used === nothing || crew_arcs_used === nothing
                 @warn "No arc information returned from branch_and_price; stopping early"
@@ -264,18 +282,18 @@ for t in 0:num_time_periods
         end
 
         for g in 1:num_fires
-                @info "before modify_in_arcs_and_out_arcs!" fire_models[g].state_in_arcs fire_models[g].state_out_arcs fire_arcs_used[g]
+                @debug "before modify_in_arcs_and_out_arcs!" fire_models[g].state_in_arcs fire_models[g].state_out_arcs fire_arcs_used[g]
                 if !isnothing(fire_models[g].start_time_period) && fire_models[g].start_time_period > t
-                        @info "fire model start time period is greater than current time, skipping modify_in_arcs_and_out_arcs!" g
+                        @debug "fire model start time period is greater than current time, skipping modify_in_arcs_and_out_arcs!" g
                         continue
                 end
 		modify_in_arcs_and_out_arcs!(fire_models[g], t+1, fire_arcs_used[g], FM.TIME_FROM)
-		@info "after modify_in_arcs_and_out_arcs!" fire_models[g].state_in_arcs fire_models[g].state_out_arcs
+		@debug "after modify_in_arcs_and_out_arcs!" fire_models[g].state_in_arcs fire_models[g].state_out_arcs
 	end
 	for j in 1:num_crews
-		@info "before modify_in_arcs_and_out_arcs!" crew_models[j].state_in_arcs crew_models[j].state_out_arcs crew_arcs_used[j]
+		@debug "before modify_in_arcs_and_out_arcs!" crew_models[j].state_in_arcs crew_models[j].state_out_arcs crew_arcs_used[j]
 		modify_in_arcs_and_out_arcs!(crew_models[j], t+1, crew_arcs_used[j], CM.TIME_FROM)
-		@info "after modify_in_arcs_and_out_arcs!" crew_models[j].state_in_arcs crew_models[j].state_out_arcs
+		@debug "after modify_in_arcs_and_out_arcs!" crew_models[j].state_in_arcs crew_models[j].state_out_arcs
 	end
 
 	# now extract the arc data and costs from the fire_arcs_used and crew_arcs_used and the models

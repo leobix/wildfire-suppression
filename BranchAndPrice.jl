@@ -305,7 +305,7 @@ function branch_and_price(
 
 	fires_to_ignore = Int64[]
 	for fire in 1:num_fires
-		if !isnothing(fire_models[fire].start_time_period) && fire_models[fire].start_time_period > current_time
+		if !isnothing(fire_models[fire].start_time_period) && fire_models[fire].start_time_period > current_time + 1
                         push!(fires_to_ignore, fire)
                         @debug "Ignoring fire" fire "because it starts at time" fire_models[fire].start_time_period
 		end

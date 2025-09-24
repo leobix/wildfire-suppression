@@ -13,6 +13,14 @@ using JuMP
 
 end
 
+function adapt_linking_duals(warm_start_matrix::Matrix{Float64}, num_fires::Int, num_time_periods::Int)
+	result = zeros(num_fires, num_time_periods)
+	min_f = min(size(warm_start_matrix, 1), num_fires)
+	min_t = min(size(warm_start_matrix, 2), num_time_periods)
+	result[1:min_f, 1:min_t] .= warm_start_matrix[1:min_f, 1:min_t]
+	return result
+end
+
 """
 Perform double column generation to solve the (relaxed) restricted master problem `rmp`
 by iteratively adding columns to model feasible fire suppression plans and crew routes.
@@ -50,7 +58,8 @@ function double_column_generation!!!!(
 	timing::Bool,
 	time_limit::Float64 = Inf,
 	improving_column_abs_tolerance::Float64 = 1e-10,
-	local_gap_rel_tolerance::Float64 = 1e-5)
+	local_gap_rel_tolerance::Float64 = 1e-5,
+	dual_warm_start::Union{Nothing, DualWarmStart} = nothing)
 
 	# initialize timing dictionary
 	details = Dict{String, Float64}()
@@ -63,12 +72,20 @@ function double_column_generation!!!!(
 	num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)
 
 	if rmp.termination_status == MOI.OPTIMIZE_NOT_CALLED
-		# initialize with an (infeasible) dual solution that will suppress minimally
-		fire_duals = zeros(num_fires) .+ Inf
-		crew_duals = zeros(num_crews)
-		linking_duals = zeros(num_fires, num_time_periods) .+ 1e30
-		cut_duals = normalized_rhs.(rmp.gub_cover_cuts) .* 0
-		global_fire_allot_duals = normalized_rhs.(rmp.fire_allotment_branches) .* 0
+		if isnothing(dual_warm_start)
+			# initialize with an (infeasible) dual solution that will suppress minimally
+			fire_duals = zeros(num_fires) .+ Inf
+			crew_duals = zeros(num_crews)
+			linking_duals = zeros(num_fires, num_time_periods) .+ 1e30
+			cut_duals = normalized_rhs.(rmp.gub_cover_cuts) .* 0
+			global_fire_allot_duals = normalized_rhs.(rmp.fire_allotment_branches) .* 0
+		else
+			fire_duals = zeros(num_fires)
+			crew_duals = zeros(num_crews)
+			linking_duals = adapt_linking_duals(dual_warm_start.linking_values, num_fires, num_time_periods)
+			cut_duals = normalized_rhs.(rmp.gub_cover_cuts) .* 0
+			global_fire_allot_duals = normalized_rhs.(rmp.fire_allotment_branches) .* 0
+		end
 	else
 		fire_duals = dual.(rmp.plan_per_fire)
 		crew_duals = dual.(rmp.route_per_crew)
@@ -467,7 +484,7 @@ function define_restricted_master_problem(
 	cut_data::CutData,
 	fire_allotment_branching_rules::Vector{GlobalFireAllotmentBranchingRule},
 	deferral_stabilization::Bool,
-	fires_to_ignore::Vector{Int64},
+	fires_to_ignore::Vector{Int64};
 	dual_warm_start::Union{Nothing, DualWarmStart} = nothing,
 )
     @debug "Define restricted master problem" fires_to_ignore
@@ -509,14 +526,8 @@ function define_restricted_master_problem(
 		end
 	end
 
-	if ~isnothing(dual_warm_start)
-
-		error("Not implemented")
-		# dual stabilization variables
-		# @variable(m, delta_plus[g = 1:num_fires, t = 1:num_time_periods] >= 0)
-		# @variable(m, delta_minus[g = 1:num_fires, t = 1:num_time_periods] >= 0)
-
-	end
+	# dual warm starts currently handled in column generation; no additional
+	# model variables are required here.
 
 	# constraints that you must choose a plan per crew and per fire
 	@constraint(m, route_per_crew[c = 1:num_crews],
@@ -611,60 +622,21 @@ function define_restricted_master_problem(
 	end
 
 	# linking constraint
-	if isnothing(dual_warm_start)
+	@constraint(m, linking[g = 1:num_fires, t = 1:num_time_periods],
 
-		# for each fire and time period
-		@constraint(m, linking[g = 1:num_fires, t = 1:num_time_periods],
+		# crews at fire
+		sum(
+			route[c, r] * crew_route_data.fires_fought[c, r, g, t]
+			for c ∈ 1:num_crews, r ∈ crew_avail_ixs[c]
+		) +
+		deferred_num_crews[g, t-1] - deferred_num_crews[g, t]
+		>=
 
-			# crews at fire
-			sum(
-				route[c, r] * crew_route_data.fires_fought[c, r, g, t]
-				for c ∈ 1:num_crews, r ∈ crew_avail_ixs[c]
-			) +
-			deferred_num_crews[g, t-1] - deferred_num_crews[g, t]
-			>=
-
-			# crews suppressing
-			sum(
-				plan[g, p] * fire_plan_data.crews_present[g, p, t]
-				for p ∈ fire_avail_ixs[g]
-			))
-
-	elseif dual_warm_start.strategy == "global"
-
-		error("Not implemented")
-
-		# # get expected dual value ratios
-		# ratios = dual_warm_start.linking_values
-		# ratios = ratios / sum(ratios)
-
-		# @constraint(m, linking[g = 1:num_fires, t = 1:num_time_periods],
-
-		# 	# crews at fire
-		# 	sum(
-		# 		route[c, r] * crew_route_data.fires_fought[c, r, g, t]
-		# 		for c ∈ 1:num_crews, r ∈ crew_avail_ixs[c]
-		# 	)
-		# 	+
-
-		# 	# perturbation
-		# 	delta_plus[g, t] - delta_minus[g, t] -
-		# 	sum(ratios .* delta_plus) + sum(ratios .* delta_minus)
-		# 	>=
-
-		# 	# crews suppressing
-		# 	sum(
-		# 		plan[g, p] * fire_plan_data.crews_present[g, p, t]
-		# 		for p ∈ fire_avail_ixs[g]
-		# 	))
-
-		# # this constrant neutralizes the perturbation, will be presolved away if RHS is 0
-		# # but raising the RHS slightly above 0 allows the perturbation
-		# @constraint(m, perturb[g = 1:num_fires, t = 1:num_time_periods],
-		# 	delta_plus[g, t] + delta_minus[g, t] <= 0)
-	else
-		error("Dual stabilization type not implemented")
-	end
+		# crews suppressing
+		sum(
+			plan[g, p] * fire_plan_data.crews_present[g, p, t]
+			for p ∈ fire_avail_ixs[g]
+		))
 
 
 	@objective(m, Min,

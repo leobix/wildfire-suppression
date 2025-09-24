@@ -72,7 +72,7 @@ params["everything"] = Dict(:bb_node_gub_cover_cuts => true,
 
 # precompile
 for (key, param_set) in params
-    _, _, _, _, _, _, _, root_sol, root_sol_time = branch_and_price(3, 10, 14, 
+    _, _, _, _, _, _, _, root_sol, root_sol_time, _, _ = branch_and_price(3, 10, 14, 
         line_per_crew = 20,
         algo_tracking=true, 
         soft_heuristic_time_limit=0.0, 
@@ -90,7 +90,7 @@ sizes = [(3, 10, 14, 20), (6, 20, 14, 20), (9, 30, 14, 20), (12, 40, 14, 20), (1
 output = []
 for (g, c, t, l) ∈ sizes
     for (key, param_set) in params
-        _, _, _, _, _, _, _, root_sol, root_sol_time = branch_and_price(g, c, t, 
+        _, _, _, _, _, _, _, root_sol, root_sol_time, _, _ = branch_and_price(g, c, t, 
             line_per_crew=l,
             algo_tracking=true, 
             soft_heuristic_time_limit=0.0, 

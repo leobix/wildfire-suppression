@@ -100,6 +100,7 @@ function price_and_cut!!!!(
 	upper_bound::Float64 = 1e10,
 	log_progress_file = nothing,
 	time_limit = Inf,
+	dual_warm_start = nothing,
 )
 
 	log_flag = ~isnothing(log_progress_file)
@@ -136,6 +137,7 @@ function price_and_cut!!!!(
 			timing = log_flag,
 			upper_bound = upper_bound,
 			time_limit = time_limit,
+			dual_warm_start = dual_warm_start,
 		)
 		if (rmp.termination_status == MOI.OBJECTIVE_LIMIT) || (rmp.termination_status == MOI.INFEASIBLE)
 			@debug "no more cuts needed"
@@ -273,6 +275,7 @@ function branch_and_price(
         crew_models  = nothing,
         fire_models = nothing,
         cut_data  = nothing,
+        dual_warm_start = nothing,
 )
         start_time = time()
         @info "Starting branch-and-price optimization" fires = num_fires crews = num_crews periods = num_time_periods
@@ -339,6 +342,7 @@ function branch_and_price(
 	plans_best_sol = nothing
 	fire_arcs_used = nothing
 	crew_arcs_used = nothing
+    root_dual_linking = nothing
 
 	## breadth-first search for now, can get smarter/add options
 
@@ -375,16 +379,16 @@ function branch_and_price(
 		# else explore the next node
 		explore_node!!(
 			nodes[node_ix],
-			nodes,
-			ub,
-			crew_routes,
-			fire_plans,
-			crew_models,
-			fire_models,
-			cut_search_enumeration_limit,
-			nothing,
-			GRB_ENV,
-			fires_to_ignore = fires_to_ignore,
+				nodes,
+				ub,
+				crew_routes,
+				fire_plans,
+				crew_models,
+				fire_models,
+				cut_search_enumeration_limit,
+				nothing,
+				GRB_ENV;
+			branching_strategy = branching_strategy,
 			price_and_cut_soft_time_limit = price_and_cut_soft_time_limit,
 			cut_loop_max = cut_loop_max,
 			relative_improvement_cut_req = relative_improvement_cut_req,
@@ -394,8 +398,20 @@ function branch_and_price(
 			decrease_gub_allots = bb_node_decrease_gub_allots,
 			single_fire_lift = bb_node_single_fire_lift,
 			log_cuts_file = price_and_cut_file,
-			branching_strategy = branching_strategy,
+			fires_to_ignore = fires_to_ignore,
+			dual_warm_start = (node_ix == 1 ? dual_warm_start : nothing),
 		)
+		if node_ix == 1 && !isnothing(nodes[node_ix].master_problem)
+			termin_status = nodes[node_ix].master_problem.termination_status
+			if termin_status ∈ (MOI.LOCALLY_SOLVED, MOI.OBJECTIVE_LIMIT)
+				root_dual_linking = dual.(nodes[node_ix].master_problem.supply_demand_linking)
+				@debug "Captured root linking duals" min_dual = minimum(root_dual_linking) max_dual = maximum(root_dual_linking)
+			else
+				root_dual_linking = nothing
+				@debug "Skipping dual capture due to termination status" termin_status
+			end
+			dual_warm_start = nothing
+		end
 
                 if time() - start_time > total_time_limit
                         @debug "Full time limit reached"
@@ -571,7 +587,8 @@ function branch_and_price(
                 end
         end
         @info "Branch-and-price optimization complete" lower_bound = lb upper_bound = ub explored_nodes = node_explored_count
-        return explored_nodes, ubs, lbs, columns, heuristic_times, times, time_1, root_node_ip_sol, root_node_ip_sol_time, fire_arcs_used, crew_arcs_used
+	        root_dual_warm_start = isnothing(root_dual_linking) ? nothing : DualWarmStart(linking_values = root_dual_linking)
+	        return explored_nodes, ubs, lbs, columns, heuristic_times, times, time_1, root_node_ip_sol, root_node_ip_sol_time, fire_arcs_used, crew_arcs_used, root_dual_warm_start
 
 end
 
@@ -619,13 +636,14 @@ function initialize_data_structures(
                         sorted_fire_output_folder = sorted_fire_output_folder,
                 )
                 num_crews = length(crew_models)
-                fire_models = build_fire_models_from_empirical(
+                fire_models, fire_info = build_fire_models_from_empirical(
                         num_fires, num_crews, num_time_periods;
                         fire_gaccs = fire_gaccs,
                         firefighters_per_crew = firefighters_per_crew,
                         fires_by_gacc = fires_by_gacc,
                         fire_folder = input_folder,
                 )
+                info = merge(info, fire_info)
         end
 
 
@@ -1159,17 +1177,18 @@ function heuristic_upper_bound!!(
 			@debug "fire rule" rule fire_ixs
 		end
 	@debug "crew_ixs and fire_ixs" crew_ixs fire_ixs
-		rmp = define_restricted_master_problem(
-			gurobi_env,
-			crew_routes,
-			crew_ixs,
-			fire_plans,
-			fire_ixs,
-			cut_data,
-			global_rules,
-			false,
-			fires_to_ignore,
-		)
+	rmp = define_restricted_master_problem(
+		gurobi_env,
+		crew_routes,
+		crew_ixs,
+		fire_plans,
+		fire_ixs,
+		cut_data,
+		global_rules,
+		false,
+		fires_to_ignore;
+		dual_warm_start = nothing,
+	)
 
 
 		# TODO consider cut management
@@ -1316,6 +1335,7 @@ function explore_node!!(
 	single_fire_lift,
 	log_cuts_file,
 	fires_to_ignore,
+	dual_warm_start = nothing,
 	rel_tol = 1e-9)
 
 	@debug "Exploring node" branch_and_bound_node.ix fires_to_ignore
@@ -1330,8 +1350,14 @@ function explore_node!!(
         if isnothing(branch_and_bound_node.parent)
 
 		# TODO in sequential optimization, we can use the solution found at the prior time step
-            crew_ixs = [Int[] for i ∈ 1:num_crews]
-            fire_ixs = [Int[] for i ∈ 1:num_fires]
+            crew_ixs = [
+                crew_routes.routes_per_crew[crew] >= 1 ? [1] : Int[]
+                for crew ∈ 1:num_crews
+            ]
+            fire_ixs = [
+                fire_plans.plans_per_fire[fire] >= 1 ? [1] : Int[]
+                for fire ∈ 1:num_fires
+            ]
             deferral_stabilization = true
 
 	else
@@ -1428,6 +1454,7 @@ function explore_node!!(
 		global_rules,
 		deferral_stabilization,
 		fires_to_ignore,
+		dual_warm_start = dual_warm_start,
 	)
 	@debug "Define rmp time (b-and-b)" t
 
@@ -1452,7 +1479,9 @@ function explore_node!!(
 		single_fire_cuts = single_fire_cuts,
 		decrease_gub_allots = decrease_gub_allots,
 		single_fire_lift = single_fire_lift,
-		log_progress_file = log_cuts_file)
+		log_progress_file = log_cuts_file,
+		dual_warm_start = dual_warm_start,
+	)
 
 	@debug "Price and cut time (b-and-b)" t
 	@debug "after price and cut" objective_value(rmp.model) crew_routes.routes_per_crew fire_plans.plans_per_fire

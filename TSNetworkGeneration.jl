@@ -34,6 +34,64 @@ end
 const CM = CrewArcArrayIndices
 const FM = FireArcArrayIndices
 
+const GACC_CANONICAL = Dict(
+    "ALASKA" => "Alaska",
+    "EASTERN" => "Eastern",
+    "EASTERN AREA" => "Eastern",
+    "GREAT BASIN" => "Great Basin",
+    "NORTHERN CALIFORNIA" => "Northern California",
+    "NORTHERN ROCKIES" => "Northern Rockies",
+    "NORTHWEST" => "Northwest",
+    "ROCKY MOUNTAIN" => "Rocky Mountain",
+    "SOUTHERN" => "Southern Area",
+    "SOUTHERN AREA" => "Southern Area",
+    "SOUTHERN CALIFORNIA" => "Southern California",
+    "SOUTHWEST" => "Southwest",
+)
+
+normalize_gacc(::Missing) = missing
+function normalize_gacc(g::AbstractString)
+    cleaned = strip(g)
+    return get(GACC_CANONICAL, uppercase(cleaned), cleaned)
+end
+
+const JULIA_EXT_STATE_CODE = 1
+
+function unpack_state(code::Int, num_bins::Int)
+    if code == JULIA_EXT_STATE_CODE
+        return (nothing, 1)
+    end
+    active = code - (JULIA_EXT_STATE_CODE + 1)
+    if active < 0
+        return (nothing, 1)
+    end
+    next_idx = active ÷ num_bins + 1
+    prev_idx = active % num_bins + 1
+    return (prev_idx, next_idx)
+end
+
+function load_discretization_bins(path::String)
+    bin_path = joinpath(path, "discretization_bins.csv")
+    if isfile(bin_path)
+        bins = readdlm(bin_path, ',')
+        return vec(Float64.(bins))
+    end
+    return nothing
+end
+
+function nearest_bin_index(bins::Vector{Float64}, value::Float64)
+    idx = searchsortedfirst(bins, value)
+    if idx <= 1
+        return 1
+    elseif idx > length(bins)
+        return length(bins)
+    end
+
+    lower = bins[idx - 1]
+    upper = bins[idx]
+    return (value - lower) <= (upper - value) ? idx - 1 : idx
+end
+
 struct LocationAndRestStatus
 
     rest_by::Vector{Int64}
@@ -486,6 +544,7 @@ function build_crew_models_from_empirical(
 
     # read in the selected fires
     selected_fires = CSV.read(fire_folder * "/" * "selected_fires.csv", DataFrame)
+    selected_fires[!, "GACC"] = normalize_gacc.(selected_fires[!, "GACC"])
 
     if !isempty(fires_by_gacc)
         fire_gaccs = collect(keys(fires_by_gacc))
@@ -517,6 +576,7 @@ function build_crew_models_from_empirical(
 
     # read in the crew locations
     tau_base_to_fire = CSV.read(fire_folder * "/" * "base_fire_distances.csv", DataFrame)
+    tau_base_to_fire[!, "GACC"] = normalize_gacc.(tau_base_to_fire[!, "GACC"])
 
     # restrict to crews in the desired GACCs
     tau_base_to_fire = tau_base_to_fire[in.(tau_base_to_fire[:, "GACC"], Ref(crew_gaccs)), :]
@@ -1273,6 +1333,8 @@ function build_fire_models_from_empirical(
     # initialize fire models
     fire_models = TimeSpaceNetwork[]
 
+    discretization_bins = load_discretization_bins(fire_folder)
+
     # need +1 for the start arcs, tracking times {0, ..., T} but Julia uses 1-indexing
     linking_dual_arc_lookup = Matrix{Vector{Int64}}(undef, num_fires, num_time_periods + 1)
     for g ∈ 1:num_fires
@@ -1283,6 +1345,7 @@ function build_fire_models_from_empirical(
 
     # read in the selected fires
     selected_fires = CSV.read(fire_folder * "/" * "selected_fires.csv", DataFrame)
+    selected_fires[!, "GACC"] = normalize_gacc.(selected_fires[!, "GACC"])
 
     if !isempty(fires_by_gacc)
         fire_gaccs = collect(keys(fires_by_gacc))
@@ -1302,11 +1365,14 @@ function build_fire_models_from_empirical(
     
     fires_start_day = selected_fires[:, "start_day_of_sim"]
 
+    fire_metadata = Vector{Dict{String,Any}}()
+    maybe(x) = x === missing ? nothing : x
+
     for fire in 1:num_fires
 
         # read in the arc array
-        fname = selected_fires[fire, "arc_file"]
-        arc_array = readdlm(fire_folder * "/" * fname, ',')
+        arc_filename = selected_fires[fire, "arc_file"]
+        arc_array = readdlm(fire_folder * "/" * arc_filename, ',')
 
         # convert personnel counts to crew counts using crew size
         arc_array[:, end] = arc_array[:, end] / firefighters_per_crew
@@ -1318,8 +1384,8 @@ function build_fire_models_from_empirical(
         arc_array = hcat(convert.(Int, zeros(length(arc_array[:, 1]))) .- 1, arc_array)
         
         # read the arc costs
-        fname = selected_fires[fire, "cost_file"]
-        arc_costs = readdlm(fire_folder * "/" * fname, ',')
+        cost_filename = selected_fires[fire, "cost_file"]
+        arc_costs = readdlm(fire_folder * "/" * cost_filename, ',')
 
         # need to bump up the time periods by "start_day_of_sim" to account for the fact that
         # the time periods are relative to the start of the simulation, not the start of the fire
@@ -1347,16 +1413,116 @@ function build_fire_models_from_empirical(
         # normalize the costs
         arc_costs = arc_costs ./ 1e4 # scale for Gurobi numerical tolerance
 
-        # we need to rename the states to be 1:s for some s
-        all_states = unique(vcat(arc_array[:, FM.STATE_FROM], arc_array[:, FM.STATE_TO]))
-        num_states = length(all_states)
-        state_dict = Dict()
-        for (i, state) in enumerate(all_states)
-            state_dict[state] = i
+        num_states = 0
+        state_meta_lookup = Dict{Int64, Dict{String,Any}}()
+
+        function ensure_state_entry!(
+            idx::Int64,
+            raw_state::Union{Nothing,Int64};
+            prev_idx::Union{Nothing,Int}=nothing,
+            next_idx::Union{Nothing,Int}=nothing,
+            area_discrete::Union{Nothing,Float64}=nothing,
+            area_sim::Union{Nothing,Float64}=nothing,
+        )
+            entry = get!(state_meta_lookup, idx) do
+                Dict{String,Any}("state_id" => idx)
+            end
+
+            if !isnothing(raw_state) && !haskey(entry, "packed_code")
+                entry["packed_code"] = raw_state
+            end
+
+            if !isnothing(prev_idx)
+                entry["prev_idx"] = prev_idx
+            end
+
+            if !isnothing(next_idx)
+                entry["next_idx"] = next_idx
+            end
+
+            if !isnothing(area_discrete)
+                entry["area_acres_discrete"] = area_discrete
+            elseif !haskey(entry, "area_acres_discrete")
+                if !isnothing(discretization_bins) && idx ≥ 1 && idx ≤ length(discretization_bins)
+                    entry["area_acres_discrete"] = discretization_bins[idx]
+                elseif !isnothing(area_sim)
+                    entry["area_acres_discrete"] = area_sim
+                else
+                    entry["area_acres_discrete"] = nothing
+                end
+            end
+
+            if !isnothing(area_sim)
+                entry["area_acres_sim"] = area_sim
+            elseif !haskey(entry, "area_acres_sim")
+                if !isnothing(raw_state)
+                    entry["area_acres_sim"] = Float64(raw_state)
+                else
+                    entry["area_acres_sim"] = nothing
+                end
+            end
+
+            return entry
         end
-        for i in 1:length(arc_array[:, 1])
-            arc_array[i, FM.STATE_FROM] = state_dict[arc_array[i, FM.STATE_FROM]]
-            arc_array[i, FM.STATE_TO] = state_dict[arc_array[i, FM.STATE_TO]]
+
+        if isnothing(discretization_bins)
+            # we need to rename the states to be 1:s for some s
+            all_states = unique(vcat(arc_array[:, FM.STATE_FROM], arc_array[:, FM.STATE_TO]))
+            num_states = length(all_states)
+            state_dict = Dict{Int64, Int64}()
+            for (i, state) in enumerate(all_states)
+                state_dict[state] = i
+            end
+            for i in 1:length(arc_array[:, 1])
+                from_state = arc_array[i, FM.STATE_FROM]
+                to_state = arc_array[i, FM.STATE_TO]
+                arc_array[i, FM.STATE_FROM] = state_dict[from_state]
+                arc_array[i, FM.STATE_TO] = state_dict[to_state]
+                ensure_state_entry!(
+                    arc_array[i, FM.STATE_FROM],
+                    from_state;
+                    area_discrete = Float64(from_state),
+                    area_sim = Float64(from_state),
+                )
+                ensure_state_entry!(
+                    arc_array[i, FM.STATE_TO],
+                    to_state;
+                    area_discrete = Float64(to_state),
+                    area_sim = Float64(to_state),
+                )
+            end
+        else
+            state_cache = Dict{Int64, Int64}()
+            num_bins = length(discretization_bins)
+
+            function decode_and_cache!(code::Int64)
+                cache_val = get(state_cache, code, nothing)
+                if isnothing(cache_val)
+                    prev_idx_raw, next_idx_raw = unpack_state(code, num_bins)
+                    prev_idx_clamped = isnothing(prev_idx_raw) ? nothing : clamp(prev_idx_raw, 1, num_bins)
+                    next_idx_clamped = clamp(next_idx_raw, 1, num_bins)
+                    state_cache[code] = next_idx_clamped
+                    sim_area = discretization_bins[next_idx_clamped]
+                    ensure_state_entry!(
+                        next_idx_clamped,
+                        code;
+                        prev_idx = prev_idx_raw,
+                        next_idx = next_idx_raw,
+                        area_discrete = discretization_bins[next_idx_clamped],
+                        area_sim = sim_area,
+                    )
+                end
+                return state_cache[code]
+            end
+
+            for i in 1:length(arc_array[:, 1])
+                from_state = arc_array[i, FM.STATE_FROM]
+                to_state = arc_array[i, FM.STATE_TO]
+
+                arc_array[i, FM.STATE_FROM] = decode_and_cache!(from_state)
+                arc_array[i, FM.STATE_TO] = decode_and_cache!(to_state)
+            end
+            num_states = maximum(vcat(arc_array[:, FM.STATE_FROM], arc_array[:, FM.STATE_TO]))
         end
 
         # for each arc, we need to update the linking_dual_arc_lookup
@@ -1369,6 +1535,37 @@ function build_fire_models_from_empirical(
         in_arcs = get_state_in_arcs(arc_array, num_states, num_time_periods)
         out_arcs = get_state_out_arcs(arc_array, num_states, num_time_periods)
    
+        sorted_state_ids = sort(collect(keys(state_meta_lookup)))
+        for (pos, sid) in enumerate(sorted_state_ids)
+            entry = state_meta_lookup[sid]
+            if !haskey(entry, "prev_idx") && pos > 1
+                entry["prev_idx"] = sorted_state_ids[pos - 1]
+            end
+            if !haskey(entry, "next_idx") && pos < length(sorted_state_ids)
+                entry["next_idx"] = sorted_state_ids[pos + 1]
+            end
+            if !haskey(entry, "area_acres_discrete")
+                if !isnothing(discretization_bins) && sid ≥ 1 && sid ≤ length(discretization_bins)
+                    entry["area_acres_discrete"] = discretization_bins[sid]
+                elseif haskey(entry, "area_acres_sim") && !isnothing(entry["area_acres_sim"])
+                    entry["area_acres_discrete"] = entry["area_acres_sim"]
+                else
+                    entry["area_acres_discrete"] = nothing
+                end
+            end
+            if !haskey(entry, "area_acres_sim")
+                if haskey(entry, "area_acres_discrete") && entry["area_acres_discrete"] !== nothing
+                    entry["area_acres_sim"] = entry["area_acres_discrete"]
+                elseif haskey(entry, "packed_code") && !isnothing(entry["packed_code"])
+                    entry["area_acres_sim"] = Float64(entry["packed_code"])
+                else
+                    entry["area_acres_sim"] = nothing
+                end
+            end
+        end
+
+        state_metadata = [state_meta_lookup[sid] for sid in sorted_state_ids]
+
         fire_model = TimeSpaceNetwork(
             arc_costs,
             in_arcs,
@@ -1382,9 +1579,31 @@ function build_fire_models_from_empirical(
             start_day,
         )
         push!(fire_models, fire_model)
+
+        fire_meta_entry = Dict{String,Any}(
+            "optimizer_index" => fire,
+            "fire_event_id" => maybe(selected_fires[fire, "FIRE_EVENT_ID"]),
+            "arc_file" => arc_filename,
+            "cost_file" => cost_filename,
+            "start_day_of_sim" => start_day,
+            "state_metadata" => state_metadata,
+        )
+        if hasproperty(selected_fires, :INCIDENT_NAME)
+            fire_meta_entry["incident_name"] = maybe(selected_fires[fire, :INCIDENT_NAME])
+        end
+        push!(fire_metadata, fire_meta_entry)
     end
 
-    return fire_models
+    meta = (
+        discretization_bins = discretization_bins,
+        fire_order = fire_metadata,
+        crew_step = firefighters_per_crew,
+        max_crews = num_crews,
+        horizon = num_time_periods,
+        time_period_hours = 6,
+    )
+
+    return fire_models, meta
 end
 
 function modify_in_arcs_and_out_arcs!(

@@ -1,6 +1,6 @@
 include("BranchAndPrice.jl")
 
-using JuMP, Gurobi, JSON, Profile, ArgParse, Logging, IterTools, CSV, DataFrames
+using JuMP, Gurobi, JSON, Profile, ArgParse, Logging, IterTools, CSV, DataFrames, Dates
 import Logging: min_enabled_level, shouldlog, handle_message
 
 struct DualLogger <: AbstractLogger
@@ -28,13 +28,40 @@ const GACC_ABBR = Dict(
         "NR" => "Northern Rockies",
         "NW" => "Northwest",
         "RM" => "Rocky Mountain",
-        "SA" => "Southern",
+        "SA" => "Southern Area",
         "SC" => "Southern California",
         "CA-S" => "Southern California",
         "SW" => "Southwest",
 )
 
 const ALL_GACCS = unique(collect(values(GACC_ABBR)))
+
+const JULIA_EXT_STATE_CODE = 1
+
+function default_discretization_bins()
+        step_sizes = (5.0, 15.0, 30.0, 50.0, 100.0)
+        bins = Float64[]
+        append!(bins, collect(1.0:step_sizes[0]:100.0))
+        append!(bins, collect(100.0:step_sizes[1]:2000.0))
+        append!(bins, collect(2000.0:step_sizes[2]:5000.0))
+        append!(bins, collect(5000.0:step_sizes[3]:10000.0))
+        append!(bins, collect(10000.0:step_sizes[4]:100000.0))
+        unique_bins = sort(unique(bins))
+        if unique_bins[end] < 100000.0
+                push!(unique_bins, 100000.0)
+        end
+        return unique_bins
+end
+
+function decode_packed_state_area(packed_code::Int, bins::Vector{Float64})
+        packed_code <= JULIA_EXT_STATE_CODE && return 0.0
+        num_bins = length(bins)
+        num_bins == 0 && return 0.0
+        active = packed_code - (JULIA_EXT_STATE_CODE + 1)
+        next_idx = active ÷ num_bins
+        next_idx = clamp(next_idx, 0, num_bins - 1)
+        return bins[next_idx + 1]
+end
 
 function parse_gaccs(str::String)
         s = uppercase(strip(str))
@@ -73,9 +100,15 @@ function count_selected_fires(
         input_folder::String,
 )
         selected_fires = CSV.read(joinpath(input_folder, "selected_fires.csv"), DataFrame)
+        selected_fires[!, "GACC"] = normalize_gacc.(selected_fires[!, "GACC"])
+        fire_gaccs = normalize_gacc.(fire_gaccs)
         if !isempty(fires_by_gacc)
-                mask = falses(nrow(selected_fires))
+                normalized_fires_by_gacc = Dict{String,Vector{Int64}}()
                 for (gacc, fires) in fires_by_gacc
+                        normalized_fires_by_gacc[normalize_gacc(gacc)] = fires
+                end
+                mask = falses(nrow(selected_fires))
+                for (gacc, fires) in normalized_fires_by_gacc
                         mask .|= (selected_fires[:, "GACC"] .== gacc) .& in.(selected_fires[:, "FIRE_EVENT_ID"], Ref(fires))
                 end
                 selected_fires = selected_fires[mask, :]
@@ -215,6 +248,8 @@ for j in 1:num_crews
 	no_fire_anticipation!(crew_models[j], [fsp.start_time_period for fsp in fire_models])
 end
 
+let prev_dual_warm_start = nothing
+
 for t in 0:num_time_periods
 
     global crew_routes, fire_plans, crew_models, fire_models, cut_data
@@ -222,6 +257,53 @@ for t in 0:num_time_periods
     crew_routes = CrewRouteData(Int(floor(6 * 1e6 / num_crews)), num_fires, num_crews, num_time_periods)
     fire_plans = FirePlanData(Int(floor(6 * 1e6  / num_crews)), num_fires, num_time_periods)
 	cut_data = CutData(num_crews, num_fires, num_time_periods)
+
+    # seed dummy plan/route columns so the restricted master is always feasible
+    dummy_plan_cost = 1.0e8
+    dummy_route_cost = 1.0e8
+    for fire in 1:num_fires
+        add_column_to_plan_data!(
+            fire_plans,
+            fire,
+            dummy_plan_cost,
+            zeros(Int64, num_time_periods),
+            Int[],
+        )
+    end
+    for crew in 1:num_crews
+        fires_fought = falses(num_fires, num_time_periods)
+        add_column_to_route_data!(
+            crew_routes,
+            crew,
+            dummy_route_cost,
+            fires_fought,
+            Int[],
+        )
+    end
+
+    current_day = t + 1
+    total_days = num_time_periods + 1
+    # determine which fires are active or starting this day for user feedback
+    fire_start_periods = [fsp.start_time_period for fsp in fire_models]
+    fires_active = [g for g in 1:num_fires if isnothing(fire_start_periods[g]) || fire_start_periods[g] <= current_day]
+    fires_starting_today = [g for g in 1:num_fires if fire_start_periods[g] == current_day]
+
+    @info "##### Simulation Day $(current_day) of $(total_days) #####"
+    @info "Active fires" length(fires_active) fires_active
+    if !isempty(fires_starting_today)
+        @info "Fires starting today" fires_starting_today
+    end
+
+        warm_start_to_use = prev_dual_warm_start
+        if !isnothing(warm_start_to_use)
+            dims = size(warm_start_to_use.linking_values)
+            if dims[1] != num_fires || dims[2] != num_time_periods
+                @info "Skipping dual warm start due to dimension mismatch" warm_dims = dims current_dims = (num_fires, num_time_periods)
+                warm_start_to_use = nothing
+            else
+                @info "Reusing dual warm start" warm_dims = dims
+            end
+        end
 
         result = branch_and_price(num_fires,
                 num_crews,
@@ -242,15 +324,18 @@ for t in 0:num_time_periods
                 cut_data = cut_data,
                 total_time_limit = time_limit,
                 output_folder = output_folder,
+                dual_warm_start = warm_start_to_use,
                 )
                 # Unpack as many variables as branch_and_price returns, e.g.:
-        explored_nodes, ubs, lbs, columns, heuristic_times, times, time_1, root_node_ip_sol, root_node_ip_sol_time, fire_arcs_used, crew_arcs_used = result
+        explored_nodes, ubs, lbs, columns, heuristic_times, times, time_1, root_node_ip_sol, root_node_ip_sol_time, fire_arcs_used, crew_arcs_used, root_dual_warm_start = result
         @debug "final arcs used" fire_arcs_used, crew_arcs_used
 
         if fire_arcs_used === nothing || crew_arcs_used === nothing
                 @warn "No arc information returned from branch_and_price; stopping early"
                 break
         end
+
+        prev_dual_warm_start = root_dual_warm_start
 
         for g in 1:num_fires
                 @debug "before modify_in_arcs_and_out_arcs!" fire_models[g].state_in_arcs fire_models[g].state_out_arcs fire_arcs_used[g]
@@ -281,24 +366,205 @@ for t in 0:num_time_periods
 		crew_arc_costs[j] = crew_models[j].arc_costs[reverse(crew_arcs_used[j])]
 	end
 
-        # write these to files
+        discretization_bins_used = (:discretization_bins in propertynames(init_info)) ? init_info.discretization_bins : nothing
+        bins_for_decoding = discretization_bins_used === nothing ? default_discretization_bins() : collect(Float64.(discretization_bins_used))
+        template_fire_entries = (:fire_order in propertynames(init_info)) ? [deepcopy(entry) for entry in init_info.fire_order] : [Dict{String,Any}("optimizer_index" => g) for g in 1:num_fires]
+        fire_manifest_entries = copy(template_fire_entries)
+        crew_manifest_entries = Vector{Dict{String,Any}}()
+
         for g in 1:num_fires
-                open(joinpath(output_folder, "fire_arcs_$(g)_$(t).json"), "w") do io
-                        JSON.print(io, fire_arcs[g])
+                arcs_filename = "fire_arcs_$(g)_$(t).json"
+                arc_costs_filename = "fire_arc_costs_$(g)_$(t).json"
+
+                state_entry = fire_manifest_entries[g]
+                state_meta = get(state_entry, "state_metadata", nothing)
+                state_lookup = Dict{Int,Dict{String,Any}}()
+                state_area_map_sim = Dict{Int, Float64}()
+                state_area_map_discrete = Dict{Int, Float64}()
+                packed_lookup = Dict{Int, Int}()
+                if state_meta isa AbstractVector
+                        for sm in state_meta
+                                if sm isa Dict && haskey(sm, "state_id")
+                                        sid = Int(sm["state_id"])
+                                        state_lookup[sid] = sm
+                                        if haskey(sm, "area_acres_sim") && sm["area_acres_sim"] !== nothing
+                                                state_area_map_sim[sid] = Float64(sm["area_acres_sim"])
+                                        end
+                                        if haskey(sm, "area_acres_discrete") && sm["area_acres_discrete"] !== nothing
+                                                state_area_map_discrete[sid] = Float64(sm["area_acres_discrete"])
+                                        end
+                                        if haskey(sm, "packed_code") && sm["packed_code"] !== nothing
+                                                try
+                                                        packed_lookup[sid] = Int(sm["packed_code"])
+                                                catch
+                                                end
+                                        end
+                                end
+                        end
                 end
-                open(joinpath(output_folder, "fire_arc_costs_$(g)_$(t).json"), "w") do io
+
+                fire_arcs_export = fire_arcs[g]
+                if !isempty(state_lookup)
+                        fire_arcs_export = copy(fire_arcs[g])
+                        map_state = function(state_idx::Int)
+                                sm = get(state_lookup, state_idx, nothing)
+                                if sm isa Dict && haskey(sm, "packed_code")
+                                        raw = sm["packed_code"]
+                                        if !(raw === nothing || raw === missing)
+                                                return Int(raw)
+                                        end
+                                end
+                                return state_idx
+                        end
+                        fire_arcs_export[FM.STATE_FROM, :] = map(map_state, fire_arcs_export[FM.STATE_FROM, :])
+                        fire_arcs_export[FM.STATE_TO, :] = map(map_state, fire_arcs_export[FM.STATE_TO, :])
+                end
+
+                open(joinpath(output_folder, arcs_filename), "w") do io
+                        JSON.print(io, fire_arcs_export)
+                end
+                open(joinpath(output_folder, arc_costs_filename), "w") do io
                         JSON.print(io, fire_arc_costs[g])
                 end
+
+                state_area_map = state_area_map_sim
+                state_area_map_discrete = isempty(state_area_map_discrete) ? Dict{Int,Float64}() : state_area_map_discrete
+
+                num_periods = num_time_periods
+                daily_crews = fill(0, num_periods)
+                daily_area = Vector{Union{Nothing, Float64}}(undef, num_periods)
+                daily_area_discrete = Vector{Union{Nothing, Float64}}(undef, num_periods)
+                running_area = 0.0
+                running_area_discrete = 0.0
+                for i in 1:num_periods
+                        daily_area[i] = nothing
+                        daily_area_discrete[i] = nothing
+                end
+
+                for arc_idx in fire_arcs_used[g]
+                        arc_row = fire_models[g].long_arcs[arc_idx, :]
+                        time_from = arc_row[FM.TIME_FROM]
+                        time_to = arc_row[FM.TIME_TO]
+                        crew_count = arc_row[FM.CREWS_PRESENT]
+                        state_to = arc_row[FM.STATE_TO]
+
+                        if 1 ≤ time_from ≤ num_periods
+                                daily_crews[time_from] = crew_count
+                        end
+
+                        period_ix = time_to - 1
+                        packed_code = get(packed_lookup, state_to, nothing)
+                        area_val = nothing
+                        if packed_code !== nothing
+                                area_val = decode_packed_state_area(packed_code, bins_for_decoding)
+                        elseif haskey(state_area_map_sim, state_to)
+                                area_val = state_area_map_sim[state_to]
+                        end
+                        area_val_discrete = if haskey(state_area_map_discrete, state_to)
+                                state_area_map_discrete[state_to]
+                            elseif !isnothing(discretization_bins_used) && state_to ≥ 1 && state_to ≤ length(discretization_bins_used)
+                                discretization_bins_used[state_to]
+                            else
+                                nothing
+                            end
+                        if !isnothing(area_val) && 1 ≤ period_ix ≤ num_periods
+                                running_area = max(running_area, area_val)
+                                daily_area[period_ix] = running_area
+                        end
+                        if !isnothing(area_val_discrete) && 1 ≤ period_ix ≤ num_periods
+                                running_area_discrete = max(running_area_discrete, area_val_discrete)
+                                daily_area_discrete[period_ix] = running_area_discrete
+                        end
+                end
+
+                prev_area = nothing
+                prev_area_discrete = nothing
+                for period_ix in 1:num_periods
+                        if daily_area[period_ix] === nothing && prev_area !== nothing
+                                daily_area[period_ix] = prev_area
+                        elseif daily_area[period_ix] !== nothing
+                                if prev_area === nothing || daily_area[period_ix] > prev_area
+                                        prev_area = daily_area[period_ix]
+                                else
+                                        daily_area[period_ix] = prev_area
+                                end
+                        end
+                        if daily_area_discrete[period_ix] === nothing && prev_area_discrete !== nothing
+                                daily_area_discrete[period_ix] = prev_area_discrete
+                        elseif daily_area_discrete[period_ix] !== nothing
+                                if prev_area_discrete === nothing || daily_area_discrete[period_ix] > prev_area_discrete
+                                        prev_area_discrete = daily_area_discrete[period_ix]
+                                else
+                                        daily_area_discrete[period_ix] = prev_area_discrete
+                                end
+                        end
+                end
+
+                stats_filename = "fire_stats_$(g)_$(t).json"
+                stats_payload = Dict{String,Any}(
+                        "optimizer_index" => g,
+                        "fire_event_id" => get(state_entry, "fire_event_id", nothing),
+                        "arc_file" => get(state_entry, "arc_file", nothing),
+                        "day_index" => t,
+                        "daily_crews" => daily_crews,
+                        "daily_area_acres" => [daily_area[i] === nothing ? nothing : daily_area[i] for i in 1:num_periods],
+                        "daily_area_acres_discrete" => [daily_area_discrete[i] === nothing ? nothing : daily_area_discrete[i] for i in 1:num_periods],
+                )
+                open(joinpath(output_folder, stats_filename), "w") do io
+                        JSON.print(io, stats_payload)
+                end
+
+                output_files = Dict{String,Any}(
+                        "arcs" => arcs_filename,
+                        "arc_costs" => arc_costs_filename,
+                        "stats" => stats_filename,
+                )
+                state_entry["output_files"] = output_files
+                state_entry["day_index"] = t
+                fire_manifest_entries[g] = state_entry
         end
+
         for j in 1:num_crews
-                open(joinpath(output_folder, "crew_arcs_$(j)_$(t).json"), "w") do io
+                crew_arcs_filename = "crew_arcs_$(j)_$(t).json"
+                crew_costs_filename = "crew_arc_costs_$(j)_$(t).json"
+                open(joinpath(output_folder, crew_arcs_filename), "w") do io
                         JSON.print(io, crew_arcs[j])
                 end
-                open(joinpath(output_folder, "crew_arc_costs_$(j)_$(t).json"), "w") do io
+                open(joinpath(output_folder, crew_costs_filename), "w") do io
                         JSON.print(io, crew_arc_costs[j])
                 end
+                push!(crew_manifest_entries, Dict{String,Any}(
+                        "crew_index" => j,
+                        "arcs" => crew_arcs_filename,
+                        "arc_costs" => crew_costs_filename,
+                ))
+        end
+
+        manifest_dict = Dict{String,Any}(
+                "generated_at" => Dates.format(Dates.now(), dateformat"YYYY-mm-ddTHH:MM:SS"),
+                "day_index" => t,
+                "crew_step" => (:crew_step in propertynames(init_info)) ? init_info.crew_step : firefighters_per_crew,
+                "initial_firefighters_per_crew" => personnel_per_crew,
+                "max_crews" => num_crews,
+                "horizon_periods" => num_time_periods,
+                "time_period_hours" => (:time_period_hours in propertynames(init_info)) ? init_info.time_period_hours : 6,
+                "travel_speed_miles_per_period" => travel_speed,
+                "fire_order" => fire_manifest_entries,
+                "crew_outputs" => crew_manifest_entries,
+        )
+        if discretization_bins_used !== nothing
+                manifest_dict["discretization_bins"] = discretization_bins_used
+        else
+                manifest_dict["discretization_bins"] = nothing
+        end
+
+        manifest_filename = joinpath(output_folder, "arc_manifest_$(t).json")
+        open(manifest_filename, "w") do io
+                JSON.print(io, manifest_dict)
         end
 end
+
+end # let prev_dual_warm_start
 
 close(log_file)
 

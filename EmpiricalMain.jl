@@ -151,7 +151,7 @@ function get_command_line_args()
                 "--firefighters-per-crew"
                 help = "Number of firefighters per crew"
                 arg_type = Int
-                default = 70
+                default = 50
                 "--personnel-per-crew"
                 help = "Personnel count representing one crew when initializing from empirical data"
                 arg_type = Int

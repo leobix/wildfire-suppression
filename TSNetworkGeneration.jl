@@ -535,7 +535,7 @@ function build_crew_models_from_empirical(
     travel_fixed_delay::Int64 = 0;
     crew_gaccs::Vector{String} = ["Great Basin"],
     fire_gaccs::Vector{String} = crew_gaccs,
-    firefighters_per_crew::Int64 = 70,
+    firefighters_per_crew::Int64 = 50,
     initial_firefighters_per_crew::Int64 = 20,
     fires_by_gacc::Dict{String,Vector{Int64}} = Dict{String,Vector{Int64}}(),
     fire_folder::String = "data/empirical_fire_models/raw/arc_arrays",
@@ -1325,7 +1325,7 @@ function build_fire_models_from_empirical(
     num_crews::Int64,
     num_time_periods::Int64;
     fire_gaccs::Vector{String} = ["Great Basin"],
-    firefighters_per_crew::Int64 = 70,
+    firefighters_per_crew::Int64 = 50,
     fires_by_gacc::Dict{String,Vector{Int64}} = Dict{String,Vector{Int64}}(),
     fire_folder::String = "data/empirical_fire_models/raw/arc_arrays",
 )

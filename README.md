@@ -46,7 +46,7 @@ An optional `--debug` flag can be passed to expose verbose logging:
 julia --project=package_dependencies/julia EmpiricalMain.jl --debug
 ```
 
-Use `--firefighters-per-crew` to control the number of personnel assigned to each crew (default `70`):
+Use `--firefighters-per-crew` to control the number of personnel assigned to each crew (default `50`):
 
 ```bash
 julia --project=package_dependencies/julia EmpiricalMain.jl --firefighters-per-crew 20
@@ -103,7 +103,7 @@ Edit [`EmpiricalMain.jl`](EmpiricalMain.jl) to modify run parameters:
 
 * `num_fires`, `num_crews`, and `num_time_periods` control the size of the case study.
 * `travel_speed = 40.0 * 6.0` encodes a 40 mph average speed for 6 hours of travel per day. Change the second factor to adjust allowed daily travel time.
-* Pass `--firefighters-per-crew` to set the number of personnel per crew (default `70`).
+* Pass `--firefighters-per-crew` to set the number of personnel per crew (default `50`).
 
 Save the file and rerun the script to evaluate the new settings.
 
@@ -114,4 +114,3 @@ Each invocation writes arc information for every fire and crew to JSON files in 
 ## 7. Repeating experiments
 
 To run another case study, swap in a new set of CSV inputs (keeping the naming conventions), adjust parameters as needed, and repeat the run command in Section 3.
-

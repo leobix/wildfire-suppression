@@ -391,6 +391,20 @@ for t in 0:num_time_periods
                 if isempty(path_chrono)
                     continue
                 end
+                # Seeding guard: if fire is at/after its start day, require at least one post-start arc
+                start_day = fire_models[g].start_time_period
+                if !isnothing(start_day) && current_day >= start_day
+                    has_post_start = false
+                    for a_ix in path_chrono
+                        if fm.long_arcs[a_ix, FM.TIME_FROM] >= start_day + 1
+                            has_post_start = true
+                            break
+                        end
+                    end
+                    if !has_post_start
+                        continue
+                    end
+                end
                 # Build plan data
                 cost = compute_plan_cost(fm, path_chrono)
                 crew_demands = zeros(Int, num_time_periods)
@@ -496,6 +510,20 @@ for t in 0:num_time_periods
                 end
                 if isempty(path_chrono)
                     continue
+                end
+                # Seeding guard: if fire is at/after its start day, require at least one post-start arc
+                start_day = fire_models[g].start_time_period
+                if !isnothing(start_day) && current_day >= start_day
+                    has_post_start = false
+                    for a_ix in path_chrono
+                        if fm.long_arcs[a_ix, FM.TIME_FROM] >= start_day + 1
+                            has_post_start = true
+                            break
+                        end
+                    end
+                    if !has_post_start
+                        continue
+                    end
                 end
                 cost = compute_plan_cost(fm, path_chrono)
                 crew_demands = zeros(Int, num_time_periods)
@@ -604,6 +632,20 @@ for t in 0:num_time_periods
                 end
                 if isempty(path_chrono)
                     continue
+                end
+                # Seeding guard: if fire is at/after its start day, require at least one post-start arc
+                start_day = fire_models[g].start_time_period
+                if !isnothing(start_day) && current_day >= start_day
+                    has_post_start = false
+                    for a_ix in path_chrono
+                        if fm.long_arcs[a_ix, FM.TIME_FROM] >= start_day + 1
+                            has_post_start = true
+                            break
+                        end
+                    end
+                    if !has_post_start
+                        continue
+                    end
                 end
                 cost = compute_plan_cost(fm, path_chrono)
                 crew_demands = zeros(Int, num_time_periods)

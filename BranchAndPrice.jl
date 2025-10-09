@@ -101,6 +101,7 @@ function price_and_cut!!!!(
 	log_progress_file = nothing,
 	time_limit = Inf,
 	dual_warm_start = nothing,
+	final_snapshot_only::Bool = false,
 )
 
 	log_flag = ~isnothing(log_progress_file)
@@ -123,22 +124,23 @@ function price_and_cut!!!!(
 	while true
 
 		# run DCG, adding columns as needed
-		dcg_times = double_column_generation!!!!(
-			rmp,
-			crew_routes,
-			fire_plans,
-			cut_data,
-			crew_subproblems,
-			fire_subproblems,
-			crew_rules,
-			fire_rules,
-			global_fire_allotment_rules,
-			fires_to_ignore,
-			timing = log_flag,
-			upper_bound = upper_bound,
-			time_limit = time_limit,
-			dual_warm_start = dual_warm_start,
-		)
+	dcg_times = double_column_generation!!!!(
+		rmp,
+		crew_routes,
+		fire_plans,
+		cut_data,
+		crew_subproblems,
+		fire_subproblems,
+		crew_rules,
+		fire_rules,
+		global_fire_allotment_rules,
+		fires_to_ignore,
+		timing = log_flag,
+		upper_bound = upper_bound,
+		time_limit = time_limit,
+		dual_warm_start = dual_warm_start,
+		final_snapshot_only = final_snapshot_only,
+	)
 		if (rmp.termination_status == MOI.OBJECTIVE_LIMIT) || (rmp.termination_status == MOI.INFEASIBLE)
 			@debug "no more cuts needed"
 			break
@@ -276,6 +278,7 @@ function branch_and_price(
         fire_models = nothing,
         cut_data  = nothing,
         dual_warm_start = nothing,
+        final_snapshot_only::Bool = false,
 )
         start_time = time()
         @info "Starting branch-and-price optimization" fires = num_fires crews = num_crews periods = num_time_periods
@@ -606,6 +609,7 @@ function initialize_data_structures(
         initial_firefighters_per_crew::Int64 = 20,
         fires_by_gacc::Dict{String,Vector{Int64}} = Dict{String,Vector{Int64}}(),
         sorted_fire_output_folder::Union{Nothing,String} = nothing,
+        zero_crew_costs::Bool = false,
 )
         if !from_empirical
                 crew_models = build_crew_models(
@@ -613,7 +617,8 @@ function initialize_data_structures(
                         num_fires,
                         num_crews,
                         num_time_periods,
-                        travel_speed,
+                        travel_speed;
+                        zero_crew_costs = zero_crew_costs,
                 )
 
                 fire_models = build_fire_models(
@@ -634,6 +639,7 @@ function initialize_data_structures(
                         fires_by_gacc = fires_by_gacc,
                         fire_folder = input_folder,
                         sorted_fire_output_folder = sorted_fire_output_folder,
+                        zero_crew_costs = zero_crew_costs,
                 )
                 num_crews = length(crew_models)
                 fire_models, fire_info = build_fire_models_from_empirical(
@@ -1192,28 +1198,29 @@ function heuristic_upper_bound!!(
 
 
 		# TODO consider cut management
-		t = @elapsed price_and_cut!!!!(
-			rmp,
-			crew_routes,
-			fire_plans,
-			cut_data,
-			crew_subproblems,
-			fire_subproblems,
-			cut_search_enumeration_limit,
-			crew_rules,
-			fire_rules,
-			global_rules,
-			fires_to_ignore,
-			soft_time_limit = price_and_cut_soft_time_limit,
-			loop_max = cut_loop_max,
-			relative_improvement_cut_req = relative_improvement_cut_req,
-			gub_cover_cuts = gub_cover_cuts,
-			general_gub_cuts = general_gub_cuts,
-			single_fire_cuts = single_fire_cuts,
-			decrease_gub_allots = decrease_gub_allots,
-			single_fire_lift = single_fire_lift,
-			upper_bound = ub,
-			time_limit = 20.0)
+    t = @elapsed price_and_cut!!!!(
+            rmp,
+            crew_routes,
+            fire_plans,
+            cut_data,
+            crew_subproblems,
+            fire_subproblems,
+            cut_search_enumeration_limit,
+            crew_rules,
+            fire_rules,
+            global_rules,
+            fires_to_ignore,
+            soft_time_limit = price_and_cut_soft_time_limit,
+            loop_max = cut_loop_max,
+            relative_improvement_cut_req = relative_improvement_cut_req,
+            gub_cover_cuts = gub_cover_cuts,
+            general_gub_cuts = general_gub_cuts,
+            single_fire_cuts = single_fire_cuts,
+            decrease_gub_allots = decrease_gub_allots,
+            single_fire_lift = single_fire_lift,
+            upper_bound = ub,
+            time_limit = 20.0,
+            final_snapshot_only = final_snapshot_only)
 		@debug "Price and cut time (heuristic)" t
 
 		# add in columns from best feasible solution so far
@@ -1458,7 +1465,23 @@ function explore_node!!(
 	)
 	@debug "Define rmp time (b-and-b)" t
 
-	t = @elapsed price_and_cut!!!!(
+    # Add any pre-seeded fire plan columns (>1) to the RMP so they're available
+    for fire in 1:num_fires
+        for ix in 2:fire_plans.plans_per_fire[fire]
+            if (fire, ix) ∉ eachindex(rmp.plans)
+                add_column_to_master_problem!!(
+                    rmp,
+                    cut_data,
+                    fire_plans,
+                    global_rules,
+                    fire,
+                    ix,
+                )
+            end
+        end
+    end
+
+    t = @elapsed price_and_cut!!!!(
 		rmp,
 		crew_routes,
 		fire_plans,
@@ -1481,6 +1504,7 @@ function explore_node!!(
 		single_fire_lift = single_fire_lift,
 		log_progress_file = log_cuts_file,
 		dual_warm_start = dual_warm_start,
+		final_snapshot_only = final_snapshot_only,
 	)
 
 	@debug "Price and cut time (b-and-b)" t

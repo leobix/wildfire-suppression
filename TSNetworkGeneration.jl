@@ -540,6 +540,7 @@ function build_crew_models_from_empirical(
     fires_by_gacc::Dict{String,Vector{Int64}} = Dict{String,Vector{Int64}}(),
     fire_folder::String = "data/empirical_fire_models/raw/arc_arrays",
     sorted_fire_output_folder::Union{Nothing,String} = nothing,
+    zero_crew_costs::Bool = false,
 )
 
     # read in the selected fires
@@ -750,19 +751,29 @@ function build_crew_models_from_empirical(
         num_time_periods,
     )
 
-    rest_pen = get_rest_penalties(
-        num_crews,
-        num_time_periods,
-        crew_status.rest_by,
-        1e10,
-        positive,
-    )
-    ALPHA = 200
-    cost_params = Dict(
-        "cost_per_mile" => 1,
-        "rest_violation" => rest_pen,
-        "fight_fire" => ALPHA,
-    )
+    if zero_crew_costs
+        rest_pen = zeros(num_crews, num_time_periods)
+        ALPHA = 0
+        cost_params = Dict(
+            "cost_per_mile" => 0,
+            "rest_violation" => rest_pen,
+            "fight_fire" => ALPHA,
+        )
+    else
+        rest_pen = get_rest_penalties(
+            num_crews,
+            num_time_periods,
+            crew_status.rest_by,
+            1e10,
+            positive,
+        )
+        ALPHA = 200
+        cost_params = Dict(
+            "cost_per_mile" => 1,
+            "rest_violation" => rest_pen,
+            "fight_fire" => ALPHA,
+        )
+    end
 
     crew_sps = TimeSpaceNetwork[]
     for crew in 1:num_crews
@@ -833,7 +844,8 @@ function build_crew_models(
     num_fires::Int64,
     num_crews::Int64,
     num_time_periods::Int64,
-    travel_speed::Float64
+    travel_speed::Float64;
+    zero_crew_costs::Bool = false,
 )
 
     dists_and_times, crew_status = crew_data_from_path(in_path, travel_speed)
@@ -846,19 +858,29 @@ function build_crew_models(
         num_time_periods,
     )
 
-    rest_pen = get_rest_penalties(
-        num_crews,
-        num_time_periods,
-        crew_status.rest_by,
-        1e10,
-        positive,
-    )
-    ALPHA = 200
-    cost_params = Dict(
-        "cost_per_mile" => 1,
-        "rest_violation" => rest_pen,
-        "fight_fire" => ALPHA,
-    )
+    if zero_crew_costs
+        rest_pen = zeros(num_crews, num_time_periods)
+        ALPHA = 0
+        cost_params = Dict(
+            "cost_per_mile" => 0,
+            "rest_violation" => rest_pen,
+            "fight_fire" => ALPHA,
+        )
+    else
+        rest_pen = get_rest_penalties(
+            num_crews,
+            num_time_periods,
+            crew_status.rest_by,
+            1e10,
+            positive,
+        )
+        ALPHA = 200
+        cost_params = Dict(
+            "cost_per_mile" => 1,
+            "rest_violation" => rest_pen,
+            "fight_fire" => ALPHA,
+        )
+    end
 
     crew_sps = TimeSpaceNetwork[]
     for crew in 1:num_crews
@@ -1642,19 +1664,38 @@ function no_fire_anticipation!(
     fire_start_times::Vector{Int64}
 )
     """
-    Modifies the crew_time_space_network to remove arcs that anticipate fires before their start time.
+    Enforces a no-anticipation policy with limited pre-travel.
+
+    Removes arcs that send a crew to a fire too early, while allowing
+    at most one period (6 hours) of pre-travel. Concretely, for any arc
+    with destination type FIRE:
+      - Disallow TIME_FROM < (start_time - 1)
+      - If TIME_FROM == (start_time - 1), require TIME_TO ≥ start_time
+      - Otherwise (TIME_FROM ≥ start_time), keep the arc
     """
 
     arc_array = crew_time_space_network.long_arcs
     n_arcs = length(arc_array[:, 1])
 
-    # get the arcs that anticipate fires
+    # collect arcs to remove under the modified anticipation rule
     arcs_to_remove = Vector{Int64}()
     for arc_ix in 1:n_arcs
         if arc_array[arc_ix, CM.TO_TYPE] == CM.FIRE_CODE
-            fire_start_time = fire_start_times[arc_array[arc_ix, CM.LOC_TO]]
-            if arc_array[arc_ix, CM.TIME_FROM] < fire_start_time
+            fire_ix = arc_array[arc_ix, CM.LOC_TO]
+            fire_start_time = fire_start_times[fire_ix]
+            t_from = arc_array[arc_ix, CM.TIME_FROM]
+            t_to = arc_array[arc_ix, CM.TIME_TO]
+
+            # Remove if departing earlier than one period before start
+            if t_from < fire_start_time - 1
                 push!(arcs_to_remove, arc_ix)
+                continue
+            end
+
+            # If departing exactly one period early, ensure arrival is not before start
+            if (t_from == fire_start_time - 1) && (t_to < fire_start_time)
+                push!(arcs_to_remove, arc_ix)
+                continue
             end
         end
     end

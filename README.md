@@ -103,6 +103,7 @@ Edit [`EmpiricalMain.jl`](EmpiricalMain.jl) to modify run parameters:
 
 * `num_fires`, `num_crews`, and `num_time_periods` control the size of the case study.
 * `travel_speed = 40.0 * 6.0` encodes a 40 mph average speed for 6 hours of travel per day. Change the second factor to adjust allowed daily travel time.
+* Pre-travel rule: crews may depart up to one period (6 hours) before a fire’s start time; arrival must be at or after the fire’s start period. Short trips (<6h) can therefore be credited at ignition when departing one period early.
 * Pass `--firefighters-per-crew` to set the number of personnel per crew (default `50`).
 
 Save the file and rerun the script to evaluate the new settings.

@@ -151,6 +151,9 @@ function get_command_line_args()
                 "--seed-max-daily"
                 help = "seed a plan that uses the maximum feasible crews on every remaining day (greedy per-day max) for each fire"
                 action = :store_true
+                "--seed-crew-routes"
+                help = "seed crew routes that arrive at early target times so heavy early fire plans are feasible"
+                action = :store_true
                 "--final-snapshot-only"
                 help = "optimize only the end-of-horizon area (final snapshot) for each fire (last nonzero pre-extinguish area)"
                 action = :store_true
@@ -195,6 +198,7 @@ fire_gaccs = isempty(args["fire-gaccs"]) ? crew_gaccs : parse_gaccs(args["fire-g
 seed_fastest_extinguish = args["seed-fastest-extinguish"]
 seed_frontloaded = args["seed-frontloaded"]
 seed_max_daily = args["seed-max-daily"]
+seed_crew_routes = args["seed-crew-routes"]
 final_snapshot_only = args["final-snapshot-only"]
 crew_costs_mode = lowercase(String(args["crew-costs"]))
 zero_crew_costs = (crew_costs_mode in ("off","0","false","no"))
@@ -227,6 +231,7 @@ global_logger(DualLogger((console_logger, file_logger)))
 @info "Seed fastest-extinguish" seed_fastest_extinguish
 @info "Seed frontloaded" seed_frontloaded
 @info "Seed max-daily" seed_max_daily
+@info "Seed crew routes" seed_crew_routes
 @info "Final snapshot only" final_snapshot_only
 @info "Crew costs mode" (zero_crew_costs ? "off" : "on")
 
@@ -274,6 +279,10 @@ end
 for j in 1:num_crews
 	no_fire_anticipation!(crew_models[j], [fsp.start_time_period for fsp in fire_models])
 end
+
+# Track committed arcs (history) so past-day decisions are preserved across re-solves
+committed_fire_arcs = [Set{Int64}() for _ in 1:num_fires]
+committed_crew_arcs = [Set{Int64}() for _ in 1:num_crews]
 
 let prev_dual_warm_start = nothing
 
@@ -659,6 +668,121 @@ for t in 0:num_time_periods
             end
         end
 
+        # Additional seeding: frontload explicitly at the first positive day (start_day+1)
+        # This ensures a heavy plan exists exactly at the first actionable day even when current_day < start_day+1
+        if seed_frontloaded
+            for g in fires_active
+                fm = fire_models[g]
+                start_day = fm.start_time_period
+                if isnothing(start_day)
+                    continue
+                end
+                target_day = start_day + 1
+                if target_day < 1 || target_day > num_time_periods
+                    continue
+                end
+                # Build reachability up to target_day
+                states, times = size(fm.state_in_arcs)
+                prev_arc = fill(0, states, times)
+                reachable = falses(states, times)
+                for tt in 1:target_day
+                    for s in 1:states
+                        for arc_ix in fm.state_in_arcs[s, tt]
+                            arc = fm.long_arcs[arc_ix, :]
+                            tf = arc[FM.TIME_FROM]
+                            sf = arc[FM.STATE_FROM]
+                            if (tf == 0) || (tf >= 1 && reachable[sf, tf])
+                                if prev_arc[s, tt] == 0
+                                    prev_arc[s, tt] = arc_ix
+                                    reachable[s, tt] = true
+                                end
+                            end
+                        end
+                    end
+                end
+                # Pick max crews at target_day
+                start_arc = 0
+                best_crews = -1
+                best_cost = Inf
+                best_from_state = 0
+                best_to_state = 0
+                if target_day <= size(fm.state_out_arcs,2)
+                    for s in 1:states
+                        if !reachable[s, target_day]
+                            continue
+                        end
+                        for arc_ix in fm.state_out_arcs[s, target_day]
+                            crews_here = fm.long_arcs[arc_ix, FM.CREWS_PRESENT]
+                            c = fm.arc_costs[arc_ix]
+                            if (crews_here > best_crews) || (crews_here == best_crews && c < best_cost)
+                                best_crews = crews_here
+                                best_cost = c
+                                start_arc = arc_ix
+                                best_from_state = s
+                                best_to_state = fm.long_arcs[arc_ix, FM.STATE_TO]
+                            end
+                        end
+                    end
+                end
+                if start_arc == 0
+                    continue
+                end
+                # Backtrack prefix to build path to target_day
+                cur_s = best_from_state
+                cur_t = target_day
+                prefix_rev = Int[]
+                while cur_t != 0
+                    arc_ix = prev_arc[cur_s, cur_t]
+                    if arc_ix == 0
+                        break
+                    end
+                    push!(prefix_rev, arc_ix)
+                    arc = fm.long_arcs[arc_ix, :]
+                    cur_s = arc[FM.STATE_FROM]
+                    cur_t = arc[FM.TIME_FROM]
+                end
+                path_chrono = vcat(reverse(prefix_rev), [start_arc])
+                # Greedy min-cost continuation from target_day onward
+                cur_state = best_to_state
+                cur_time = fm.long_arcs[start_arc, FM.TIME_TO]
+                while cur_time <= num_time_periods
+                    picked = 0
+                    picked_cost = Inf
+                    if cur_state >= 1 && cur_state <= size(fm.state_out_arcs,1) && cur_time >= 1 && cur_time <= size(fm.state_out_arcs,2)
+                        for arc_ix in fm.state_out_arcs[cur_state, cur_time]
+                            c = fm.arc_costs[arc_ix]
+                            if c < picked_cost
+                                picked = arc_ix
+                                picked_cost = c
+                            end
+                        end
+                    end
+                    if picked == 0
+                        break
+                    end
+                    push!(path_chrono, picked)
+                    cur_state = fm.long_arcs[picked, FM.STATE_TO]
+                    cur_time = fm.long_arcs[picked, FM.TIME_TO]
+                    if cur_time == 0
+                        break
+                    end
+                end
+                if isempty(path_chrono)
+                    continue
+                end
+                # Build and add plan
+                cost = compute_plan_cost(fm, path_chrono)
+                crew_demands = zeros(Int, num_time_periods)
+                for a_ix in path_chrono
+                    tf = fm.long_arcs[a_ix, FM.TIME_FROM]
+                    if 1 <= tf <= num_time_periods
+                        crew_demands[tf] = fm.long_arcs[a_ix, FM.CREWS_PRESENT]
+                    end
+                end
+                add_column_to_plan_data!(fire_plans, g, cost, crew_demands, reverse(path_chrono))
+            end
+        end
+
         warm_start_to_use = prev_dual_warm_start
         if !isnothing(warm_start_to_use)
             dims = size(warm_start_to_use.linking_values)
@@ -667,6 +791,68 @@ for t in 0:num_time_periods
                 warm_start_to_use = nothing
             else
                 @info "Reusing dual warm start" warm_dims = dims
+            end
+        end
+
+        # Seed early crew routes to ensure feasible supply at first active days
+        # Only if enabled via --seed-crew-routes
+        if seed_crew_routes
+            target_times = Int[]
+            push!(target_times, current_day)
+            if current_day + 1 <= num_time_periods
+                push!(target_times, current_day + 1)
+            end
+            for g in fires_active
+                for j in 1:num_crews
+                    long_arcs = crew_models[j].long_arcs
+                    for tt in target_times
+                        # find arcs that arrive to fire g at time tt
+                        cand_ixs = [
+                            i for i in 1:size(long_arcs, 1) if
+                            (long_arcs[i, CM.TO_TYPE] == CM.FIRE_CODE) &&
+                            (long_arcs[i, CM.LOC_TO] == g) &&
+                            (long_arcs[i, CM.TIME_TO] == tt)
+                        ]
+                        if isempty(cand_ixs)
+                            continue
+                        end
+                        # build a modified cost vector that strongly rewards hitting (g,tt)
+                        modified_costs = copy(crew_models[j].arc_costs)
+                        bonus = 1.0e6
+                        for ix in cand_ixs
+                            modified_costs[ix] -= bonus
+                        end
+                        prohibited = falses(length(modified_costs))
+                        obj, arcs_used = crew_dp_subproblem(
+                            crew_models[j].wide_arcs,
+                            modified_costs,
+                            prohibited,
+                            crew_models[j].state_in_arcs,
+                        )
+                        if isempty(arcs_used)
+                            continue
+                        end
+                        # ensure the selected path actually includes one of the target arrival arcs
+                        contains_target = any(a -> a in cand_ixs, arcs_used)
+                        if !contains_target
+                            continue
+                        end
+                        # Compute true static cost and fires_fought mask for this path
+                        true_cost = sum(crew_models[j].arc_costs[arcs_used])
+                        fires_fought = get_fires_fought(
+                            crew_models[j].wide_arcs,
+                            arcs_used,
+                            (num_fires, num_time_periods),
+                        )
+                        add_column_to_route_data!(
+                            crew_routes,
+                            j,
+                            true_cost,
+                            fires_fought,
+                            arcs_used,
+                        )
+                    end
+                end
             end
         end
 
@@ -703,18 +889,44 @@ for t in 0:num_time_periods
 
         prev_dual_warm_start = root_dual_warm_start
 
+        # Commit decisions up to current day (t+1): preserve those arcs in future iterations
+        commit_cutoff = t + 1
+        for g in 1:num_fires
+                for a_ix in fire_arcs_used[g]
+                        tf = fire_models[g].long_arcs[a_ix, FM.TIME_FROM]
+                        if tf < commit_cutoff
+                                push!(committed_fire_arcs[g], a_ix)
+                        end
+                end
+        end
+        for j in 1:num_crews
+                for a_ix in crew_arcs_used[j]
+                        tf = crew_models[j].long_arcs[a_ix, CM.TIME_FROM]
+                        if tf < commit_cutoff
+                                push!(committed_crew_arcs[j], a_ix)
+                        end
+                end
+        end
+
         for g in 1:num_fires
                 @debug "before modify_in_arcs_and_out_arcs!" fire_models[g].state_in_arcs fire_models[g].state_out_arcs fire_arcs_used[g]
                 if !isnothing(fire_models[g].start_time_period) && fire_models[g].start_time_period > t
                         @debug "fire model start time period is greater than current time, skipping modify_in_arcs_and_out_arcs!" g
                         continue
                 end
-		modify_in_arcs_and_out_arcs!(fire_models[g], t+1, fire_arcs_used[g], FM.TIME_FROM)
+		# Preserve both committed history and the current solution’s arcs
+		begin
+		    local keep_arcs = unique(vcat(collect(committed_fire_arcs[g]), fire_arcs_used[g]))
+		    modify_in_arcs_and_out_arcs!(fire_models[g], t+1, keep_arcs, FM.TIME_FROM)
+		end
 		@debug "after modify_in_arcs_and_out_arcs!" fire_models[g].state_in_arcs fire_models[g].state_out_arcs
 	end
 	for j in 1:num_crews
 		@debug "before modify_in_arcs_and_out_arcs!" crew_models[j].state_in_arcs crew_models[j].state_out_arcs crew_arcs_used[j]
-		modify_in_arcs_and_out_arcs!(crew_models[j], t+1, crew_arcs_used[j], CM.TIME_FROM)
+		begin
+		    local keep_arcs = unique(vcat(collect(committed_crew_arcs[j]), crew_arcs_used[j]))
+		    modify_in_arcs_and_out_arcs!(crew_models[j], t+1, keep_arcs, CM.TIME_FROM)
+		end
 		@debug "after modify_in_arcs_and_out_arcs!" crew_models[j].state_in_arcs crew_models[j].state_out_arcs
 	end
 
@@ -807,6 +1019,43 @@ for t in 0:num_time_periods
                         daily_area_discrete[i] = nothing
                 end
 
+                # Fill committed prefix first (days < current_day), then plan suffix (≥ current_day)
+                for arc_idx in collect(committed_fire_arcs[g])
+                        arc_row = fire_models[g].long_arcs[arc_idx, :]
+                        time_from = arc_row[FM.TIME_FROM]
+                        time_to = arc_row[FM.TIME_TO]
+                        crew_count = arc_row[FM.CREWS_PRESENT]
+                        state_to = arc_row[FM.STATE_TO]
+
+                        if 1 ≤ time_from ≤ num_periods && time_from < current_day
+                                daily_crews[time_from] = crew_count
+                        end
+
+                        period_ix = time_to - 1
+                        packed_code = get(packed_lookup, state_to, nothing)
+                        area_val = nothing
+                        if packed_code !== nothing
+                                area_val = decode_packed_state_area(packed_code, bins_for_decoding)
+                        elseif haskey(state_area_map_sim, state_to)
+                                area_val = state_area_map_sim[state_to]
+                        end
+                        area_val_discrete = if haskey(state_area_map_discrete, state_to)
+                                state_area_map_discrete[state_to]
+                            elseif !isnothing(discretization_bins_used) && state_to ≥ 1 && state_to ≤ length(discretization_bins_used)
+                                discretization_bins_used[state_to]
+                            else
+                                nothing
+                            end
+                        if !isnothing(area_val) && 1 ≤ period_ix ≤ num_periods
+                                running_area = max(running_area, area_val)
+                                daily_area[period_ix] = running_area
+                        end
+                        if !isnothing(area_val_discrete) && 1 ≤ period_ix ≤ num_periods
+                                running_area_discrete = max(running_area_discrete, area_val_discrete)
+                                daily_area_discrete[period_ix] = running_area_discrete
+                        end
+                end
+
                 for arc_idx in fire_arcs_used[g]
                         arc_row = fire_models[g].long_arcs[arc_idx, :]
                         time_from = arc_row[FM.TIME_FROM]
@@ -814,7 +1063,7 @@ for t in 0:num_time_periods
                         crew_count = arc_row[FM.CREWS_PRESENT]
                         state_to = arc_row[FM.STATE_TO]
 
-                        if 1 ≤ time_from ≤ num_periods
+                        if 1 ≤ time_from ≤ num_periods && time_from ≥ current_day
                                 daily_crews[time_from] = crew_count
                         end
 

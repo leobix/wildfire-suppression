@@ -1481,6 +1481,21 @@ function explore_node!!(
         end
     end
 
+    # Add any pre-seeded crew route columns (>1) to the RMP so they're available
+    for crew in 1:num_crews
+        for ix in 2:crew_routes.routes_per_crew[crew]
+            if (crew, ix) ∉ eachindex(rmp.routes)
+                add_column_to_master_problem!!(
+                    rmp,
+                    cut_data,
+                    crew_routes,
+                    crew,
+                    ix,
+                )
+            end
+        end
+    end
+
     t = @elapsed price_and_cut!!!!(
 		rmp,
 		crew_routes,

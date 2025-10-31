@@ -157,6 +157,9 @@ function get_command_line_args()
                 "--final-snapshot-only"
                 help = "optimize only the end-of-horizon area (final snapshot) for each fire (last nonzero pre-extinguish area)"
                 action = :store_true
+                "--sum-arcs-non-zero"
+                help = "when summing arc costs (default mode), use the last nonzero area after extinction instead of 0 for later periods"
+                action = :store_true
                 "--crew-costs"
                 help = "crew cost mode: 'on' (default) or 'off' to ignore crew travel/rest costs in the objective"
                 default = "on"
@@ -200,6 +203,7 @@ seed_frontloaded = args["seed-frontloaded"]
 seed_max_daily = args["seed-max-daily"]
 seed_crew_routes = args["seed-crew-routes"]
 final_snapshot_only = args["final-snapshot-only"]
+sum_arcs_non_zero = args["sum-arcs-non-zero"]
 crew_costs_mode = lowercase(String(args["crew-costs"]))
 zero_crew_costs = (crew_costs_mode in ("off","0","false","no"))
 firefighters_per_crew = args["firefighters-per-crew"]
@@ -233,6 +237,7 @@ global_logger(DualLogger((console_logger, file_logger)))
 @info "Seed max-daily" seed_max_daily
 @info "Seed crew routes" seed_crew_routes
 @info "Final snapshot only" final_snapshot_only
+@info "Sum arcs non-zero" sum_arcs_non_zero
 @info "Crew costs mode" (zero_crew_costs ? "off" : "on")
 
 num_fires = count_selected_fires(fire_gaccs, fires_by_gacc, input_folder)
@@ -345,6 +350,31 @@ for t in 0:num_time_periods
                     end
                 end
                 return best_arc == 0 ? sum(fm.arc_costs[arcs_used]) : fm.arc_costs[best_arc]
+            elseif sum_arcs_non_zero
+                # Sum costs, but after extinction use the last positive area instead of 0
+                t_ext = -1
+                c_ext = 0.0
+                for a_ix in arcs_used
+                    to_t = fm.long_arcs[a_ix, FM.TIME_TO]
+                    c = fm.arc_costs[a_ix]
+                    if (to_t - 1) <= num_time_periods && c > 1e-12 && (to_t - 1) > t_ext
+                        t_ext = to_t - 1
+                        c_ext = c
+                    end
+                end
+                cost = 0.0
+                for a_ix in arcs_used
+                    to_t = fm.long_arcs[a_ix, FM.TIME_TO]
+                    if (to_t - 1) <= num_time_periods
+                        c = fm.arc_costs[a_ix]
+                        if (to_t - 1) > t_ext
+                            cost += c_ext
+                        else
+                            cost += c
+                        end
+                    end
+                end
+                return cost
             else
                 return sum(fm.arc_costs[arcs_used])
             end
@@ -877,6 +907,7 @@ for t in 0:num_time_periods
                 output_folder = output_folder,
                 dual_warm_start = warm_start_to_use,
                 final_snapshot_only = final_snapshot_only,
+                sum_arcs_non_zero = sum_arcs_non_zero,
                 )
                 # Unpack as many variables as branch_and_price returns, e.g.:
         explored_nodes, ubs, lbs, columns, heuristic_times, times, time_1, root_node_ip_sol, root_node_ip_sol_time, fire_arcs_used, crew_arcs_used, root_dual_warm_start = result

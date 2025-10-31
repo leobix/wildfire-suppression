@@ -102,6 +102,7 @@ function price_and_cut!!!!(
 	time_limit = Inf,
 	dual_warm_start = nothing,
 	final_snapshot_only::Bool = false,
+	sum_arcs_non_zero::Bool = false,
 )
 
 	log_flag = ~isnothing(log_progress_file)
@@ -140,6 +141,7 @@ function price_and_cut!!!!(
 		time_limit = time_limit,
 		dual_warm_start = dual_warm_start,
 		final_snapshot_only = final_snapshot_only,
+		sum_arcs_non_zero = sum_arcs_non_zero,
 	)
 		if (rmp.termination_status == MOI.OBJECTIVE_LIMIT) || (rmp.termination_status == MOI.INFEASIBLE)
 			@debug "no more cuts needed"
@@ -279,6 +281,7 @@ function branch_and_price(
         cut_data  = nothing,
         dual_warm_start = nothing,
         final_snapshot_only::Bool = false,
+        sum_arcs_non_zero::Bool = false,
 )
         start_time = time()
         @info "Starting branch-and-price optimization" fires = num_fires crews = num_crews periods = num_time_periods
@@ -1220,7 +1223,8 @@ function heuristic_upper_bound!!(
             single_fire_lift = single_fire_lift,
             upper_bound = ub,
             time_limit = 20.0,
-            final_snapshot_only = final_snapshot_only)
+            final_snapshot_only = final_snapshot_only,
+            sum_arcs_non_zero = sum_arcs_non_zero)
 		@debug "Price and cut time (heuristic)" t
 
 		# add in columns from best feasible solution so far
@@ -1520,6 +1524,7 @@ function explore_node!!(
 		log_progress_file = log_cuts_file,
 		dual_warm_start = dual_warm_start,
 		final_snapshot_only = final_snapshot_only,
+		sum_arcs_non_zero = sum_arcs_non_zero,
 	)
 
 	@debug "Price and cut time (b-and-b)" t

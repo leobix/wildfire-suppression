@@ -60,6 +60,7 @@ function double_column_generation!!!!(
 	improving_column_abs_tolerance::Float64 = 1e-10,
 	local_gap_rel_tolerance::Float64 = 1e-5,
 	final_snapshot_only::Bool = false,
+	sum_arcs_non_zero::Bool = false,
 	dual_warm_start::Union{Nothing, DualWarmStart} = nothing)
 
 	# initialize timing dictionary
@@ -260,16 +261,124 @@ function double_column_generation!!!!(
 				)
 			end
 
-			# solve the subproblem
-			objective, arcs_used = fire_dp_subproblem(
-				fire_subproblems[fire].wide_arcs,
-				fire_subproblems[fire].modified_arc_costs,
-				fire_subproblems[fire].prohibited_arcs,
-				fire_subproblems[fire].state_in_arcs,
-			)
+        # solve the subproblem
+        objective, arcs_used = fire_dp_subproblem(
+            fire_subproblems[fire].wide_arcs,
+            fire_subproblems[fire].modified_arc_costs,
+            fire_subproblems[fire].prohibited_arcs,
+            fire_subproblems[fire].state_in_arcs,
+        )
 
-			fire_objectives[fire] = objective
-			fire_arcs_used[fire] = arcs_used
+        # Optional: refine path choice for custom static metric by enumerating
+        # candidate extinction times and forbidding positive-cost arcs after tau.
+        if sum_arcs_non_zero && !isempty(arcs_used)
+            best_arcs = arcs_used
+            static_sum_cost = sum(fire_subproblems[fire].arc_costs[arcs_used])
+            base_adjustment = objective - static_sum_cost
+            # compute custom static cost (sum with plateau after extinction)
+            custom_cost = function(arcs)
+                t_ext = -1
+                c_ext = 0.0
+                for a in arcs
+                    to_t = fire_subproblems[fire].long_arcs[a, FM.TIME_TO]
+                    c = fire_subproblems[fire].arc_costs[a]
+                    if to_t <= num_time_periods + 1 && (to_t - 1) <= num_time_periods && c > 1e-12 && (to_t - 1) > t_ext
+                        t_ext = to_t - 1
+                        c_ext = c
+                    end
+                end
+                total = 0.0
+                for a in arcs
+                    to_t = fire_subproblems[fire].long_arcs[a, FM.TIME_TO]
+                    if (to_t - 1) <= num_time_periods
+                        c = fire_subproblems[fire].arc_costs[a]
+                        total += ((to_t - 1) > t_ext) ? c_ext : c
+                    end
+                end
+                return total
+            end
+            best_custom = custom_cost(arcs_used) + base_adjustment
+            long_arcs = fire_subproblems[fire].long_arcs
+            arc_costs = fire_subproblems[fire].arc_costs
+            for tau in 1:num_time_periods
+                temp_prohib = copy(fire_subproblems[fire].prohibited_arcs)
+                for a in eachindex(temp_prohib)
+                    to_t = long_arcs[a, FM.TIME_TO]
+                    c = arc_costs[a]
+                    if (to_t - 1) > tau && c > 1e-12
+                        temp_prohib[a] = true
+                    end
+                end
+                obj_tau, arcs_tau = fire_dp_subproblem(
+                    fire_subproblems[fire].wide_arcs,
+                    fire_subproblems[fire].modified_arc_costs,
+                    temp_prohib,
+                    fire_subproblems[fire].state_in_arcs,
+                )
+                if isempty(arcs_tau)
+                    continue
+                end
+                static_sum_tau = sum(arc_costs[arcs_tau])
+                custom_tau = custom_cost(arcs_tau) + (obj_tau - static_sum_tau)
+                if custom_tau < best_custom - 1e-12
+                    best_custom = custom_tau
+                    best_arcs = arcs_tau
+                    # also update base adjustment relative to the new path
+                    base_adjustment = obj_tau - static_sum_tau
+                end
+            end
+            objective = best_custom
+            arcs_used = best_arcs
+        end
+
+        # For custom static cost modes (final_snapshot_only or sum_arcs_non_zero),
+        # adjust the objective used for reduced-cost comparison so that it
+        # reflects the chosen static cost while preserving dual adjustments.
+        if final_snapshot_only || sum_arcs_non_zero
+            # static cost under plain sum
+            static_sum_cost = sum(fire_subproblems[fire].arc_costs[arcs_used])
+            # compute custom static cost
+            custom_cost = 0.0
+            if final_snapshot_only
+                best_arc = 0
+                best_t = -1
+                for a in arcs_used
+                    to_t = fire_subproblems[fire].long_arcs[a, FM.TIME_TO]
+                    c = fire_subproblems[fire].arc_costs[a]
+                    if to_t <= num_time_periods + 1 && (to_t - 1) <= num_time_periods && c > 1e-12
+                        if (to_t - 1) > best_t
+                            best_t = to_t - 1
+                            best_arc = a
+                        end
+                    end
+                end
+                custom_cost = (best_arc != 0) ? fire_subproblems[fire].arc_costs[best_arc] : static_sum_cost
+            else
+                # sum_arcs_non_zero
+                t_ext = -1
+                c_ext = 0.0
+                for a in arcs_used
+                    to_t = fire_subproblems[fire].long_arcs[a, FM.TIME_TO]
+                    c = fire_subproblems[fire].arc_costs[a]
+                    if to_t <= num_time_periods + 1 && (to_t - 1) <= num_time_periods && c > 1e-12 && (to_t - 1) > t_ext
+                        t_ext = to_t - 1
+                        c_ext = c
+                    end
+                end
+                for a in arcs_used
+                    to_t = fire_subproblems[fire].long_arcs[a, FM.TIME_TO]
+                    if (to_t - 1) <= num_time_periods
+                        c = fire_subproblems[fire].arc_costs[a]
+                        custom_cost += ((to_t - 1) > t_ext) ? c_ext : c
+                    end
+                end
+            end
+            # preserve dual adjustments computed in DP objective
+            adjustment = objective - static_sum_cost
+            objective = custom_cost + adjustment
+        end
+        fire_objectives[fire] = objective
+        fire_arcs_used[fire] = arcs_used
 		end
 		
 
@@ -284,30 +393,54 @@ function double_column_generation!!!!(
 
 				reduced_cost_sum += (objective - fire_duals[fire])
 
-				# get the real cost, unadjusted for duals
-				cost = 0.0
-				if final_snapshot_only
-					# choose last nonzero (pre-extinguish) end-of-day area as cost
-					best_arc = 0
-					best_t = -1
-					for a in arcs_used
-						to_t = fire_subproblems[fire].long_arcs[a, FM.TIME_TO]
-						c = fire_subproblems[fire].arc_costs[a]
-						if to_t <= num_time_periods + 1 && (to_t - 1) <= num_time_periods && c > 1e-12
-							if (to_t - 1) > best_t
-								best_t = to_t - 1
-								best_arc = a
+					# get the real cost, unadjusted for duals
+					cost = 0.0
+					if final_snapshot_only
+						# choose last nonzero (pre-extinguish) end-of-day area as cost
+						best_arc = 0
+						best_t = -1
+						for a in arcs_used
+							to_t = fire_subproblems[fire].long_arcs[a, FM.TIME_TO]
+							c = fire_subproblems[fire].arc_costs[a]
+							if to_t <= num_time_periods + 1 && (to_t - 1) <= num_time_periods && c > 1e-12
+								if (to_t - 1) > best_t
+									best_t = to_t - 1
+									best_arc = a
+								end
 							end
 						end
-					end
-					if best_arc != 0
-						cost = fire_subproblems[fire].arc_costs[best_arc]
+						if best_arc != 0
+							cost = fire_subproblems[fire].arc_costs[best_arc]
+						else
+							cost = sum(fire_subproblems[fire].arc_costs[arcs_used])
+						end
+					elseif sum_arcs_non_zero
+						# Sum costs, but after extinction use the last positive area instead of 0
+						t_ext = -1
+						c_ext = 0.0
+						for a in arcs_used
+							to_t = fire_subproblems[fire].long_arcs[a, FM.TIME_TO]
+							c = fire_subproblems[fire].arc_costs[a]
+							if to_t <= num_time_periods + 1 && (to_t - 1) <= num_time_periods && c > 1e-12 && (to_t - 1) > t_ext
+								t_ext = to_t - 1
+								c_ext = c
+							end
+						end
+						cost = 0.0
+						for a in arcs_used
+							to_t = fire_subproblems[fire].long_arcs[a, FM.TIME_TO]
+							if (to_t - 1) <= num_time_periods
+								c = fire_subproblems[fire].arc_costs[a]
+								if (to_t - 1) > t_ext
+									cost += c_ext
+								else
+									cost += c
+								end
+							end
+						end
 					else
 						cost = sum(fire_subproblems[fire].arc_costs[arcs_used])
 					end
-				else
-					cost = sum(fire_subproblems[fire].arc_costs[arcs_used])
-				end
 
 				# get the vector of crew demands at each time
 				crew_demands = get_crew_demands(

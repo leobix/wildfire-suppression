@@ -285,6 +285,7 @@ committed_fire_arcs = [Set{Int64}() for _ in 1:num_fires]
 committed_crew_arcs = [Set{Int64}() for _ in 1:num_crews]
 
 let prev_dual_warm_start = nothing
+optimizer_day_rollup = Any[]
 
 for t in 0:num_time_periods
 
@@ -329,6 +330,24 @@ for t in 0:num_time_periods
     if !isempty(fires_starting_today)
         @info "Fires starting today" fires_starting_today
     end
+    @info "Fires within planning horizon" day=current_day window_start=current_day - 1 window_end=(current_day - 1 + num_time_periods - 1) fires=[
+        (
+            optimizer_index = g,
+            fire_id = init_info.fire_ids[g],
+            start_day = init_info.start_days[g],
+            start_date = begin
+                base_label = replace(basename(input_folder), "fire_models_" => "")
+                base_date = try
+                    Date(base_label, dateformat"yyyy_mm_dd")
+                catch
+                    nothing
+                end
+                isnothing(base_date) ? nothing : Dates.format(base_date + Day(init_info.start_days[g]), dateformat"yyyy-mm-dd")
+            end
+        )
+        for g in 1:num_fires
+        if init_info.start_days[g] <= (current_day - 1 + num_time_periods - 1)
+    ]
 
         # Helper to compute plan cost per mode
         compute_plan_cost = function(fm, path_chrono::Vector{Int})
@@ -949,6 +968,7 @@ for t in 0:num_time_periods
         template_fire_entries = (:fire_order in propertynames(init_info)) ? [deepcopy(entry) for entry in init_info.fire_order] : [Dict{String,Any}("optimizer_index" => g) for g in 1:num_fires]
         fire_manifest_entries = copy(template_fire_entries)
         crew_manifest_entries = Vector{Dict{String,Any}}()
+        day_summary_entries = String[]
 
         for g in 1:num_fires
                 arcs_filename = "fire_arcs_$(g)_$(t).json"
@@ -1113,10 +1133,10 @@ for t in 0:num_time_periods
                                         daily_area_discrete[period_ix] = prev_area_discrete
                                 end
                         end
-                end
+        end
 
-                stats_filename = "fire_stats_$(g)_$(t).json"
-                stats_payload = Dict{String,Any}(
+        stats_filename = "fire_stats_$(g)_$(t).json"
+        stats_payload = Dict{String,Any}(
                         "optimizer_index" => g,
                         "fire_event_id" => get(state_entry, "fire_event_id", nothing),
                         "arc_file" => get(state_entry, "arc_file", nothing),
@@ -1128,6 +1148,29 @@ for t in 0:num_time_periods
                 open(joinpath(output_folder, stats_filename), "w") do io
                         JSON.print(io, stats_payload)
                 end
+                detail_ix = min(current_day, num_periods)
+                crews_today = daily_crews[detail_ix]
+                area_today = daily_area[detail_ix]
+                area_discrete_today = daily_area_discrete[detail_ix]
+                start_day_val = init_info.start_days[g]
+                base_label = replace(basename(input_folder), "fire_models_" => "")
+                base_date = try
+                        Date(base_label, dateformat"yyyy_mm_dd")
+                catch
+                        nothing
+                end
+                start_date_str = isnothing(base_date) ? nothing : Dates.format(base_date + Day(start_day_val), dateformat"yyyy-mm-dd")
+                fire_id_val = get(state_entry, "fire_event_id", init_info.fire_ids[g])
+                incident_name = get(state_entry, "incident_name", nothing)
+                @info "Optimizer day detail" day=current_day fire=g fire_id=fire_id_val incident=incident_name start_day=start_day_val start_date=start_date_str crews=crews_today area=area_today area_discrete=area_discrete_today
+                fire_label = if incident_name === nothing || incident_name === missing || incident_name === ""
+                        "fire $(g)"
+                else
+                        string(incident_name)
+                end
+                area_str = area_today === nothing ? "n/a" : string(area_today)
+                summary_entry = "fire $(fire_label) (id $(fire_id_val), start day $(start_day_val)): crews=$(crews_today), area=$(area_str)"
+                push!(day_summary_entries, summary_entry)
 
                 output_files = Dict{String,Any}(
                         "arcs" => arcs_filename,
@@ -1138,6 +1181,9 @@ for t in 0:num_time_periods
                 state_entry["day_index"] = t
                 fire_manifest_entries[g] = state_entry
         end
+
+        @info "Day $(current_day) summary" summary=day_summary_entries
+        push!(optimizer_day_rollup, (day=current_day, summary=copy(day_summary_entries)))
 
         for j in 1:num_crews
                 crew_arcs_filename = "crew_arcs_$(j)_$(t).json"
@@ -1175,9 +1221,19 @@ for t in 0:num_time_periods
 
         manifest_filename = joinpath(output_folder, "arc_manifest_$(t).json")
         open(manifest_filename, "w") do io
-                JSON.print(io, manifest_dict)
+        JSON.print(io, manifest_dict)
         end
 end
+
+@info "Optimizer horizon summary" summary=[
+        begin
+                day_label = entry.day
+                entries = entry.summary
+                formatted = isempty(entries) ? "none" : join(entries, " \\ ")
+                "Day $(day_label): $(formatted)"
+        end
+        for entry in optimizer_day_rollup
+]
 
 end # let prev_dual_warm_start
 

@@ -1,6 +1,7 @@
 include("BranchAndPrice.jl")
 
 using JuMP, Gurobi, JSON, Profile, ArgParse, Logging, IterTools, CSV, DataFrames, Dates
+import DataFrames: groupby
 import Logging: min_enabled_level, shouldlog, handle_message
 
 struct DualLogger <: AbstractLogger
@@ -124,8 +125,26 @@ function build_day_one_fire_subset(
         input_folder::String,
 )
         selected_fires = CSV.read(joinpath(input_folder, "selected_fires.csv"), DataFrame)
-        haskey(selected_fires, :start_day_of_sim) ||
-                error("selected_fires.csv missing 'start_day_of_sim' column required for --day-1-only")
+        # normalize column names to handle legacy exports with different casing
+        name_lookup = Dict(lowercase(String(col)) => col for col in names(selected_fires))
+        start_key = "start_day_of_sim"
+        alt_keys = ("sim_start_day_dsfr", "day_since_first_report", "start_day")
+        if haskey(name_lookup, start_key)
+                start_col = name_lookup[start_key]
+        else
+                start_col = nothing
+                for key in alt_keys
+                        if haskey(name_lookup, key)
+                                start_col = name_lookup[key]
+                                break
+                        end
+                end
+                isnothing(start_col) && error("selected_fires.csv missing 'start_day_of_sim' column required for --day-1-only")
+                selected_fires[!, :start_day_of_sim] = copy(selected_fires[!, start_col])
+        end
+        if start_col !== :start_day_of_sim
+                selected_fires[!, :start_day_of_sim] = copy(selected_fires[!, start_col])
+        end
         selected_fires[!, :GACC] = normalize_gacc.(selected_fires[!, :GACC])
 
         if !isempty(fires_by_gacc)

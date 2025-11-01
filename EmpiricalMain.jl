@@ -118,6 +118,47 @@ function count_selected_fires(
         return length(unique(selected_fires[:, "FIRE_EVENT_ID"]))
 end
 
+function build_day_one_fire_subset(
+        fire_gaccs::Vector{String},
+        fires_by_gacc::Dict{String,Vector{Int64}},
+        input_folder::String,
+)
+        selected_fires = CSV.read(joinpath(input_folder, "selected_fires.csv"), DataFrame)
+        haskey(selected_fires, :start_day_of_sim) ||
+                error("selected_fires.csv missing 'start_day_of_sim' column required for --day-1-only")
+        selected_fires[!, :GACC] = normalize_gacc.(selected_fires[!, :GACC])
+
+        if !isempty(fires_by_gacc)
+                normalized = Dict{String,Set{Int64}}()
+                for (gacc, fire_list) in fires_by_gacc
+                        normalized[normalize_gacc(gacc)] = Set(Int64.(fire_list))
+                end
+                mask = falses(nrow(selected_fires))
+                for (gacc, fire_ids) in normalized
+                        mask .|= (selected_fires[:, :GACC] .== gacc) .&
+                                in.(selected_fires[:, :FIRE_EVENT_ID], Ref(fire_ids))
+                end
+        else
+                normalized_gaccs = normalize_gacc.(fire_gaccs)
+                mask = in.(selected_fires[:, :GACC], Ref(normalized_gaccs))
+        end
+
+        mask .&= (selected_fires[:, :start_day_of_sim] .== 0)
+        filtered = selected_fires[mask, :]
+
+        subset = Dict{String,Vector{Int64}}()
+        if nrow(filtered) == 0
+                return subset
+        end
+
+        for subdf in groupby(filtered, :GACC)
+                gacc = subdf[1, :GACC]
+                subset[gacc] = collect(unique(Int64.(subdf[!, :FIRE_EVENT_ID])))
+        end
+
+        return subset
+end
+
 function resolve_input_folder(folder::String)
         # if the provided path already points to a folder with selected_fires.csv, use it
         if isfile(joinpath(folder, "selected_fires.csv"))
@@ -156,6 +197,9 @@ function get_command_line_args()
                 action = :store_true
                 "--final-snapshot-only"
                 help = "optimize only the end-of-horizon area (final snapshot) for each fire (last nonzero pre-extinguish area)"
+                action = :store_true
+                "--day-1-only"
+                help = "restrict inputs to fires that start on day 1 of the planning window (start_day_of_sim == 0)"
                 action = :store_true
                 "--crew-costs"
                 help = "crew cost mode: 'on' (default) or 'off' to ignore crew travel/rest costs in the objective"
@@ -200,6 +244,7 @@ seed_frontloaded = args["seed-frontloaded"]
 seed_max_daily = args["seed-max-daily"]
 seed_crew_routes = args["seed-crew-routes"]
 final_snapshot_only = args["final-snapshot-only"]
+day_one_only = args["day-1-only"]
 crew_costs_mode = lowercase(String(args["crew-costs"]))
 zero_crew_costs = (crew_costs_mode in ("off","0","false","no"))
 firefighters_per_crew = args["firefighters-per-crew"]
@@ -208,6 +253,23 @@ fires_by_gacc = parse_fires_by_gacc(args["fires"])
 time_limit = args["time-limit"]
 input_folder = resolve_input_folder(args["input-folder"])
 output_folder = args["output-folder"]
+
+if day_one_only
+        day_one_subset = build_day_one_fire_subset(fire_gaccs, fires_by_gacc, input_folder)
+        isempty(day_one_subset) && error("No fires begin on day 1 after applying --day-1-only filter.")
+
+        normalized_request_order = normalize_gacc.(fire_gaccs)
+        filtered_order = [g for g in normalized_request_order if haskey(day_one_subset, g)]
+        for gacc in keys(day_one_subset)
+                gacc ∈ filtered_order || push!(filtered_order, gacc)
+        end
+
+        fire_gaccs = filtered_order
+        fires_by_gacc = Dict(g => sort(day_one_subset[g]) for g in keys(day_one_subset))
+        total_day_one_fires = sum(length(ids) for ids in values(fires_by_gacc))
+        @info "--day-1-only filter active" total_fires=total_day_one_fires gaccs=fire_gaccs
+end
+
 mkpath(output_folder)
 
 # send logs to both console and file so users can see initialization details
@@ -233,6 +295,7 @@ global_logger(DualLogger((console_logger, file_logger)))
 @info "Seed max-daily" seed_max_daily
 @info "Seed crew routes" seed_crew_routes
 @info "Final snapshot only" final_snapshot_only
+@info "Day 1 only" day_one_only
 @info "Crew costs mode" (zero_crew_costs ? "off" : "on")
 
 num_fires = count_selected_fires(fire_gaccs, fires_by_gacc, input_folder)

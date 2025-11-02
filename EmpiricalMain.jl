@@ -1,13 +1,18 @@
-include("BranchAndPrice.jl")
+include("BranchAndPrice.jl") # load the optimizer implementation so this script can initialize and run it
 
+# Core packages that drive the command-line workflow and optimization.
+# IterTools exports a groupby helper that clashes with DataFrames, so we explicitly
+# import the DataFrames version below.
 using JuMP, Gurobi, JSON, Profile, ArgParse, Logging, IterTools, CSV, DataFrames, Dates
 import DataFrames: groupby
-import Logging: min_enabled_level, shouldlog, handle_message
+import Logging: min_enabled_level, shouldlog, handle_message # grant direct access to these logging hooks
 
+# DualLogger mirrors all log events to both console and file outputs.
 struct DualLogger <: AbstractLogger
         loggers::NTuple{2,AbstractLogger}
 end
 
+# connect the wrapper to the underlying logger methods
 min_enabled_level(l::DualLogger) = min(min_enabled_level(l.loggers[1]), min_enabled_level(l.loggers[2]))
 shouldlog(l::DualLogger, level, _module, group, id) =
         shouldlog(l.loggers[1], level, _module, group, id) ||
@@ -19,7 +24,7 @@ end
 
 const GRB_ENV = Gurobi.Env()
 
-
+# Canonical GACC name mapping so command-line abbreviations are standardized.
 const GACC_ABBR = Dict(
         "AK" => "Alaska",
         "EA" => "Eastern",
@@ -39,6 +44,9 @@ const ALL_GACCS = unique(collect(values(GACC_ABBR)))
 
 const JULIA_EXT_STATE_CODE = 1
 
+# Utility routines used by the fire-model preprocessing logic -----------------
+
+# Build default area discretization bins when none are supplied alongside a dataset.
 function default_discretization_bins()
         step_sizes = (5.0, 15.0, 30.0, 50.0, 100.0)
         bins = Float64[]
@@ -58,12 +66,13 @@ function decode_packed_state_area(packed_code::Int, bins::Vector{Float64})
         packed_code <= JULIA_EXT_STATE_CODE && return 0.0
         num_bins = length(bins)
         num_bins == 0 && return 0.0
-        active = packed_code - (JULIA_EXT_STATE_CODE + 1)
-        next_idx = active ÷ num_bins
-        next_idx = clamp(next_idx, 0, num_bins - 1)
-        return bins[next_idx + 1]
+        active = packed_code - (JULIA_EXT_STATE_CODE + 1) # offset accounts for Julia index base
+        next_idx = active ÷ num_bins                     # decode coarse + fine bin indices
+        next_idx = clamp(next_idx, 0, num_bins - 1)      # guard against malformed codes
+        return bins[next_idx + 1]                        # translate back to an area value
 end
 
+# Parse command-line GACC abbreviations into canonical names.
 function parse_gaccs(str::String)
         s = uppercase(strip(str))
         if s == "ALL"
@@ -76,6 +85,7 @@ function parse_gaccs(str::String)
         end
 end
 
+# Parse a mapping such as "GB:123,456;NW:789" into a Dict keyed by canonical GACC name.
 function parse_fires_by_gacc(str::String)
         s = strip(str)
         if isempty(s)
@@ -95,14 +105,15 @@ function parse_fires_by_gacc(str::String)
         return result
 end
 
+# Count how many distinct fires remain after the command-line GACC / ID filters are applied.
 function count_selected_fires(
         fire_gaccs::Vector{String},
         fires_by_gacc::Dict{String,Vector{Int64}},
         input_folder::String,
 )
         selected_fires = CSV.read(joinpath(input_folder, "selected_fires.csv"), DataFrame)
-        selected_fires[!, "GACC"] = normalize_gacc.(selected_fires[!, "GACC"])
-        fire_gaccs = normalize_gacc.(fire_gaccs)
+        selected_fires[!, "GACC"] = normalize_gacc.(selected_fires[!, "GACC"]) # normalize to canonical casing
+        fire_gaccs = normalize_gacc.(fire_gaccs) # make the filter list consistent too
         if !isempty(fires_by_gacc)
                 normalized_fires_by_gacc = Dict{String,Vector{Int64}}()
                 for (gacc, fires) in fires_by_gacc
@@ -127,8 +138,8 @@ function build_day_one_fire_subset(
         selected_fires = CSV.read(joinpath(input_folder, "selected_fires.csv"), DataFrame)
         # normalize column names to handle legacy exports with different casing
         name_lookup = Dict(lowercase(String(col)) => col for col in names(selected_fires))
-        start_key = "start_day_of_sim"
-        alt_keys = ("sim_start_day_dsfr", "day_since_first_report", "start_day")
+        start_key = "start_day_of_sim" # preferred column for the fire start within the planning window
+        alt_keys = ("sim_start_day_dsfr", "day_since_first_report", "start_day") # fallbacks seen in historical exports
         if haskey(name_lookup, start_key)
                 start_col = name_lookup[start_key]
         else
@@ -143,14 +154,14 @@ function build_day_one_fire_subset(
                 selected_fires[!, :start_day_of_sim] = copy(selected_fires[!, start_col])
         end
         if start_col !== :start_day_of_sim
-                selected_fires[!, :start_day_of_sim] = copy(selected_fires[!, start_col])
+                selected_fires[!, :start_day_of_sim] = copy(selected_fires[!, start_col]) # ensure downstream uses a consistent symbol
         end
         selected_fires[!, :GACC] = normalize_gacc.(selected_fires[!, :GACC])
 
         if !isempty(fires_by_gacc)
                 normalized = Dict{String,Set{Int64}}()
                 for (gacc, fire_list) in fires_by_gacc
-                        normalized[normalize_gacc(gacc)] = Set(Int64.(fire_list))
+                        normalized[normalize_gacc(gacc)] = Set(Int64.(fire_list)) # store unique fire ids per normalized GACC
                 end
                 mask = falses(nrow(selected_fires))
                 for (gacc, fire_ids) in normalized
@@ -167,7 +178,7 @@ function build_day_one_fire_subset(
 
         subset = Dict{String,Vector{Int64}}()
         if nrow(filtered) == 0
-                return subset
+                return subset # no day-0 fires match the requested filters
         end
 
         for subdf in groupby(filtered, :GACC)
@@ -179,11 +190,12 @@ function build_day_one_fire_subset(
 end
 
 function resolve_input_folder(folder::String)
+        # try the user-specified path directly
         # if the provided path already points to a folder with selected_fires.csv, use it
         if isfile(joinpath(folder, "selected_fires.csv"))
                 return folder
         end
-        # check for an arc_arrays subdirectory
+        # check for an arc_arrays subdirectory (common layout for prepared datasets)
         arc_path = joinpath(folder, "arc_arrays")
         if isfile(joinpath(arc_path, "selected_fires.csv"))
                 return arc_path
@@ -197,6 +209,7 @@ function resolve_input_folder(folder::String)
 end
 
 function get_command_line_args()
+        # ArgParse describes all supported CLI flags for the empirical workflow.
         arg_parse_settings = ArgParseSettings()
         @add_arg_table arg_parse_settings begin
                 "--debug"
@@ -255,25 +268,26 @@ function get_command_line_args()
 end
 
 
-args = get_command_line_args()
-crew_gaccs = parse_gaccs(args["crew-gaccs"])
-fire_gaccs = isempty(args["fire-gaccs"]) ? crew_gaccs : parse_gaccs(args["fire-gaccs"])
+args = get_command_line_args() # parse and validate all CLI input
+crew_gaccs = parse_gaccs(args["crew-gaccs"]) # map crew GACC abbreviations to canonical names
+fire_gaccs = isempty(args["fire-gaccs"]) ? crew_gaccs : parse_gaccs(args["fire-gaccs"]) # default fires to same set
 seed_fastest_extinguish = args["seed-fastest-extinguish"]
 seed_frontloaded = args["seed-frontloaded"]
 seed_max_daily = args["seed-max-daily"]
 seed_crew_routes = args["seed-crew-routes"]
 final_snapshot_only = args["final-snapshot-only"]
-day_one_only = args["day-1-only"]
+day_one_only = args["day-1-only"] # new flag that activates the day-0 fire filter
 crew_costs_mode = lowercase(String(args["crew-costs"]))
-zero_crew_costs = (crew_costs_mode in ("off","0","false","no"))
+zero_crew_costs = (crew_costs_mode in ("off","0","false","no")) # interpret truthy variations of "off"
 firefighters_per_crew = args["firefighters-per-crew"]
 personnel_per_crew = args["personnel-per-crew"]
-fires_by_gacc = parse_fires_by_gacc(args["fires"])
+fires_by_gacc = parse_fires_by_gacc(args["fires"]) # optional explicit fire list
 time_limit = args["time-limit"]
-input_folder = resolve_input_folder(args["input-folder"])
+input_folder = resolve_input_folder(args["input-folder"]) # locate arc_arrays directory automatically if needed
 output_folder = args["output-folder"]
 
 if day_one_only
+        # Build a reduced GACC -> fire list containing only incidents active on day 0.
         day_one_subset = build_day_one_fire_subset(fire_gaccs, fires_by_gacc, input_folder)
         isempty(day_one_subset) && error("No fires begin on day 1 after applying --day-1-only filter.")
 
@@ -289,7 +303,7 @@ if day_one_only
         @info "--day-1-only filter active" total_fires=total_day_one_fires gaccs=fire_gaccs
 end
 
-mkpath(output_folder)
+mkpath(output_folder) # ensure the output directory exists before writing logs/artifacts
 
 # send logs to both console and file so users can see initialization details
 log_file = open("logs_$(Int(time_limit)).txt", "w")
@@ -359,7 +373,7 @@ if !isempty(unassigned_crews)
         @info "Crews initially without fire assignment" unassigned_crews
 end
 for j in 1:num_crews
-	no_fire_anticipation!(crew_models[j], [fsp.start_time_period for fsp in fire_models])
+	no_fire_anticipation!(crew_models[j], [fsp.start_time_period for fsp in fire_models]) # ensure crew subproblems respect fire activation timing
 end
 
 # Track committed arcs (history) so past-day decisions are preserved across re-solves
@@ -369,6 +383,8 @@ committed_crew_arcs = [Set{Int64}() for _ in 1:num_crews]
 let prev_dual_warm_start = nothing
 optimizer_day_rollup = Any[]
 
+# Main rolling-horizon loop: each iteration finalizes decisions for the current day,
+# seeds additional columns, and re-optimizes the branch-and-price master problem.
 for t in 0:num_time_periods
 
     global crew_routes, fire_plans, crew_models, fire_models, cut_data
@@ -432,6 +448,7 @@ for t in 0:num_time_periods
     ]
 
         # Helper to compute plan cost per mode
+        # (Some seeding strategies use a single representative arc from the terminal day.)
         compute_plan_cost = function(fm, path_chrono::Vector{Int})
             arcs_used = path_chrono
             if final_snapshot_only

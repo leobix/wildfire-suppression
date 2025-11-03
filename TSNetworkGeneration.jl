@@ -1,3 +1,5 @@
+# Utilities for constructing crew and fire time-space networks from raw data or
+# empirical CSV exports.
 include("CommonStructs.jl")
 using DataFrames, CSV, DelimitedFiles, Random
 
@@ -130,6 +132,13 @@ end
 
 end
 
+"""
+Construct the full set of crew movement arcs for the planning horizon.
+
+Enumerates every permissible transition between fires and bases, including
+special start arcs that respect the crews' initial assignments and rest status.
+The resulting matrix is the backbone of the crew time-space network.
+"""
 function generate_arcs(
     dists_and_times::DistancesAndTravelTimes,
     crew_status::LocationAndRestStatus,
@@ -316,6 +325,13 @@ function get_distance(from_type, from_ix, to_type, to_ix, fire_fire, base_fire)
     return dist
 end
 
+"""
+Compute nominal costs for each crew arc in the time-space network.
+
+Combines multiple penalties (travel distance, rest violations, fire engagement
+costs) based on the provided configuration dictionary and scales the result for
+numerical stability.
+"""
 function get_static_crew_arc_costs(gd, arcs, cost_param_dict)
 
     # get number of arcs
@@ -363,6 +379,12 @@ function get_static_crew_arc_costs(gd, arcs, cost_param_dict)
     return copy(costs) ./ 1e6 # divide by 1e6 because Gurobi tolerance
 end
 
+"""
+Read distance matrices and initial crew status from disk, deriving travel times.
+
+Returns both the distance/time data and the starting location/rest vectors that
+seed the crew arc generator.
+"""
 function crew_data_from_path(path, travel_speed::Float64)
 
     # get distance from fire f to fire g 
@@ -397,6 +419,12 @@ function crew_data_from_path(path, travel_speed::Float64)
     )
 end
 
+"""
+Precompute arc index lookups used to enforce flow balance and linking constraints.
+
+Transforms the raw arc matrix into convenient arrays keyed by crew, fire, time,
+and rest status so downstream dynamic programs can traverse the network quickly.
+"""
 function define_network_constraint_data(arcs, num_crews, num_fires, num_time_periods)
     # just need in_arcs
     # fix numbers
@@ -508,6 +536,12 @@ function is_one(x)
 end
 
 # should return matrix indexed by crew, time, 
+"""
+Create a matrix of rest penalties indexed by crew and time.
+
+The penalty grows as crews exceed their required rest-by period, making those
+arcs unattractive during route generation unless absolutely necessary.
+"""
 function get_rest_penalties(
     num_crews,
     num_time_periods,
@@ -528,6 +562,13 @@ function get_rest_penalties(
     return penalties
 end
 
+"""
+Build crew time-space networks from empirical CSV exports.
+
+Reads selected fires, crew travel times, and initial crew staffing to generate
+per-crew arc matrices and corresponding `TimeSpaceNetwork` instances.  This is
+the heavy-lifting routine used when running the empirical workflow.
+"""
 function build_crew_models_from_empirical(
     num_fires::Int64,
     num_time_periods::Int64,
@@ -575,7 +616,7 @@ function build_crew_models_from_empirical(
     fire_ids = selected_fires[idx, "FIRE_EVENT_ID"]
     fire_start_days = selected_fires[idx, "start_day_of_sim"]
 
-    # read in the crew locations
+    # Read base-to-fire travel times (in minutes) and align them with the filtered fire list.
     tau_base_to_fire = CSV.read(fire_folder * "/" * "base_fire_distances.csv", DataFrame)
     tau_base_to_fire[!, "GACC"] = normalize_gacc.(tau_base_to_fire[!, "GACC"])
 
@@ -628,8 +669,7 @@ function build_crew_models_from_empirical(
     # initialize travel times (number of periods) from fire f to fire g
     tau = convert(Array{Int}, ones(num_fires, num_fires))
 
-    # TODO fix fire-distances
-    # for now they will all be the same
+    # Populate fire-to-fire travel and distance matrices from pairwise CSV data.
     raw_fire_dists = CSV.read(fire_folder * "/" * "fire_to_fire_distances.csv", DataFrame)
     dict_fire_dists = Dict()
     for row in eachrow(raw_fire_dists)
@@ -689,7 +729,7 @@ function build_crew_models_from_empirical(
 
     unassigned_crews = 1:num_crews
 
-    # now we have to guess where the crews are; we just assign them in order to the fires
+    # Seed initial crew assignments by greedily matching closest available crews to each active fire.
     current_fire = [-1 for _ in 1:num_crews]
     for i in 1:num_fires
         
@@ -707,7 +747,7 @@ function build_crew_models_from_empirical(
 
     end
 
-    # now we have to guess how long the crews have until they have to rest
+    # Approximate how long each crew can keep working before rest is mandatory.
     rest_by = []
     rested_periods = []
 
@@ -751,6 +791,7 @@ function build_crew_models_from_empirical(
         num_time_periods,
     )
 
+    # Build static arc cost parameters; tests sometimes request zero-cost networks.
     if zero_crew_costs
         rest_pen = zeros(num_crews, num_time_periods)
         ALPHA = 0
@@ -777,6 +818,8 @@ function build_crew_models_from_empirical(
 
     crew_sps = TimeSpaceNetwork[]
     for crew in 1:num_crews
+
+        # Extract arcs relevant to this crew and build the supporting index lookups.
 
         n_arcs = length(arcs[:, 1])
         crew_arcs = arcs[[i for i in 1:n_arcs if arcs[i, CM.CREW_NUMBER] == crew], :]
@@ -839,6 +882,12 @@ end
 
 
 
+"""
+Construct crew time-space networks using synthetic demo data.
+
+Shares the same pipeline as the empirical builder but pulls distances and crew
+status from a local fixture directory.
+"""
 function build_crew_models(
     in_path::String,
     num_fires::Int64,
@@ -1229,6 +1278,13 @@ function generate_graphs(states, params, num_crews, num_time_periods, round_type
     return crews_needed
 end
 
+"""
+Discretize a single fire progression model into a time-space network.
+
+Generates state graphs for each rounding scheme, converts them into arc arrays,
+and captures the associated costs and adjacency lists used by the fire
+subproblems.
+"""
 function discretize_fire_model(
     config,
     agg_prec,
@@ -1281,6 +1337,12 @@ function discretize_fire_model(
     return states, graphs, arc_arrays, fire_arc_costs_dict, state_costs, in_arcs, out_arcs
 end
 
+"""
+Construct synthetic fire time-space networks from baseline progression data.
+
+For each fire it loads growth parameters, discretizes the model, and packages
+the arc arrays into `TimeSpaceNetwork` instances ready for column generation.
+"""
 function build_fire_models(
     in_path::String,
     num_fires::Int64,
@@ -1342,6 +1404,13 @@ function build_fire_models(
     return fire_models
 end
 
+"""
+Load empirical fire suppression arc arrays and package them as time-space networks.
+
+Handles filtering by GACC or explicit fire IDs, aligns time indices with the
+global planning horizon, injects start arcs, and records metadata useful for
+diagnostics.
+"""
 function build_fire_models_from_empirical(
     num_fires::Int64,
     num_crews::Int64,
@@ -1365,7 +1434,7 @@ function build_fire_models_from_empirical(
         end
     end
 
-    # read in the selected fires
+    # Load the fire catalog exported by preprocessing and normalize naming.
     selected_fires = CSV.read(fire_folder * "/" * "selected_fires.csv", DataFrame)
     selected_fires[!, "GACC"] = normalize_gacc.(selected_fires[!, "GACC"])
 
@@ -1392,7 +1461,7 @@ function build_fire_models_from_empirical(
 
     for fire in 1:num_fires
 
-        # read in the arc array
+        # Each fire has precomputed arcs/costs; load and adapt them to the global horizon.
         arc_filename = selected_fires[fire, "arc_file"]
         arc_array = readdlm(fire_folder * "/" * arc_filename, ',')
 
@@ -1415,7 +1484,7 @@ function build_fire_models_from_empirical(
         arc_array[:, FM.TIME_FROM] .+= start_day
         arc_array[:, FM.TIME_TO] .+= start_day
 
-        # we need to append zero-cost arcs for the start
+        # Add zero-cost warm-start arcs so fires can stay idle until their activation day.
         start_location = arc_array[1, FM.STATE_FROM]
         for t in 0:start_day
             new_arc = [-1, start_location, t, t+1, start_location, 0]
@@ -1423,8 +1492,7 @@ function build_fire_models_from_empirical(
             arc_costs = vcat(0, arc_costs)
         end
 
-        # we should cull the arrays and costs to only include arcs that are feasible
-        # for the given number of crews
+        # Trim arcs that exceed the planning horizon or require too many crews.
         feasible_arcs = [i for i in 1:length(arc_array[:, 1]) if arc_array[i, FM.TIME_FROM] <= num_time_periods]
         arc_array = arc_array[feasible_arcs, :]
         arc_costs = arc_costs[feasible_arcs]
@@ -1438,6 +1506,7 @@ function build_fire_models_from_empirical(
         num_states = 0
         state_meta_lookup = Dict{Int64, Dict{String,Any}}()
 
+        # Track decoded state metadata so downstream analytics can recover the original labels.
         function ensure_state_entry!(
             idx::Int64,
             raw_state::Union{Nothing,Int64};

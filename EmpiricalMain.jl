@@ -253,6 +253,9 @@ function get_command_line_args()
                 "--fires"
                 help = "Mapping of GACC abbreviations to comma-separated FIRE_EVENT_IDs, separated by semicolons (e.g. GB:1,2;NW:3)"
                 default = ""
+                "--baseline-label"
+                help = "Label to store in optimizer arc CSV outputs for downstream comparisons"
+                default = "Optimizer"
                 "--time-limit"
                 help = "Time limit in seconds for the branch-and-price algorithm"
                 arg_type = Float64
@@ -285,6 +288,7 @@ fires_by_gacc = parse_fires_by_gacc(args["fires"]) # optional explicit fire list
 time_limit = args["time-limit"]
 input_folder = resolve_input_folder(args["input-folder"]) # locate arc_arrays directory automatically if needed
 output_folder = args["output-folder"]
+baseline_label = String(args["baseline-label"])
 
 if day_one_only
         # Build a reduced GACC -> fire list containing only incidents active on day 0.
@@ -330,6 +334,7 @@ global_logger(DualLogger((console_logger, file_logger)))
 @info "Final snapshot only" final_snapshot_only
 @info "Day 1 only" day_one_only
 @info "Crew costs mode" (zero_crew_costs ? "off" : "on")
+@info "Arc CSV baseline label" baseline_label
 
 num_fires = count_selected_fires(fire_gaccs, fires_by_gacc, input_folder)
 num_crews = 0
@@ -382,6 +387,7 @@ committed_crew_arcs = [Set{Int64}() for _ in 1:num_crews]
 
 let prev_dual_warm_start = nothing
 optimizer_day_rollup = Any[]
+optimizer_day_arc_records = Vector{Dict{Symbol,Any}}()
 
 # Main rolling-horizon loop: each iteration finalizes decisions for the current day,
 # seeds additional columns, and re-optimizes the branch-and-price master problem.
@@ -1133,6 +1139,7 @@ for t in 0:num_time_periods
                 daily_area_discrete = Vector{Union{Nothing, Float64}}(undef, num_periods)
                 running_area = 0.0
                 running_area_discrete = 0.0
+                period_area_exact = Dict{Int, Tuple{Int, Float64}}()
                 for i in 1:num_periods
                         daily_area[i] = nothing
                         daily_area_discrete[i] = nothing
@@ -1165,6 +1172,10 @@ for t in 0:num_time_periods
                             else
                                 nothing
                             end
+                        area_for_summary = get(state_area_map_sim, state_to, nothing)
+                        if area_for_summary === nothing
+                                area_for_summary = area_val
+                        end
                         if !isnothing(area_val) && 1 ≤ period_ix ≤ num_periods
                                 running_area = max(running_area, area_val)
                                 daily_area[period_ix] = running_area
@@ -1172,6 +1183,12 @@ for t in 0:num_time_periods
                         if !isnothing(area_val_discrete) && 1 ≤ period_ix ≤ num_periods
                                 running_area_discrete = max(running_area_discrete, area_val_discrete)
                                 daily_area_discrete[period_ix] = running_area_discrete
+                        end
+                        if !isnothing(area_for_summary) && 0 ≤ period_ix ≤ num_periods
+                                existing = get(period_area_exact, period_ix, nothing)
+                                if existing === nothing || time_from ≥ existing[1]
+                                        period_area_exact[period_ix] = (time_from, area_for_summary)
+                                end
                         end
                 end
 
@@ -1201,6 +1218,10 @@ for t in 0:num_time_periods
                             else
                                 nothing
                             end
+                        area_for_summary = get(state_area_map_sim, state_to, nothing)
+                        if area_for_summary === nothing
+                                area_for_summary = area_val
+                        end
                         if !isnothing(area_val) && 1 ≤ period_ix ≤ num_periods
                                 running_area = max(running_area, area_val)
                                 daily_area[period_ix] = running_area
@@ -1208,6 +1229,12 @@ for t in 0:num_time_periods
                         if !isnothing(area_val_discrete) && 1 ≤ period_ix ≤ num_periods
                                 running_area_discrete = max(running_area_discrete, area_val_discrete)
                                 daily_area_discrete[period_ix] = running_area_discrete
+                        end
+                        if !isnothing(area_for_summary) && 0 ≤ period_ix ≤ num_periods
+                                existing = get(period_area_exact, period_ix, nothing)
+                                if existing === nothing || time_from ≥ existing[1]
+                                        period_area_exact[period_ix] = (time_from, area_for_summary)
+                                end
                         end
                 end
 
@@ -1251,6 +1278,22 @@ for t in 0:num_time_periods
                 crews_today = daily_crews[detail_ix]
                 area_today = daily_area[detail_ix]
                 area_discrete_today = daily_area_discrete[detail_ix]
+                area_today_exact = begin
+                        candidate_ix = detail_ix
+                        found = nothing
+                        while candidate_ix ≥ 0
+                                entry = get(period_area_exact, candidate_ix, nothing)
+                                if entry !== nothing
+                                        found = entry[2]
+                                        break
+                                end
+                                candidate_ix -= 1
+                        end
+                        found
+                end
+                if area_today_exact !== nothing
+                        area_today = area_today_exact
+                end
                 start_day_val = init_info.start_days[g]
                 base_label = replace(basename(input_folder), "fire_models_" => "")
                 base_date = try
@@ -1267,9 +1310,38 @@ for t in 0:num_time_periods
                 else
                         string(incident_name)
                 end
+
+                fire_id_field = if fire_id_val === nothing || fire_id_val === missing
+                        missing
+                else
+                        Int(fire_id_val)
+                end
+                start_day_field = if start_day_val === nothing || start_day_val === missing
+                        missing
+                else
+                        Int(start_day_val)
+                end
+                crews_field = if crews_today === nothing || crews_today === missing
+                        missing
+                else
+                        Int(crews_today)
+                end
+                area_field = area_today === nothing ? missing : area_today
+
                 area_str = area_today === nothing ? "n/a" : string(area_today)
                 summary_entry = "fire $(fire_label) (id $(fire_id_val), start day $(start_day_val)): crews=$(crews_today), area=$(area_str)"
                 push!(day_summary_entries, summary_entry)
+                if current_day <= num_time_periods
+                        push!(optimizer_day_arc_records, Dict(
+                                :baseline => baseline_label,
+                                :day_index => t,
+                                :day_number => current_day,
+                                :fire_id => fire_id_field,
+                                :start_day => start_day_field,
+                                :current_area => area_field,
+                                :assigned_crews => crews_field,
+                        ))
+                end
 
                 output_files = Dict{String,Any}(
                         "arcs" => arcs_filename,
@@ -1322,6 +1394,12 @@ for t in 0:num_time_periods
         open(manifest_filename, "w") do io
         JSON.print(io, manifest_dict)
         end
+end
+
+if !isempty(optimizer_day_arc_records)
+        arc_df = DataFrame(optimizer_day_arc_records)
+        select!(arc_df, [:baseline, :day_index, :day_number, :fire_id, :start_day, :current_area, :assigned_crews])
+        CSV.write(joinpath(output_folder, "optimizer_arc_summary.csv"), arc_df)
 end
 
 @info "Optimizer horizon summary" summary=[

@@ -1,9 +1,20 @@
+# Branch-and-price driver that coordinates subproblem generation, cut management,
+# and branch-and-bound exploration for the wildfire suppression model.
 include("CommonStructs.jl")
 include("BranchingRules.jl")
 include("CuttingPlanes.jl")
 
 using Gurobi, Statistics, JSON, NPZ
 
+"""
+Container for a node in the branch-and-bound tree.
+
+Each node bundles the restricted master problem created at that branch, the
+branching rules that differentiate it from its parent, and any cuts or column
+data needed to resume column generation without rebuilding everything from
+scratch.  Nodes also track incumbent bounds so the tree search can prune
+aggressively.
+"""
 mutable struct BranchAndBoundNode
 
 	const ix::Int64
@@ -22,6 +33,12 @@ mutable struct BranchAndBoundNode
 	feasible::Union{Nothing, Bool}
 end
 
+"""
+Convenience constructor that applies defaults and keyword arguments when creating nodes.
+
+Primarily used when spawning children; ensures every field is initialized even when
+branch-specific data (like new branching rules) is empty.
+"""
 function BranchAndBoundNode(
 	;
 	ix::Int64,
@@ -104,9 +121,11 @@ function price_and_cut!!!!(
 	final_snapshot_only::Bool = false,
 )
 
+	# Track whether we should buffer diagnostics that will later be written to disk.
 	log_flag = ~isnothing(log_progress_file)
 
 	if log_flag
+		# Preallocate containers so we can quickly append performance data during the loop.
 		ts = []
 		dcg_logs = []
 		objs = []
@@ -121,9 +140,10 @@ function price_and_cut!!!!(
 	loop_ix = 0
 	most_recent_obj = 0
 
+	# Alternate between column generation and cut generation until no further progress is possible.
 	while true
 
-		# run DCG, adding columns as needed
+		# Run double column generation to price out new routes/plans given the current RMP duals.
 	dcg_times = double_column_generation!!!!(
 		rmp,
 		crew_routes,
@@ -180,7 +200,7 @@ function price_and_cut!!!!(
                         break
                 end
 
-		# add cuts
+		# Given the new dual solution, attempt to discover violated cuts and add them to the RMP.
 		t2 = @elapsed num_cuts = find_and_incorporate_knapsack_gub_cuts!!(
 			cut_data,
 			cut_search_enumeration_limit,
@@ -213,6 +233,7 @@ function price_and_cut!!!!(
 		end
 	end
 
+	# Persist optional diagnostic trace so long-running experiments can be analyzed offline.
 	if log_flag
 		outputs = Dict(
 			"times" => ts,
@@ -233,6 +254,14 @@ function price_and_cut!!!!(
 
 end
 
+"""
+Entry point for the full branch-and-price algorithm.
+
+Sets up crew and fire subproblems, explores the branch-and-bound tree, and
+interleaves heuristics, column generation, and cut generation to tighten bounds.
+The optional keyword arguments expose the various tuning knobs used in
+experiments.
+"""
 function branch_and_price(
         num_fires::Int,
         num_crews::Int,
@@ -287,7 +316,7 @@ function branch_and_price(
 
         if crew_routes === nothing
                 @debug "Initializing data structures"
-                # initialize input data
+                # Bootstrap the master problem with initial crew/fire networks and empty column pools.
                 @time crew_routes, fire_plans, crew_models, fire_models, cut_data, _ =
                         initialize_data_structures(
                                 num_fires,
@@ -316,6 +345,7 @@ function branch_and_price(
                         @debug "Ignoring fire" fire "because it starts at time" fire_models[fire].start_time_period
 		end
 	end
+	# Fires may have delayed start times; avoid generating columns for them until they activate.
 
 	explored_nodes = []
 	ubs = []
@@ -380,6 +410,7 @@ function branch_and_price(
                 end
 
 		# else explore the next node
+		# Explore the chosen node: solve the relaxed problem, generate cuts/columns, and branch if needed.
 		explore_node!!(
 			nodes[node_ix],
 				nodes,
@@ -421,6 +452,7 @@ function branch_and_price(
                         break
                 end
 
+		# Periodically run a primal heuristic to tighten the incumbent upper bound.
 		heuristic_time = 0.0
 		heuristic_ub = Inf
 		found_from_heuristic = false
@@ -464,7 +496,7 @@ function branch_and_price(
 			if heuristic_ub < nodes[node_ix].u_bound
 				nodes[node_ix].u_bound = heuristic_ub
 				found_from_heuristic = true
-
+				# Cache the arcs used by the heuristic solution so we can report them if they stay incumbent.
 				fire_arcs_used, crew_arcs_used = get_fire_and_crew_arcs_used(ub_rmp,
 					crew_routes,
 					fire_plans,
@@ -513,6 +545,7 @@ function branch_and_price(
 
 			# extract the arc data from the subproblems
 			for fire in 1:num_fires
+				# Persist the restricted time-space network that supports the current incumbent.
 				arcs_used = fire_arcs_used[fire]
 				arcs_used = reverse(arcs_used)
 				restricted_long_arcs = fire_models[fire].long_arcs[arcs_used, :]
@@ -595,6 +628,13 @@ function branch_and_price(
 
 end
 
+"""
+Build the initial data structures required by branch-and-price.
+
+Depending on `from_empirical`, this either loads synthetic demo data or parses
+the empirical datasets.  The routine returns fresh column pools, cut metadata,
+and the crew/fire time-space networks that feed the subproblems.
+"""
 function initialize_data_structures(
         num_fires::Int64,
         num_crews::Int64,
@@ -612,6 +652,7 @@ function initialize_data_structures(
         zero_crew_costs::Bool = false,
 )
         if !from_empirical
+                # Synthetic test case used for regression/unit tests.
                 crew_models = build_crew_models(
                         "data/raw/big_fire",
                         num_fires,
@@ -653,6 +694,7 @@ function initialize_data_structures(
         end
 
 
+	# Allocate oversized column pools so repeated column generation rounds do not reallocate memory.
 	crew_routes = CrewRouteData(Int(floor(6 * 1e6 / num_crews)), num_fires, num_crews, num_time_periods)
 	fire_plans = FirePlanData(Int(floor(6 * 1e6  / num_crews)), num_fires, num_time_periods)
 	cut_data = CutData(num_crews, num_fires, num_time_periods)
@@ -662,6 +704,11 @@ end
 
 # TODO if this is a bottleneck, can cache lower bounds
 # in a new field in branch and bound node
+"""
+Recursively compute the best known lower bound beneath a node.
+
+Used to decide which node to explore next in the branch-and-bound tree.
+"""
 function find_lower_bound(node::BranchAndBoundNode)
 
 	# child.l_bound = -Inf if unexplored
@@ -676,6 +723,13 @@ function find_lower_bound(node::BranchAndBoundNode)
 end
 
 
+"""
+Identify the most fractional natural variable (fire demand or crew assignment).
+
+Prefers directly fractional fire demand plans; if none exist it falls back to
+crew assignment fractions.  The helper is used when selecting branching rules
+that will most effectively cut fractional extreme points.
+"""
 function most_fractional_natural_variable(
 	crew_routes::CrewRouteData,
 	fire_plans::FirePlanData,
@@ -739,6 +793,14 @@ function most_fractional_natural_variable(
 end
 
 
+"""
+Select a branching candidate based on variance in the natural variables.
+
+Computes the variance of plan/route participation to find fire-times or crew-fire-times
+that are most uncertain, optionally weighting by linking dual values to focus on
+high-leverage areas.  This acts as either the primary strategy or a fallback when
+fractionality checks are inconclusive.
+"""
 function max_variance_natural_variable(
 	crew_routes::CrewRouteData,
 	fire_plans::FirePlanData,
@@ -814,6 +876,12 @@ function max_variance_natural_variable(
 end
 
 
+"""
+Filter crew routes to those that satisfy the active branching rule.
+
+Returns a copy of `crew_avail_ixs` with violating routes removed for the
+branch-specific crew.  Other crews retain their current candidate lists.
+"""
 function apply_branching_rule(
 	crew_avail_ixs::Vector{Vector{Int64}},
 	crew_routes::CrewRouteData,
@@ -846,6 +914,12 @@ function apply_branching_rule(
 	return output
 end
 
+"""
+Filter fire suppression plans to those consistent with the branching decision.
+
+Each fire keeps only the plans that satisfy `branching_rule`; other fires are
+unmodified.  This is the fire analog to the crew-specific helper above.
+"""
 function apply_branching_rule(
 	fire_avail_ixs::Vector{Vector{Int64}},
 	fire_plans::FirePlanData,
@@ -881,6 +955,13 @@ function apply_branching_rule(
 
 end
 
+"""
+Solve a reduced-size integer program to improve the incumbent upper bound.
+
+Selects a subset of crew routes and fire plans based on reduced cost, fixes the
+rest to zero, and resolves the master problem with integrality enforced.  The
+limits guard against overly large IPs while still exploiting promising columns.
+"""
 function find_integer_solution(
 	solved_rmp::RestrictedMasterProblem,
 	upper_bound::Float64,
@@ -1038,6 +1119,14 @@ function find_integer_solution(
 
 end
 
+"""
+Run a local search heuristic to obtain a tighter feasible solution.
+
+Starts from the columns already generated at the explored node, optionally
+seeds them with the incumbent solution, and then alternates column generation
+and cut generation under stricter limits to quickly produce an integer feasible
+solution (upper bound).
+"""
 function heuristic_upper_bound!!(
 	crew_routes::CrewRouteData,
 	fire_plans::FirePlanData,
@@ -1067,6 +1156,7 @@ function heuristic_upper_bound!!(
 	# gather global information
 	num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)
 
+	# Work on a private copy so we do not mutate the branch-and-bound node's cut state.
 	cut_data = deepcopy(explored_bb_node.cut_data)
 
     # keep all columns from explored node
@@ -1080,7 +1170,7 @@ function heuristic_upper_bound!!(
             for j ∈ 1:num_fires
         ]
 
-	# add in columns from best solution
+	# Seed the candidate pools with columns from the incumbent solution, if one exists.
 	if ~isnothing(routes_best_sol)
 		for (crew, route) ∈ eachindex(routes_best_sol)
 			if value(routes_best_sol[(crew, route)]) > 0.99
@@ -1114,6 +1204,7 @@ function heuristic_upper_bound!!(
 	cur_node = explored_bb_node
 	while ~isnothing(cur_node)
 
+		# Propagate branching constraints from the root down to the current node.
 		crew_rules = vcat(cur_node.new_crew_branching_rules, crew_rules)
 		fire_rules = vcat(cur_node.new_fire_branching_rules, fire_rules)
 		cur_node = cur_node.parent
@@ -1149,6 +1240,7 @@ function heuristic_upper_bound!!(
 		# do we want cuts? lose guarantee of feasibility in next step because we may find a cut later 
 		# cut_data = CutData(num_crews, num_fires, num_time_periods)
 
+		# Create a provisional global allotment cap and remove columns that violate it.
 		branching_rule =
 			GlobalFireAllotmentBranchingRule(current_allotment,
 				false,
@@ -1198,6 +1290,7 @@ function heuristic_upper_bound!!(
 
 
 		# TODO consider cut management
+    # Run a shortened price-and-cut cycle to refresh the column set for this heuristic iteration.
     t = @elapsed price_and_cut!!!!(
             rmp,
             crew_routes,
@@ -1228,6 +1321,7 @@ function heuristic_upper_bound!!(
 
 			# this should usually be unnecessary since we don't often branch on crews
 			for (crew, route) ∈ eachindex(routes)
+				# Ensure the incumbent columns remain available even if the recent rounds discarded them.
 				if (routes[(crew, route)] > 0.99) &&
 				   ((crew, route) ∉ eachindex(rmp.routes))
 					add_column_to_master_problem!!(
@@ -1260,6 +1354,7 @@ function heuristic_upper_bound!!(
 		set_normalized_rhs.(rmp.fire_allotment_branches, -10000)
 		optimize!(rmp.model)
 
+            # Capture the refreshed column sets for the next heuristic round.
             crew_ixs = [Vector{Int64}([i[1] for i in eachindex(rmp.routes[j, :])]) for j ∈ 1:num_crews]
             fire_ixs = [Vector{Int64}([i[1] for i in eachindex(rmp.plans[j, :])]) for j ∈ 1:num_fires]
 
@@ -1320,6 +1415,13 @@ function heuristic_upper_bound!!(
 end
 
 
+"""
+Solve the relaxation at a branch-and-bound node and spawn child nodes if needed.
+
+Builds the restricted master problem for the node, runs price-and-cut to
+optimality, updates bounds, and, when fractional, generates branching rules and
+appends new nodes to the search frontier.
+"""
 function explore_node!!(
 	branch_and_bound_node::BranchAndBoundNode,
 	all_nodes::Vector{BranchAndBoundNode},
@@ -1347,6 +1449,7 @@ function explore_node!!(
 
 	@debug "Exploring node" branch_and_bound_node.ix fires_to_ignore
 
+	# Stabilization tweaks used during root-node solve to discourage wild dual swings.
 	deferral_stabilization = false
 	# gather global information
 	num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)
@@ -1409,6 +1512,7 @@ function explore_node!!(
 		end
 		@debug "num ix" length(fire_ixs[1])
 
+		# Apply the branching rules introduced at this node to the inherited column sets.
 		for rule in branch_and_bound_node.new_crew_branching_rules
 			crew_ixs = apply_branching_rule(crew_ixs, crew_routes, rule)
 		end
@@ -1438,6 +1542,7 @@ function explore_node!!(
 	cur_node = branch_and_bound_node
 	while ~isnothing(cur_node)
 
+		# Walk up the tree so every ancestor rule is enforced in the local RMP.
 		crew_rules = vcat(cur_node.new_crew_branching_rules, crew_rules)
 		fire_rules = vcat(cur_node.new_fire_branching_rules, fire_rules)
 		global_rules =
@@ -1451,6 +1556,7 @@ function explore_node!!(
 	## TODO how do we handle existing cuts
 	## currently carrying them all
 
+	# Build an RMP that honors all active branching rules and supplied columns.
 	t = @elapsed rmp = define_restricted_master_problem(
 		gurobi_env,
 		crew_routes,
@@ -1496,6 +1602,7 @@ function explore_node!!(
         end
     end
 
+    # Solve the relaxation at this node via the alternating price-and-cut procedure.
     t = @elapsed price_and_cut!!!!(
 		rmp,
 		crew_routes,
@@ -1526,6 +1633,7 @@ function explore_node!!(
 	@debug "after price and cut" objective_value(rmp.model) crew_routes.routes_per_crew fire_plans.plans_per_fire
 
 	# extract some data
+	# Identify which cuts remain active; they'll be reused if we branch further.
 	binding_cuts = [
 		i for i in eachindex(rmp.gub_cover_cuts) if
 		dual(rmp.gub_cover_cuts[i]) > 1e-4
@@ -1556,6 +1664,7 @@ function explore_node!!(
 			@debug "Node not feasible or optimal, CG did not terminate?"
 			error("Node not feasible or optimal, CG did not terminate?")
 		else
+			# Save the fractional lower bound (objective) for this node.
 			branch_and_bound_node.l_bound = objective_value(rmp.model)
 		end
 		branch_and_bound_node.feasible = true
@@ -1613,6 +1722,7 @@ function explore_node!!(
 		end
 
 		# restrict to used cuts
+		# Keep only cuts that were tight at the solution to avoid growing the cut pool indefinitely.
 		used_cuts = restrict_CutData(cut_data, binding_cuts)
 		@debug "cuts" used_cuts.cut_dict
 
@@ -1620,6 +1730,7 @@ function explore_node!!(
 
 		# create two new nodes with branching rules
 		if branch_type == "fire"
+			# Split the domain of demand at the chosen fire/time around the fractional mean.
 			left_branching_rule = FireDemandBranchingRule(
 				Tuple(branch_ix)...,
 				Int(floor(var_mean)),
@@ -1654,6 +1765,7 @@ function explore_node!!(
 
 
 		else
+			# Otherwise branch on whether a specific crew serves a particular fire/time.
 			left_branching_rule = CrewAssignmentBranchingRule(
 				Tuple(branch_ix)...,
 				false,

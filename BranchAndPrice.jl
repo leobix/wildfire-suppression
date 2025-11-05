@@ -260,7 +260,9 @@ Entry point for the full branch-and-price algorithm.
 Sets up crew and fire subproblems, explores the branch-and-bound tree, and
 interleaves heuristics, column generation, and cut generation to tighten bounds.
 The optional keyword arguments expose the various tuning knobs used in
-experiments.
+experiments.  Set `clairvoyant=true` to keep all fires active regardless of
+their recorded start period (useful when the surrounding workflow wants to
+construct fully anticipatory time-space networks).
 """
 function branch_and_price(
         num_fires::Int,
@@ -308,6 +310,7 @@ function branch_and_price(
         cut_data  = nothing,
         dual_warm_start = nothing,
         final_snapshot_only::Bool = false,
+        clairvoyant::Bool = false,
 )
         start_time = time()
         @info "Starting branch-and-price optimization" fires = num_fires crews = num_crews periods = num_time_periods
@@ -339,13 +342,17 @@ function branch_and_price(
 	end
 
 	fires_to_ignore = Int64[]
-	for fire in 1:num_fires
-		if !isnothing(fire_models[fire].start_time_period) && fire_models[fire].start_time_period > current_time + 1
-                        push!(fires_to_ignore, fire)
-                        @debug "Ignoring fire" fire "because it starts at time" fire_models[fire].start_time_period
+	if !clairvoyant
+		for fire in 1:num_fires
+			if !isnothing(fire_models[fire].start_time_period) && fire_models[fire].start_time_period > current_time + 1
+	                        push!(fires_to_ignore, fire)
+	                        @debug "Ignoring fire" fire "because it starts at time" fire_models[fire].start_time_period
+			end
 		end
+		# Fires may have delayed start times; avoid generating columns for them until they activate.
+	else
+		@debug "Clairvoyant mode active: considering all fires regardless of start time" current_time
 	end
-	# Fires may have delayed start times; avoid generating columns for them until they activate.
 
 	explored_nodes = []
 	ubs = []

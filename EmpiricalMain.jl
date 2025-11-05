@@ -266,6 +266,9 @@ function get_command_line_args()
                 "--output-folder"
                 help = "Directory to store output files"
                 default = "data/output"
+                "--clairvoyant"
+                help = "Enable clairvoyant planning that allows crews to anticipate fires before their recorded start day"
+                action = :store_true
         end
         return parse_args(arg_parse_settings)
 end
@@ -289,6 +292,7 @@ time_limit = args["time-limit"]
 input_folder = resolve_input_folder(args["input-folder"]) # locate arc_arrays directory automatically if needed
 output_folder = args["output-folder"]
 baseline_label = String(args["baseline-label"])
+clairvoyant = args["clairvoyant"] == true
 
 if day_one_only
         # Build a reduced GACC -> fire list containing only incidents active on day 0.
@@ -335,6 +339,7 @@ global_logger(DualLogger((console_logger, file_logger)))
 @info "Day 1 only" day_one_only
 @info "Crew costs mode" (zero_crew_costs ? "off" : "on")
 @info "Arc CSV baseline label" baseline_label
+@info "Clairvoyant mode" (clairvoyant ? "on" : "off")
 
 num_fires = count_selected_fires(fire_gaccs, fires_by_gacc, input_folder)
 num_crews = 0
@@ -377,8 +382,12 @@ unassigned_crews = findall(==( -1 ), init_info.crew_assignments)
 if !isempty(unassigned_crews)
         @info "Crews initially without fire assignment" unassigned_crews
 end
-for j in 1:num_crews
-	no_fire_anticipation!(crew_models[j], [fsp.start_time_period for fsp in fire_models]) # ensure crew subproblems respect fire activation timing
+if clairvoyant
+        @info "Clairvoyant mode enabled: retaining future-fire arcs in crew networks"
+else
+        for j in 1:num_crews
+	        no_fire_anticipation!(crew_models[j], [fsp.start_time_period for fsp in fire_models]) # ensure crew subproblems respect fire activation timing
+        end
 end
 
 # Track committed arcs (history) so past-day decisions are preserved across re-solves
@@ -1001,6 +1010,7 @@ for t in 0:num_time_periods
                 output_folder = output_folder,
                 dual_warm_start = warm_start_to_use,
                 final_snapshot_only = final_snapshot_only,
+                clairvoyant = clairvoyant,
                 )
                 # Unpack as many variables as branch_and_price returns, e.g.:
         explored_nodes, ubs, lbs, columns, heuristic_times, times, time_1, root_node_ip_sol, root_node_ip_sol_time, fire_arcs_used, crew_arcs_used, root_dual_warm_start = result

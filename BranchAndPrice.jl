@@ -118,7 +118,7 @@ function price_and_cut!!!!(
 	log_progress_file = nothing,
 	time_limit = Inf,
 	dual_warm_start = nothing,
-	final_snapshot_only::Bool = false,
+	area_alpha::Float64 = 1.0,
 )
 
 	# Track whether we should buffer diagnostics that will later be written to disk.
@@ -159,7 +159,7 @@ function price_and_cut!!!!(
 		upper_bound = upper_bound,
 		time_limit = time_limit,
 		dual_warm_start = dual_warm_start,
-		final_snapshot_only = final_snapshot_only,
+		area_alpha = area_alpha,
 	)
 		if (rmp.termination_status == MOI.OBJECTIVE_LIMIT) || (rmp.termination_status == MOI.INFEASIBLE)
 			@debug "no more cuts needed"
@@ -310,12 +310,18 @@ function branch_and_price(
         cut_data  = nothing,
         dual_warm_start = nothing,
         final_snapshot_only::Bool = false,
+        area_alpha::Float64 = 1.0,
         clairvoyant::Bool = false,
 )
         start_time = time()
         @info "Starting branch-and-price optimization" fires = num_fires crews = num_crews periods = num_time_periods
         root_node_ip_sol = 0.0
         root_node_ip_sol_time = 0.0
+
+        alpha_for_costs = clamp(area_alpha, 0.0, 1.0)
+        if final_snapshot_only
+                alpha_for_costs = 0.0
+        end
 
         if crew_routes === nothing
                 @debug "Initializing data structures"
@@ -437,11 +443,12 @@ function branch_and_price(
 			general_gub_cuts = bb_node_general_gub_cuts,
 			single_fire_cuts = bb_node_single_fire_cuts,
 			decrease_gub_allots = bb_node_decrease_gub_allots,
-			single_fire_lift = bb_node_single_fire_lift,
-			log_cuts_file = price_and_cut_file,
-			fires_to_ignore = fires_to_ignore,
-			dual_warm_start = (node_ix == 1 ? dual_warm_start : nothing),
-		)
+				single_fire_lift = bb_node_single_fire_lift,
+				log_cuts_file = price_and_cut_file,
+				fires_to_ignore = fires_to_ignore,
+				dual_warm_start = (node_ix == 1 ? dual_warm_start : nothing),
+				area_alpha = alpha_for_costs,
+			)
 		if node_ix == 1 && !isnothing(nodes[node_ix].master_problem)
 			termin_status = nodes[node_ix].master_problem.termination_status
 			if termin_status ∈ (MOI.LOCALLY_SOLVED, MOI.OBJECTIVE_LIMIT)
@@ -484,12 +491,13 @@ function branch_and_price(
 					price_and_cut_soft_time_limit = price_and_cut_soft_time_limit,
 					cut_loop_max = cut_loop_max,
 					relative_improvement_cut_req = relative_improvement_cut_req,
-					gub_cover_cuts = heuristic_gub_cover_cuts,
-					general_gub_cuts = heuristic_general_gub_cuts,
-					single_fire_cuts = heuristic_single_fire_cuts,
-					decrease_gub_allots = heuristic_decrease_gub_allots,
-					single_fire_lift = heuristic_single_fire_lift,
-				)
+						gub_cover_cuts = heuristic_gub_cover_cuts,
+						general_gub_cuts = heuristic_general_gub_cuts,
+						single_fire_cuts = heuristic_single_fire_cuts,
+						decrease_gub_allots = heuristic_decrease_gub_allots,
+						single_fire_lift = heuristic_single_fire_lift,
+						area_alpha = alpha_for_costs,
+					)
 
                         if time() - start_time > total_time_limit
                                 @debug "Full time limit reached"
@@ -1156,12 +1164,14 @@ function heuristic_upper_bound!!(
 	fires_to_ignore = Int64[],
 	routes_best_sol = nothing,
 	plans_best_sol = nothing,
+	area_alpha::Float64 = 1.0,
 )
 	start_time = time()
 	@debug "Finding heuristic upper bound" explored_bb_node.ix
 
 	# gather global information
 	num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)
+	alpha_weight = clamp(area_alpha, 0.0, 1.0)
 
 	# Work on a private copy so we do not mutate the branch-and-bound node's cut state.
 	cut_data = deepcopy(explored_bb_node.cut_data)
@@ -1320,7 +1330,7 @@ function heuristic_upper_bound!!(
             single_fire_lift = single_fire_lift,
             upper_bound = ub,
             time_limit = 20.0,
-            final_snapshot_only = final_snapshot_only)
+            area_alpha = alpha_weight)
 		@debug "Price and cut time (heuristic)" t
 
 		# add in columns from best feasible solution so far
@@ -1452,15 +1462,17 @@ function explore_node!!(
 	log_cuts_file,
 	fires_to_ignore,
 	dual_warm_start = nothing,
-	rel_tol = 1e-9)
+	rel_tol = 1e-9,
+	area_alpha::Float64 = 1.0)
 
 	@debug "Exploring node" branch_and_bound_node.ix fires_to_ignore
 
 	# Stabilization tweaks used during root-node solve to discourage wild dual swings.
 	deferral_stabilization = false
-	# gather global information
-	num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)
-	cut_data = branch_and_bound_node.cut_data
+		# gather global information
+		num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)
+		cut_data = branch_and_bound_node.cut_data
+		alpha_weight = clamp(area_alpha, 0.0, 1.0)
 	## get the columns with which to initialize restricted master problem
 
 	# if we are at the root node, there are no columns yet, and stabilization applies
@@ -1627,14 +1639,14 @@ function explore_node!!(
 		relative_improvement_cut_req = relative_improvement_cut_req,
 		upper_bound = current_global_upper_bound,
 		gub_cover_cuts = gub_cover_cuts,
-		general_gub_cuts = general_gub_cuts,
-		single_fire_cuts = single_fire_cuts,
-		decrease_gub_allots = decrease_gub_allots,
-		single_fire_lift = single_fire_lift,
-		log_progress_file = log_cuts_file,
-		dual_warm_start = dual_warm_start,
-		final_snapshot_only = final_snapshot_only,
-	)
+			general_gub_cuts = general_gub_cuts,
+			single_fire_cuts = single_fire_cuts,
+			decrease_gub_allots = decrease_gub_allots,
+			single_fire_lift = single_fire_lift,
+				log_progress_file = log_cuts_file,
+				dual_warm_start = dual_warm_start,
+				area_alpha = alpha_weight,
+			)
 
 	@debug "Price and cut time (b-and-b)" t
 	@debug "after price and cut" objective_value(rmp.model) crew_routes.routes_per_crew fire_plans.plans_per_fire

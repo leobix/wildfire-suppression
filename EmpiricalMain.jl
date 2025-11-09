@@ -230,6 +230,10 @@ function get_command_line_args()
                 "--final-snapshot-only"
                 help = "optimize only the end-of-horizon area (final snapshot) for each fire (last nonzero pre-extinguish area)"
                 action = :store_true
+                "--area-alpha"
+                help = "Weight on intermediate-day acreage in the objective (0 ⇒ final snapshot only, 1 ⇒ cumulative area)"
+                arg_type = Float64
+                default = 1.0
                 "--day-1-only"
                 help = "restrict inputs to fires that start on day 1 of the planning window (start_day_of_sim == 0)"
                 action = :store_true
@@ -282,6 +286,8 @@ seed_frontloaded = args["seed-frontloaded"]
 seed_max_daily = args["seed-max-daily"]
 seed_crew_routes = args["seed-crew-routes"]
 final_snapshot_only = args["final-snapshot-only"]
+area_alpha_param = clamp(Float64(args["area-alpha"]), 0.0, 1.0)
+area_alpha = final_snapshot_only ? 0.0 : area_alpha_param
 day_one_only = args["day-1-only"] # new flag that activates the day-0 fire filter
 crew_costs_mode = lowercase(String(args["crew-costs"]))
 zero_crew_costs = (crew_costs_mode in ("off","0","false","no")) # interpret truthy variations of "off"
@@ -336,6 +342,7 @@ global_logger(DualLogger((console_logger, file_logger)))
 @info "Seed max-daily" seed_max_daily
 @info "Seed crew routes" seed_crew_routes
 @info "Final snapshot only" final_snapshot_only
+@info "Area alpha" requested = area_alpha_param effective = area_alpha
 @info "Day 1 only" day_one_only
 @info "Crew costs mode" (zero_crew_costs ? "off" : "on")
 @info "Arc CSV baseline label" baseline_label
@@ -462,25 +469,25 @@ for t in 0:num_time_periods
         if init_info.start_days[g] <= (current_day - 1 + num_time_periods - 1)
     ]
 
-        # Helper to compute plan cost per mode
-        # (Some seeding strategies use a single representative arc from the terminal day.)
+        # Helper to compute plan cost with alpha weighting.
         compute_plan_cost = function(fm, path_chrono::Vector{Int})
             arcs_used = path_chrono
-            if final_snapshot_only
-                best_arc = 0
-                best_t = -1
-                for a_ix in arcs_used
-                    to_t = fm.long_arcs[a_ix, FM.TIME_TO]
-                    c = fm.arc_costs[a_ix]
-                    if (to_t - 1) <= num_time_periods && c > 1e-12 && (to_t - 1) > best_t
-                        best_t = to_t - 1
-                        best_arc = a_ix
-                    end
+            total_cost = sum(fm.arc_costs[arcs_used])
+            final_cost = total_cost
+            best_arc = 0
+            best_t = -1
+            for a_ix in arcs_used
+                to_t = fm.long_arcs[a_ix, FM.TIME_TO]
+                c = fm.arc_costs[a_ix]
+                if (to_t - 1) <= num_time_periods && c > 1e-12 && (to_t - 1) > best_t
+                    best_t = to_t - 1
+                    best_arc = a_ix
                 end
-                return best_arc == 0 ? sum(fm.arc_costs[arcs_used]) : fm.arc_costs[best_arc]
-            else
-                return sum(fm.arc_costs[arcs_used])
             end
+            if best_arc != 0
+                final_cost = fm.arc_costs[best_arc]
+            end
+            return area_alpha * total_cost + (1 - area_alpha) * final_cost
         end
 
         # Seeding: fastest extinguish
@@ -1010,6 +1017,7 @@ for t in 0:num_time_periods
                 output_folder = output_folder,
                 dual_warm_start = warm_start_to_use,
                 final_snapshot_only = final_snapshot_only,
+                area_alpha = area_alpha,
                 clairvoyant = clairvoyant,
                 )
                 # Unpack as many variables as branch_and_price returns, e.g.:

@@ -58,9 +58,9 @@ function double_column_generation!!!!(
 	timing::Bool,
 	time_limit::Float64 = Inf,
 	improving_column_abs_tolerance::Float64 = 1e-10,
-	local_gap_rel_tolerance::Float64 = 1e-5,
-	final_snapshot_only::Bool = false,
-	dual_warm_start::Union{Nothing, DualWarmStart} = nothing)
+		local_gap_rel_tolerance::Float64 = 1e-5,
+		area_alpha::Float64 = 1.0,
+		dual_warm_start::Union{Nothing, DualWarmStart} = nothing)
 
 	# initialize timing dictionary
 	details = Dict{String, Float64}()
@@ -69,8 +69,9 @@ function double_column_generation!!!!(
 	details["crew_subproblems"] = 0.0
 	t = time()
 
-	# gather global information
-	num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)
+		# gather global information
+		num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)
+		alpha_weight = clamp(area_alpha, 0.0, 1.0)
 
 	if rmp.termination_status == MOI.OPTIMIZE_NOT_CALLED
 		if isnothing(dual_warm_start)
@@ -285,9 +286,8 @@ function double_column_generation!!!!(
 				reduced_cost_sum += (objective - fire_duals[fire])
 
 				# get the real cost, unadjusted for duals
-				cost = 0.0
-				if final_snapshot_only
-					# choose last nonzero (pre-extinguish) end-of-day area as cost
+					total_cost = sum(fire_subproblems[fire].arc_costs[arcs_used])
+					final_cost = total_cost
 					best_arc = 0
 					best_t = -1
 					for a in arcs_used
@@ -301,13 +301,9 @@ function double_column_generation!!!!(
 						end
 					end
 					if best_arc != 0
-						cost = fire_subproblems[fire].arc_costs[best_arc]
-					else
-						cost = sum(fire_subproblems[fire].arc_costs[arcs_used])
+						final_cost = fire_subproblems[fire].arc_costs[best_arc]
 					end
-				else
-					cost = sum(fire_subproblems[fire].arc_costs[arcs_used])
-				end
+					cost = alpha_weight * total_cost + (1 - alpha_weight) * final_cost
 
 				# get the vector of crew demands at each time
 				crew_demands = get_crew_demands(

@@ -283,8 +283,8 @@ function branch_and_price(
         algo_tracking = false,
         branching_strategy = "linking_dual_max_variance",
         cut_search_enumeration_limit = 10000,
-        cut_loop_max = 10,
-        price_and_cut_soft_time_limit = 180.0,
+        cut_loop_max = 10, # codex suggested 50
+        price_and_cut_soft_time_limit = 180.0, # codex suggested 600
         relative_improvement_cut_req = 1e-10,
         soft_heuristic_time_limit = 60.0,
         hard_heuristic_iteration_limit = 3,
@@ -1401,7 +1401,7 @@ function heuristic_upper_bound!!(
 				ub,
 				120000,
 				400000,
-				40.0,
+				1200.0, # was 40.0
 				warm_start_plans = plans,
 				warm_start_routes = routes,
 			)

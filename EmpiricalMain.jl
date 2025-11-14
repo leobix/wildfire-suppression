@@ -227,6 +227,9 @@ function get_command_line_args()
                 "--seed-crew-routes"
                 help = "seed crew routes that arrive at early target times so heavy early fire plans are feasible"
                 action = :store_true
+                "--seed-all-active"
+                help = "seed crew routes that attempt to cover every active fire when sufficient crews exist"
+                action = :store_true
                 "--final-snapshot-only"
                 help = "optimize only the end-of-horizon area (final snapshot) for each fire (last nonzero pre-extinguish area)"
                 action = :store_true
@@ -285,6 +288,7 @@ seed_fastest_extinguish = args["seed-fastest-extinguish"]
 seed_frontloaded = args["seed-frontloaded"]
 seed_max_daily = args["seed-max-daily"]
 seed_crew_routes = args["seed-crew-routes"]
+seed_all_active = args["seed-all-active"]
 final_snapshot_only = args["final-snapshot-only"]
 area_alpha_param = clamp(Float64(args["area-alpha"]), 0.0, 1.0)
 area_alpha = final_snapshot_only ? 0.0 : area_alpha_param
@@ -341,6 +345,7 @@ global_logger(DualLogger((console_logger, file_logger)))
 @info "Seed frontloaded" seed_frontloaded
 @info "Seed max-daily" seed_max_daily
 @info "Seed crew routes" seed_crew_routes
+@info "Seed all-active coverage" seed_all_active
 @info "Final snapshot only" final_snapshot_only
 @info "Area alpha" requested = area_alpha_param effective = area_alpha
 @info "Day 1 only" day_one_only
@@ -563,7 +568,8 @@ for t in 0:num_time_periods
                         crew_demands[tf] = fm.long_arcs[a_ix, FM.CREWS_PRESENT]
                     end
                 end
-                add_column_to_plan_data!(fire_plans, g, cost, crew_demands, reverse(path_chrono))
+                plan_ix = add_column_to_plan_data!(fire_plans, g, cost, crew_demands, reverse(path_chrono))
+                @debug "Seeded fire plan" seed="fastest_extinguish" fire=g crews=crew_demands cost=cost plan_ix=plan_ix
             end
         end
 
@@ -682,7 +688,8 @@ for t in 0:num_time_periods
                         crew_demands[tf] = fm.long_arcs[a_ix, FM.CREWS_PRESENT]
                     end
                 end
-                add_column_to_plan_data!(fire_plans, g, cost, crew_demands, reverse(path_chrono))
+                plan_ix = add_column_to_plan_data!(fire_plans, g, cost, crew_demands, reverse(path_chrono))
+                @debug "Seeded fire plan" seed="frontloaded-current" fire=g crews=crew_demands cost=cost plan_ix=plan_ix
             end
         end
 
@@ -804,7 +811,8 @@ for t in 0:num_time_periods
                         crew_demands[tf] = fm.long_arcs[a_ix, FM.CREWS_PRESENT]
                     end
                 end
-                add_column_to_plan_data!(fire_plans, g, cost, crew_demands, reverse(path_chrono))
+                plan_ix = add_column_to_plan_data!(fire_plans, g, cost, crew_demands, reverse(path_chrono))
+                @debug "Seeded fire plan" seed="frontloaded-start" fire=g crews=crew_demands cost=cost plan_ix=plan_ix
             end
         end
 
@@ -919,7 +927,8 @@ for t in 0:num_time_periods
                         crew_demands[tf] = fm.long_arcs[a_ix, FM.CREWS_PRESENT]
                     end
                 end
-                add_column_to_plan_data!(fire_plans, g, cost, crew_demands, reverse(path_chrono))
+                plan_ix = add_column_to_plan_data!(fire_plans, g, cost, crew_demands, reverse(path_chrono))
+                @debug "Seeded fire plan" seed="max_daily" fire=g crews=crew_demands cost=cost plan_ix=plan_ix
             end
         end
 
@@ -984,14 +993,102 @@ for t in 0:num_time_periods
                             arcs_used,
                             (num_fires, num_time_periods),
                         )
-                        add_column_to_route_data!(
-                            crew_routes,
-                            j,
-                            true_cost,
-                            fires_fought,
-                            arcs_used,
-                        )
+                    route_ix = add_column_to_route_data!(
+                        crew_routes,
+                        j,
+                        true_cost,
+                        fires_fought,
+                        arcs_used,
+                    )
+                    @debug "Seeded crew route" seed="crew_routes" crew=j target_fire=g target_day=tt cost=true_cost route_ix=route_ix fires_fought=fires_fought
+                end
+            end
+        end
+        end
+
+        if seed_all_active
+            bonus = 1.0e6
+            local function build_route_covering_fire(crew_idx::Int, fire_idx::Int, earliest_target::Int)
+                long_arcs = crew_models[crew_idx].long_arcs
+                arc_costs = crew_models[crew_idx].arc_costs
+                for tt in earliest_target:num_time_periods
+                    cand_ixs = [
+                        i for i in 1:size(long_arcs, 1) if
+                        (long_arcs[i, CM.TO_TYPE] == CM.FIRE_CODE) &&
+                        (long_arcs[i, CM.LOC_TO] == fire_idx) &&
+                        (long_arcs[i, CM.TIME_TO] == tt)
+                    ]
+                    if isempty(cand_ixs)
+                        continue
                     end
+                    modified_costs = copy(arc_costs)
+                    for ix in cand_ixs
+                        modified_costs[ix] -= bonus
+                    end
+                    prohibited = falses(length(modified_costs))
+                    obj, arcs_used = crew_dp_subproblem(
+                        crew_models[crew_idx].wide_arcs,
+                        modified_costs,
+                        prohibited,
+                        crew_models[crew_idx].state_in_arcs,
+                    )
+                    if isempty(arcs_used)
+                        continue
+                    end
+                    contains_target = any(a -> a in cand_ixs, arcs_used)
+                    if !contains_target
+                        continue
+                    end
+                    true_cost = sum(arc_costs[arcs_used])
+                    fires_fought = get_fires_fought(
+                        crew_models[crew_idx].wide_arcs,
+                        arcs_used,
+                        (num_fires, num_time_periods),
+                    )
+                    return (cost = true_cost, arcs = arcs_used, fires = fires_fought)
+                end
+                return nothing
+            end
+
+            crews_available = collect(1:num_crews)
+            for g in fires_active
+                if isempty(crews_available)
+                    break
+                end
+                start_day = fire_models[g].start_time_period
+                earliest_target = isnothing(start_day) ? current_day : max(current_day, start_day + 1)
+                earliest_target = max(earliest_target, current_day)
+                if earliest_target > num_time_periods
+                    continue
+                end
+                best_plan = nothing
+                best_crew = 0
+                best_cost = Inf
+                for crew_idx in crews_available
+                    plan = build_route_covering_fire(crew_idx, g, earliest_target)
+                    if plan === nothing
+                        continue
+                    end
+                    if plan.cost < best_cost
+                        best_cost = plan.cost
+                        best_plan = plan
+                        best_crew = crew_idx
+                    end
+                end
+                if best_crew == 0 || best_plan === nothing
+                    continue
+                end
+                route_ix = add_column_to_route_data!(
+                    crew_routes,
+                    best_crew,
+                    best_plan.cost,
+                    best_plan.fires,
+                    best_plan.arcs,
+                )
+                @debug "Seeded crew route" seed="all_active" crew=best_crew fire=g earliest_day=earliest_target cost=best_plan.cost route_ix=route_ix fires=best_plan.fires
+                idx_to_remove = findfirst(==(best_crew), crews_available)
+                if idx_to_remove !== nothing
+                    deleteat!(crews_available, idx_to_remove)
                 end
             end
         end
@@ -1092,6 +1189,32 @@ for t in 0:num_time_periods
         fire_manifest_entries = copy(template_fire_entries)
         crew_manifest_entries = Vector{Dict{String,Any}}()
         day_summary_entries = String[]
+        detail_ix_for_summary = min(current_day, num_time_periods)
+        crew_assignments_by_fire = Dict(g => Int[] for g in 1:num_fires)
+        if 1 ≤ detail_ix_for_summary ≤ num_time_periods
+                for j in 1:num_crews
+                        crew_plan = crew_models[j].long_arcs
+                        for arc_idx in crew_arcs_used[j]
+                                arc_row = crew_plan[arc_idx, :]
+                                time_from = arc_row[CM.TIME_FROM]
+                                if time_from == detail_ix_for_summary && arc_row[CM.TO_TYPE] == CM.FIRE_CODE
+                                        fire_ix = arc_row[CM.LOC_TO]
+                                        if 1 ≤ fire_ix ≤ num_fires
+                                                push!(crew_assignments_by_fire[fire_ix], j)
+                                        end
+                                        break
+                                end
+                        end
+                end
+                for ids in values(crew_assignments_by_fire)
+                        sort!(ids)
+                end
+        end
+        final_area_per_fire = Vector{Union{Nothing, Float64}}(undef, num_fires)
+        for i in 1:num_fires
+                final_area_per_fire[i] = nothing
+        end
+        day_rows_for_summary = Dict{Symbol,Any}[]
 
         for g in 1:num_fires
                 arcs_filename = "fire_arcs_$(g)_$(t).json"
@@ -1292,7 +1415,7 @@ for t in 0:num_time_periods
                 open(joinpath(output_folder, stats_filename), "w") do io
                         JSON.print(io, stats_payload)
                 end
-                detail_ix = min(current_day, num_periods)
+                detail_ix = detail_ix_for_summary
                 crews_today = daily_crews[detail_ix]
                 area_today = daily_area[detail_ix]
                 area_discrete_today = daily_area_discrete[detail_ix]
@@ -1345,12 +1468,22 @@ for t in 0:num_time_periods
                         Int(crews_today)
                 end
                 area_field = area_today === nothing ? missing : area_today
+                final_area_value = nothing
+                if num_periods >= 1
+                        final_area_value = daily_area_discrete[num_periods]
+                        if final_area_value === nothing
+                                final_area_value = daily_area[num_periods]
+                        end
+                end
+                final_area_per_fire[g] = final_area_value
 
                 area_str = area_today === nothing ? "n/a" : string(area_today)
                 summary_entry = "fire $(fire_label) (id $(fire_id_val), start day $(start_day_val)): crews=$(crews_today), area=$(area_str)"
                 push!(day_summary_entries, summary_entry)
                 if current_day <= num_time_periods
-                        push!(optimizer_day_arc_records, Dict(
+                        crew_ids_for_fire = get(crew_assignments_by_fire, g, Int[])
+                        crew_ids_str = isempty(crew_ids_for_fire) ? "" : join(crew_ids_for_fire, ",")
+                        push!(day_rows_for_summary, Dict(
                                 :baseline => baseline_label,
                                 :day_index => t,
                                 :day_number => current_day,
@@ -1358,6 +1491,8 @@ for t in 0:num_time_periods
                                 :start_day => start_day_field,
                                 :current_area => area_field,
                                 :assigned_crews => crews_field,
+                                :crew_ids => crew_ids_str,
+                                :final_area_objective => missing,
                         ))
                 end
 
@@ -1373,6 +1508,14 @@ for t in 0:num_time_periods
 
         @info "Day $(current_day) summary" summary=day_summary_entries
         push!(optimizer_day_rollup, (day=current_day, summary=copy(day_summary_entries)))
+        final_area_values = Float64[Float64(val) for val in final_area_per_fire if val !== nothing]
+        total_final_area_objective = isempty(final_area_values) ? missing : sum(final_area_values)
+        if !isempty(day_rows_for_summary)
+                for row in day_rows_for_summary
+                        row[:final_area_objective] = total_final_area_objective
+                        push!(optimizer_day_arc_records, row)
+                end
+        end
 
         for j in 1:num_crews
                 crew_arcs_filename = "crew_arcs_$(j)_$(t).json"

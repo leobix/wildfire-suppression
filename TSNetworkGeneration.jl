@@ -3,6 +3,8 @@
 include("CommonStructs.jl")
 using DataFrames, CSV, DelimitedFiles, Random
 
+# Each module below simply stores integer constants so we can reference columns
+# of the dense arc matrices in a readable way throughout the network builders.
 module CrewArcArrayIndices
 
 # indices for each crew arc
@@ -33,8 +35,8 @@ CREWS_PRESENT = 6
 
 end
 
-const CM = CrewArcArrayIndices
-const FM = FireArcArrayIndices
+const CM = CrewArcArrayIndices # short alias for the crew index namespace
+const FM = FireArcArrayIndices # short alias for the fire index namespace
 
 const GACC_CANONICAL = Dict(
     "ALASKA" => "Alaska",
@@ -49,6 +51,16 @@ const GACC_CANONICAL = Dict(
     "SOUTHERN AREA" => "Southern Area",
     "SOUTHERN CALIFORNIA" => "Southern California",
     "SOUTHWEST" => "Southwest",
+    "AK" => "Alaska",   #Ryne added
+    "EA" => "Eastern",  
+    "GB" => "Great Basin",
+    "NC" => "Northern California",
+    "NR" => "Northern Rockies",
+    "NW" => "Northwest",
+    "RM" => "Rocky Mountain",
+    "SA" => "Southern Area",
+    "SC" => "Southern California",
+    "SW" => "Southwest",
 )
 
 normalize_gacc(::Missing) = missing
@@ -73,6 +85,8 @@ function unpack_state(code::Int, num_bins::Int)
 end
 
 function load_discretization_bins(path::String)
+    # Fire models optionally ship area discretization bins; if missing we defer
+    # to sensible defaults later in the fire-network builder.
     bin_path = joinpath(path, "discretization_bins.csv")
     if isfile(bin_path)
         bins = readdlm(bin_path, ',')
@@ -95,6 +109,9 @@ function nearest_bin_index(bins::Vector{Float64}, value::Float64)
 end
 
 struct LocationAndRestStatus
+    # Each vector is indexed by crew. `rest_by` is the deadline (time period) by
+    # which the crew must take a break, `current_fire` is the fire index (-1 for
+    # base), and `rested_periods` tracks how long they have already been resting.
 
     rest_by::Vector{Int64}
     current_fire::Vector{Int64}
@@ -102,6 +119,8 @@ struct LocationAndRestStatus
 end
 
 struct DistancesAndTravelTimes
+    # Store both miles and travel-time periods for every origin/destination
+    # combination so later code can reference whichever is needed for costs.
 
     ff_dist::Matrix{Float64}
     bf_dist::Matrix{Float64}
@@ -149,6 +168,9 @@ function generate_arcs(
 )
 
     # get fire-to-fire arcs
+    # Each list comprehension enumerates every possible combination of crew,
+    # origin, destination, start time, and rest state.  We keep separate blocks
+    # for the various start conditions because crews can begin at fires or bases.
     ff = [
         [
             c,
@@ -167,6 +189,8 @@ function generate_arcs(
     ff = copy(reduce(hcat, ff)')
 
     # get fire-to-fire arcs from start, based on current crew locations
+    # (Start arcs begin at time 0 and allow each crew to move from its current
+    # assignment immediately.)
     from_start_ff = [
         [
             c,
@@ -258,6 +282,8 @@ function generate_arcs(
     end
 
     # get base-to-base arcs
+    # Break arcs stay at base and either keep resting (rest=1) or depart again
+    # immediately (rest=0).  Break length controls how long non-rested crews sit.
     rr = [
         [
             c,
@@ -288,6 +314,8 @@ function generate_arcs(
     ]
     from_start_rr = copy(reduce(hcat, from_start_rr)')
 
+    # Stack all arc families into one giant matrix that downstream routines
+    # expect; each row is one potential movement option.
     A = vcat(
         ff,
         from_start_ff,
@@ -354,6 +382,8 @@ function get_static_crew_arc_costs(gd, arcs, cost_param_dict)
     end
 
     # if there are rest violations
+    # rest_violation_matrix is precomputed per crew/time and penalizes
+    # continuing to work when the rest-by deadline has passed.
     if "rest_violation" in keys(cost_param_dict)
 
         # find the rest violation scores
@@ -440,6 +470,8 @@ function define_network_constraint_data(arcs, num_crews, num_fires, num_time_per
     ## flow balance ##
 
     # initialize arrays of vectors for flow balance
+    # Each cell will contain the indices of arcs entering/leaving a specific
+    # (crew, location, time, rest) node in the time-space network.
     f_out = Array{Vector{Int64}}(undef, C, G, T, 2)
     f_in = Array{Vector{Int64}}(undef, C, G, T, 2)
     b_out = Array{Vector{Int64}}(undef, C, T, 2)
@@ -450,6 +482,7 @@ function define_network_constraint_data(arcs, num_crews, num_fires, num_time_per
     for crew in 1:C
 
         # get indices of this crew's arcs only
+        # (We operate per-crew because each TSN is solved independently.)
         crew_ixs = [i for i in 1:n_arcs if arcs[i, 1] == crew]
 
         # get time 0 indices
@@ -505,6 +538,8 @@ function define_network_constraint_data(arcs, num_crews, num_fires, num_time_per
 
     ## linking constraints ##
     linking = Array{Vector{Int64}}(undef, G, T)
+    # linking[g,t] tells us which arcs enter fire g at the start of period t,
+    # which is how we track how many crews are present when building constraints.
     for fire in 1:G
         for tm in 1:T
 
@@ -671,6 +706,8 @@ function build_crew_models_from_empirical(
 
     # Populate fire-to-fire travel and distance matrices from pairwise CSV data.
     raw_fire_dists = CSV.read(fire_folder * "/" * "fire_to_fire_distances.csv", DataFrame)
+    # Travel-time exports encode pairwise minutes between FIRE_EVENT_IDs.
+    # We store them in a Dict first for O(1) lookup when reordering fires.
     dict_fire_dists = Dict()
     for row in eachrow(raw_fire_dists)
         dict_fire_dists[row["fire1_id"], row["fire2_id"]] = row["duration_min"] 
@@ -766,6 +803,7 @@ function build_crew_models_from_empirical(
     end
 
     # make a CSV file with these three columns and write it
+    # Users can inspect emprical_crew_starts.csv to validate the seeding.
     crew_starts = DataFrame(
         rest_by = rest_by,
         current_fire = current_fire,
@@ -778,6 +816,7 @@ function build_crew_models_from_empirical(
     dists_and_times = DistancesAndTravelTimes(fire_dists, base_fire_dists, tau, tau_base_to_fire)
 
     # write these four matrices to CSV files as well
+    # (Helpful for debugging or warm-starting future runs.)
     writedlm(fire_folder * "/" * "input_fire_fire_distances.csv", dists_and_times.ff_dist, ',')
     writedlm(fire_folder * "/" * "input_base_fire_distances.csv", dists_and_times.bf_dist, ',')
     writedlm(fire_folder * "/" * "input_fire_fire_travel_times.csv", dists_and_times.ff_tau, ',')
@@ -817,6 +856,8 @@ function build_crew_models_from_empirical(
     end
 
     crew_sps = TimeSpaceNetwork[]
+    # Build a separate DP data structure for each crew; we reuse the same arc
+    # generation but slice per crew to keep the subproblems tiny.
     for crew in 1:num_crews
 
         # Extract arcs relevant to this crew and build the supporting index lookups.
@@ -829,6 +870,8 @@ function build_crew_models_from_empirical(
         # TODO refactor this function; it is returning stuff for all crews
         constraint_data = define_network_constraint_data(crew_arcs, num_crews, num_fires, num_time_periods)
 
+        # Convert the ragged vector-of-vectors from `constraint_data` into the
+        # 3D tensors expected by `TimeSpaceNetwork`.
         base_time = constraint_data.b_in[crew, :, :]
         state_in_arcs = vcat(
             constraint_data.f_in[crew, :, :, :],
@@ -849,6 +892,9 @@ function build_crew_models_from_empirical(
             :,
         ]
 
+        # Build a lookup that maps each (fire,time) to the arcs that would
+        # satisfy the associated linking constraint dual.  This allows the crew
+        # subproblem to adjust arc costs when the master problem raises/lower prices.
         linking_dual_arc_lookup = Matrix{Vector{Int64}}(undef, num_fires, num_time_periods)
         for g ∈ 1:num_fires
             for t ∈ 1:num_time_periods
@@ -869,6 +915,7 @@ function build_crew_models_from_empirical(
         push!(crew_sps, crew_sp)
     end
 
+    # Package enough metadata about the chosen fires to print logs later on.
     info = (
         fire_ids = fire_ids,
         start_days = fire_start_days,
@@ -1106,6 +1153,8 @@ function update_fire_stats(curr_stats, curr_time, crew_allocation, params)
 
     if params["model_type"] == "simple_linear"
 
+        # This toy model assumes fire size decreases linearly with a fixed
+        # production rate per crew and a progression multiplier per period.
         line_per_crew = params["line_per_crew"]
         prog = params["progressions"][curr_time]
         line = line_per_crew * crew_allocation
@@ -1124,6 +1173,8 @@ function inverse_update_fire_stats(stats_from, stats_to, time_from, time_to, par
 
     if params["model_type"] == "simple_linear"
 
+        # Algebraically solve update_fire_stats for the crew count that would
+        # move the fire from stats_from to stats_to in one time step.
         line_per_crew = params["line_per_crew"]
         prog = params["progressions"][time_from]
 
@@ -1179,6 +1230,8 @@ function generate_state_transition_crew_reqs(
             for round_type in round_types
 
                 # round the number of crews
+                # Different rounding strategies approximate the fractional crew
+                # requirement, enabling us to build optimistic/pessimistic arcs.
                 if round_type == "ceiling"
                     crews = max(0, convert(Int, ceil(crews_needed - 0.0001)))
                 elseif round_type == "floor"

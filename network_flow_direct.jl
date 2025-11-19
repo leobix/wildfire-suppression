@@ -18,6 +18,31 @@ const GRB_ENV = Gurobi.Env()  # Set up a single reusable Gurobi environment.
 #     - Crew start constraints ensure each crew launches exactly one unit of flow at time zero.
 #     - Linking constraints guarantee enough crew flow is assigned whenever a fire arc requires crews.
 
+#Ryne added: copied from EmpiricalMain.jl
+function count_selected_fires(
+        fire_gaccs::Vector{String},
+        fires_by_gacc::Dict{String,Vector{Int64}},
+        input_folder::String,
+)
+        selected_fires = CSV.read(joinpath(input_folder, "selected_fires.csv"), DataFrame)
+        selected_fires[!, "GACC"] = normalize_gacc.(selected_fires[!, "GACC"]) # normalize to canonical casing
+        fire_gaccs = normalize_gacc.(fire_gaccs) # make the filter list consistent too
+        if !isempty(fires_by_gacc)
+                normalized_fires_by_gacc = Dict{String,Vector{Int64}}()
+                for (gacc, fires) in fires_by_gacc
+                        normalized_fires_by_gacc[normalize_gacc(gacc)] = fires
+                end
+                mask = falses(nrow(selected_fires))
+                for (gacc, fires) in normalized_fires_by_gacc
+                        mask .|= (selected_fires[:, "GACC"] .== gacc) .& in.(selected_fires[:, "FIRE_EVENT_ID"], Ref(fires))
+                end
+                selected_fires = selected_fires[mask, :]
+        else
+                selected_fires = selected_fires[in.(selected_fires[:, "GACC"], Ref(fire_gaccs)), :]
+        end
+        return length(unique(selected_fires[:, "FIRE_EVENT_ID"]))
+end
+
 function get_command_line_args()
     arg_parse_settings = ArgParseSettings()  # Initialize the argument parser configuration.
     @add_arg_table arg_parse_settings begin  # Declare the supported CLI switches.
@@ -28,6 +53,16 @@ function get_command_line_args()
         help = "directory to write outputs, must exist"  # Describe expected usage of -d.
         arg_type = String  # Parse -d as a string.
         default = "data/experiment_outputs/network_flow_direct/"  # Provide the default output path.
+
+		#Ryne added
+		"--date"
+			help = "fire-model bundle date, e.g. 2018_08_01"
+			arg_type = String
+			default = "2018_08_01"
+		"--gaccs"
+			help = "comma-separated list of GACCs (abbreviations like SW,GB,SA are fine)"
+			arg_type = String
+			default = "SW"
     end
     return parse_args(arg_parse_settings)  # Execute parsing and return a dictionary of arguments.
 end
@@ -208,15 +243,15 @@ function full_network_flow(
 				)
 			end
 		end
-    #   for crew in 1:num_crews
-    #       vals = value.(crew_vars[crew])
-    #       selected = findall(>(1e-6), vals)
-    #       for ix in selected
-    #           arc = crew_models[crew].long_arcs[ix, :]
-    #           cost = crew_models[crew].arc_costs[ix]
-    #           @info "Crew arc" crew=crew index=ix value=vals[ix] cost=cost data=arc
-    #       end
-    #   end
+		# for crew in 1:num_crews
+		# 	vals = value.(crew_vars[crew])
+		# 	selected = findall(>(1e-6), vals)
+		# 	for ix in selected
+		# 		arc = crew_models[crew].long_arcs[ix, :]
+		# 		cost = crew_models[crew].arc_costs[ix]
+		# 		@info "Crew arc" crew=crew index=ix value=vals[ix] cost=cost data=arc
+		# 	end
+		# end
 		records = DataFrame(
 			fire = Int[],
 			arc_index = Int[],
@@ -251,6 +286,7 @@ function full_network_flow(
 				))
 			end
 		end
+		@info "Solve complete cleanly" objective=ub.*1e4 bound=lb.*1e4 gap=(ub - lb)/max(1, abs(ub)) time=solve_seconds
 
 		CSV.write("selected_fire_arcs.csv", records)
 	end
@@ -259,38 +295,22 @@ function full_network_flow(
 
 end
 args = get_command_line_args()  # Parse CLI configuration once on startup.
-linear_outputs = Dict()  # Accumulate LP results keyed by crew count.
-integer_outputs = Dict()  # Accumulate MIP results keyed by crew count.
+
+
+dataset = joinpath(@__DIR__, "..", "ai_wildfire", "fire_models_" * args["date"])
+raw_gaccs = split(strip(args["gaccs"]), ',')
+target_gaccs = [String(normalize_gacc(strip(g))) for g in raw_gaccs if !isempty(strip(g))]
+# target_gaccs = ["Southwest"]
+println(dataset)
+println(target_gaccs)
+
+
+
 
 # # Ryne added
 
-#Ryne added: copied from EmpiricalMain.jl
-function count_selected_fires(
-        fire_gaccs::Vector{String},
-        fires_by_gacc::Dict{String,Vector{Int64}},
-        input_folder::String,
-)
-        selected_fires = CSV.read(joinpath(input_folder, "selected_fires.csv"), DataFrame)
-        selected_fires[!, "GACC"] = normalize_gacc.(selected_fires[!, "GACC"]) # normalize to canonical casing
-        fire_gaccs = normalize_gacc.(fire_gaccs) # make the filter list consistent too
-        if !isempty(fires_by_gacc)
-                normalized_fires_by_gacc = Dict{String,Vector{Int64}}()
-                for (gacc, fires) in fires_by_gacc
-                        normalized_fires_by_gacc[normalize_gacc(gacc)] = fires
-                end
-                mask = falses(nrow(selected_fires))
-                for (gacc, fires) in normalized_fires_by_gacc
-                        mask .|= (selected_fires[:, "GACC"] .== gacc) .& in.(selected_fires[:, "FIRE_EVENT_ID"], Ref(fires))
-                end
-                selected_fires = selected_fires[mask, :]
-        else
-                selected_fires = selected_fires[in.(selected_fires[:, "GACC"], Ref(fire_gaccs)), :]
-        end
-        return length(unique(selected_fires[:, "FIRE_EVENT_ID"]))
-end
-
-dataset = joinpath(@__DIR__, "..", "ai_wildfire", "fire_models_2018_08_01")
-target_gaccs = ["Southwest"]              # any set of GACCs
+# dataset = joinpath(@__DIR__, "..", "ai_wildfire", "fire_models_2018_08_01")
+# target_gaccs = ["Southwest"]              # any set of GACCs
 num_time_periods = 14                     # planning horizon you want
 crew_speed = 40.0 * 6.0                        # keep or change depending on study
 

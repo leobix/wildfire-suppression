@@ -6,14 +6,20 @@ using JuMP
 
 
 @kwdef mutable struct DualWarmStart
-
+	# Linking duals from a previous solve that we can recycle as a warm start.
+	# Re-using dual information is especially helpful when exploring nearby nodes
+	# of the branch-and-price tree where the optimal duals change slowly.
 	linking_values::Matrix{Float64}
+	# Strategy flag that can be used by callers to signal how the warm start
+	# was generated (currently just informative, but kept for future tuning).
 	const strategy::String = "global"
+	# Small perturbation that can be applied to avoid ties in the duals.
 	epsilon::Float64 = 0.001
-
 end
 
 function adapt_linking_duals(warm_start_matrix::Matrix{Float64}, num_fires::Int, num_time_periods::Int)
+	# Resize the incoming warm-start matrix if the current instance has a different
+	# number of fires or time periods.  Missing entries default to zero.
 	result = zeros(num_fires, num_time_periods)
 	min_f = min(size(warm_start_matrix, 1), num_fires)
 	min_t = min(size(warm_start_matrix, 2), num_time_periods)
@@ -62,16 +68,19 @@ function double_column_generation!!!!(
 	final_snapshot_only::Bool = false,
 	dual_warm_start::Union{Nothing, DualWarmStart} = nothing)
 
-	# initialize timing dictionary
+	# initialize timing dictionary so that callers can understand where the time goes
 	details = Dict{String, Float64}()
 	details["master_problem"] = 0.0
 	details["fire_subproblems"] = 0.0
 	details["crew_subproblems"] = 0.0
 	t = time()
 
-	# gather global information
+	# gather global information about the dimensionality of the problem
 	num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)
 
+	# If the master problem has not been solved yet, create an artificial dual
+	# point.  The values do not need to be feasible; they simply guide the
+	# pricing problems toward useful early columns.
 	if rmp.termination_status == MOI.OPTIMIZE_NOT_CALLED
 		if isnothing(dual_warm_start)
 			# initialize with an (infeasible) dual solution that will suppress minimally
@@ -88,6 +97,9 @@ function double_column_generation!!!!(
 			global_fire_allot_duals = normalized_rhs.(rmp.fire_allotment_branches) .* 0
 		end
 	else
+		# Otherwise, recycle the duals from the last master problem solve. This
+		# is the standard approach in column generation because the duals define
+		# the reduced-cost pricing problems.
 		fire_duals = dual.(rmp.plan_per_fire)
 		crew_duals = dual.(rmp.route_per_crew)
 		linking_duals = dual.(rmp.supply_demand_linking)
@@ -95,6 +107,8 @@ function double_column_generation!!!!(
 		global_fire_allot_duals = dual.(rmp.fire_allotment_branches)
 	end
 
+	# Track the incumbent upper bound separately so we can easily scale duals
+	# when infeasibilities are encountered.
 	ub = copy(upper_bound)
 
 	# initialize column generation loop
@@ -102,6 +116,9 @@ function double_column_generation!!!!(
 	iteration = 0
 
 	# add in dummy plans for the fires_to_ignore
+	# We enforce that these fires always have at least one trivial plan so that
+	# the linking constraints remain well-defined even though we do not want to
+	# explicitly price them in this call.
 	for fire in fires_to_ignore
 		add_column_to_master_problem!!(
 			rmp,
@@ -113,6 +130,8 @@ function double_column_generation!!!!(
 		)
 	end
 
+	# Main column-generation loop: price crew routes, then fire plans, then
+	# re-optimize the restricted master problem until no improving columns exist.
 	while continue_iterating
 
 		iteration += 1
@@ -125,14 +144,21 @@ function double_column_generation!!!!(
 		crew_objectives = zeros(Float64, num_crews)
 		crew_arcs_used = [Int[] for crew ∈ 1:num_crews]
 
-		# for each crew
-		
+		# Solve every crew's resource-allocation pricing problem in parallel.
+		# Each crew contributes a single route/column back to the master problem.
+		#
+		# NOTE: JuMP/Gurobi handles the master problem, so there is no need for
+		# locks here—the subproblems are fully independent.
 		Threads.@threads for crew in 1:num_crews
 
+			# Reset all per-iteration data on the network so we start from a
+			# clean slate before dual adjustments are applied.
 			crew_subproblems[crew].prohibited_arcs .&= false
 			for i ∈ eachindex(crew_subproblems[crew].modified_arc_costs)
 				crew_subproblems[crew].modified_arc_costs[i] = crew_subproblems[crew].arc_costs[i]
 			end
+			# Incorporate supply/demand dual prices and branching decisions into
+			# the arc costs so the shortest-path solution returns the reduced cost.
 			adjust_crew_arc_costs!!(
 				crew_subproblems[crew].modified_arc_costs,
 				crew_subproblems[crew].prohibited_arcs,
@@ -157,7 +183,9 @@ function double_column_generation!!!!(
 				crew_subproblems[crew].state_in_arcs,
 			)
 
-			# adjust the objective for the cuts (we gave - coeff if allotment not broken, give + coeff here)
+			# Adjust the objective for the cuts (we gave - coeff if allotment
+			# not broken, give + coeff here) so that the reduced cost matches
+			# the dual constraints that involve this route.
 			for (ix, cut) in cut_data.cut_dict
 				if cut.crew_coeffs[crew] > 1e-20
 					objective += (cut.crew_coeffs[crew] * cut_duals[ix])
@@ -175,11 +203,14 @@ function double_column_generation!!!!(
 			arcs_used = crew_arcs_used[crew]
 
 			# if there is an improving route
+			# (Reduced cost < 0 for minimization, so objective < crew dual.)
 			if objective < crew_duals[crew] - improving_column_abs_tolerance
 
 				reduced_cost_sum += (objective - crew_duals[crew])
 
 				# get the real cost, unadjusted for duals
+				# (The state machine only considers reduced cost; the master
+				# problem objective needs the original physical cost.)
 				cost = sum(crew_subproblems[crew].arc_costs[arcs_used])
 
 				# get the indicator matrix of fires fought at each time
@@ -211,10 +242,14 @@ function double_column_generation!!!!(
 			t = time()
 		end
 
+		# Solve fire pricing problems next.  They share the same structure as
+		# the crew problems but demand different data and dual adjustments.
 		fire_objectives = zeros(Float64, num_fires)
 		fire_arcs_used = [Int[] for fire ∈ 1:num_fires]
 
 		# for each fire
+		# Fires that should be ignored are skipped entirely since they already
+		# have dummy plans in the master problem.
 		Threads.@threads for fire in [g for g ∈ 1:num_fires if g ∉ fires_to_ignore]
 
 			# generate the local costs of the arcs
@@ -252,6 +287,9 @@ function double_column_generation!!!!(
 				end
 
 				# we need to do a proper dual adjustment
+				# The branching rules restrict cumulative demand across several
+				# fires; we use an extra set of dual multipliers to communicate
+				# them down to each fire subproblem.
 				adjust_fire_sp_arc_costs!(
 					fire_subproblems[fire].modified_arc_costs,
 					rule,
@@ -288,6 +326,7 @@ function double_column_generation!!!!(
 				cost = 0.0
 				if final_snapshot_only
 					# choose last nonzero (pre-extinguish) end-of-day area as cost
+					# This mode is used when only the final fire size matters.
 					best_arc = 0
 					best_t = -1
 					for a in arcs_used
@@ -310,6 +349,8 @@ function double_column_generation!!!!(
 				end
 
 				# get the vector of crew demands at each time
+				# Each plan is summarized by how many crews it would like at
+				# every period; the master problem uses these as column data.
 				crew_demands = get_crew_demands(
 					fire_subproblems[fire].wide_arcs,
 					arcs_used,
@@ -340,6 +381,8 @@ function double_column_generation!!!!(
 		end
 
 		@debug "total reduced cost" reduced_cost_sum ub reduced_cost_sum / ub local_gap_rel_tolerance
+		# Continue iterating if at least one improving column was added or if
+		# the reduced-cost bound is still too weak relative to the incumbent.
 		continue_iterating =
 			((iteration == 1) || (-reduced_cost_sum / ub > local_gap_rel_tolerance)) && (time_limit > time() - t)
 
@@ -351,6 +394,8 @@ function double_column_generation!!!!(
 			# the deferral variables still help a lot with convergence.
 			# alternative is to accept the solution with deferrals, implicitly
 			# improving discretization... too complicated but should be a better solution
+			# The intent is to stabilize the master problem early on yet return
+			# a solution that exactly respects the physical supply constraints.
 			if maximum(value.(rmp.deferred_num_crews)) > 1e-5
 				for g ∈ 1:num_fires
 					for t ∈ 1:num_time_periods
@@ -368,6 +413,9 @@ function double_column_generation!!!!(
 			if timing
 				t = time()
 			end
+			# Resolve the restricted master problem with the newly added columns.
+			# The solution provides updated dual prices that feed back into the
+			# next round of pricing problems.
             optimize!(rmp.model)
 			if timing
 				details["master_problem"] += (time() - t)
@@ -402,6 +450,9 @@ function double_column_generation!!!!(
 
 				# scale dual values to a feasible dual solution with cost "upper_bound"
 				# (linking_duals omitted because 0 RHS)
+				# When the continuous relaxation is infeasible we extract a Farkas
+				# certificate.  Scaling keeps the certificate comparable to the
+				# incumbent upper bound so that the reduced-cost bound remains useful.
 				dual_costs = 0
 				for ix in eachindex(fire_duals)
 					dual_costs +=
@@ -446,6 +497,8 @@ function double_column_generation!!!!(
 				lb = ub + reduced_cost_sum
 				if lb > upper_bound
 					@debug "prune by bound" lb upper_bound iteration
+					# The reduced-cost lower bound exceeds the best feasible
+					# solution, so we can stop exploring this node altogether.
 					continue_iterating = false
 					rmp.termination_status = MOI.OBJECTIVE_LIMIT
 				end
@@ -457,6 +510,8 @@ function double_column_generation!!!!(
 				num_fires,
 				num_time_periods,
 			)
+			# Tracking the incumbent suppression pattern helps diagnose slow
+			# convergence in logs without dumping whole vectors of duals.
 			@debug "progress" iteration linking_duals supp
 
 
@@ -464,6 +519,7 @@ function double_column_generation!!!!(
 		else
 			# re-optimze for JuMP reasons (access attrs) just in case we added a column 
 			# but then stopped due to too small reduced cost improvement
+			# (Without this call JuMP may prevent us from querying objective/dual info.)
 			if timing
 				t = time()
 			end
@@ -513,9 +569,13 @@ function define_restricted_master_problem(
     @debug "Define restricted master problem" fires_to_ignore
 
 	# get dimensions
+	# These determine the size of all matrices that follow; the problem can
+	# have many crews/fires, so everything is sparse/irregular in practice.
 	num_crews, _, num_fires, num_time_periods = size(crew_route_data.fires_fought)
 
 	# inititalze JuMP model
+	# We rely on Gurobi for performance and therefore set the tolerances tight
+	# enough to make reduced-cost reasoning reliable.
 	m = direct_model(Gurobi.Optimizer(gurobi_env))
 	set_optimizer_attribute(m, "OutputFlag", 0) # put this first so others don't print
 	set_optimizer_attribute(m, "OptimalityTol", 1e-9)
@@ -525,10 +585,15 @@ function define_restricted_master_problem(
 
 
 	# decision variables for crew routes and fire plans
+	# Each variable represents selecting one pre-generated column.  Column
+	# generation will grow the sets `crew_avail_ixs` and `fire_avail_ixs` over time.
 	@variable(m, route[c = 1:num_crews, r ∈ crew_avail_ixs[c]] >= 0)
 	@variable(m, plan[g = 1:num_fires, p ∈ fire_avail_ixs[g]] >= 0)
 
 	# add deferral stabilization variables
+	# These slack variables temporarily allow mismatches between supply and
+	# demand to keep the master problem well-behaved until sufficient columns
+	# have been generated.  We later force them to zero.
 	@variable(
 		m,
 		deferred_num_crews[
@@ -553,6 +618,8 @@ function define_restricted_master_problem(
 	# model variables are required here.
 
 	# constraints that you must choose a plan per crew and per fire
+	# Each crew selects exactly one route (convex combination) and each fire
+	# must have at least one plan in the mix.
 	@constraint(m, route_per_crew[c = 1:num_crews],
 		sum(route[c, r] for r ∈ crew_avail_ixs[c]) == 1)
 	@constraint(m, plan_per_fire[g = 1:num_fires],
@@ -561,6 +628,9 @@ function define_restricted_master_problem(
 	## constraints for cuts
 
 	# get proper coefficients of columns in each cut
+	# The cut dictionaries refer to columns by (fire, plan) and (crew, route)
+	# indices.  Here we translate them into the indices that JuMP expects and
+	# cache them to avoid rebuilding the sparse matrix on every solve.
 	cut_ixs = keys(cut_data.cut_dict)
 
 	fire_plan_ixs = Dict()
@@ -596,6 +666,8 @@ function define_restricted_master_problem(
 	end
 
 	# need it to default to SparseAxisArray when empty, maybe there is a better way
+	# Each cover cut enforces that if a collection of fires demands crews at a
+	# given time, at least one crew route capable of serving them must be chosen.
 	@constraint(
 		m,
 		gub_cover_cuts[
@@ -615,6 +687,8 @@ function define_restricted_master_problem(
 	)
 
 	# container for fire allotment branching rules
+	# The branching rules resemble aggregate knapsack constraints that we
+	# populate later when applying branch decisions.
 	@constraint(
 		m,
 		fire_allotment_branches[eachindex(fire_allotment_branching_rules)],
@@ -626,6 +700,8 @@ function define_restricted_master_problem(
 		rule = fire_allotment_branching_rules[ix]
 
 		# (following >= convention)
+		# Branching rules can be >= or <=; we convert them into the >= form
+		# expected by JuMP by flipping both sides when needed.
 		sign = 2 * Int(rule.geq_flag) - 1
 
 		# possible RHS values are <= 0, >= 1
@@ -645,6 +721,9 @@ function define_restricted_master_problem(
 	end
 
 	# linking constraint
+	# These constraints are the heart of the master problem: they ensure that
+	# the sum of crews allocated to a fire at a time (from crew columns) meets
+	# the demand requested by the chosen fire plans.
 	@constraint(m, linking[g = 1:num_fires, t = 1:num_time_periods],
 
 		# crews at fire
@@ -680,6 +759,8 @@ function define_restricted_master_problem(
 		- 
 
 		# ignore fires that are not started yet
+		# (Their plans may be present for bookkeeping, but we do not want them
+		# to bias the objective until they are activated elsewhere.)
 		sum(
 			plan[g, p] * fire_plan_data.plan_costs[g, p] 
 			for g ∈ fires_to_ignore, p ∈ fire_avail_ixs[g]
@@ -741,6 +822,8 @@ function add_column_to_plan_data!(
 	plan_data.crews_present[fire, ix, :] = crew_demands
 
 	# append the arcs used
+	# Storing the actual dynamic-programming arcs allows reconstruction of
+	# the plan later for visualization or branching.
 	plan_data.arcs_used[fire, ix] = arcs_used
 
 	return ix
@@ -786,6 +869,7 @@ function add_column_to_route_data!(
 	route_data.fires_fought[crew, ix, :, :] = fires_fought
 
 	# append the arcs used
+	# Keeping the arcs lets us re-solve or branch on individual transitions.
 	route_data.arcs_used[crew, ix] = arcs_used
 
 	return ix
@@ -837,6 +921,8 @@ function add_column_to_master_problem!!(
 	set_normalized_coefficient(rmp.route_per_crew[crew], rmp.routes[crew, ix], 1)
 
 	# supply demand linking
+	# This is a 4-D array assignment: (fire, time) pairs get +1 when the crew
+	# attends the fire during that time in the route.
 	set_normalized_coefficient.(
 		rmp.supply_demand_linking,
 		rmp.routes[crew, ix],
@@ -865,6 +951,7 @@ function add_column_to_master_problem!!(
 				)
 
 				# add the plan to the cut mp lookup
+				# (Used when dynamically updating the cut RHS later.)
 				cut_data.crew_mp_lookup[cut_ix][(crew, ix)] = 1
 
 			end
@@ -921,6 +1008,8 @@ function add_column_to_master_problem!!(
 	set_normalized_coefficient(rmp.plan_per_fire[fire], rmp.plans[fire, ix], 1)
 
 	# supply demand linking
+	# Fire plans request crews, so they enter the linking constraints with a
+	# negative sign to offset the positive crew contributions.
 	set_normalized_coefficient.(
 		rmp.supply_demand_linking[fire, :],
 		rmp.plans[fire, ix],
@@ -936,6 +1025,8 @@ function add_column_to_master_problem!!(
 		if fire ∈ keys(cut.fire_coeffs)
 
 			# update mp lookup and see if this plan has >0 coeff in the cut
+			# (The helper inspects the plan structure and determines whether it
+			# violates the coverage minimum encoded by the cut.)
 			plan_in_cut = update_cut_fire_mp_lookup!(
 				cut_data.fire_mp_lookup[cut_ix],
 				cut,
@@ -957,6 +1048,9 @@ function add_column_to_master_problem!!(
 	end
 
 	# global fire allotment branching rule, add new plan to mp_lookup
+	# Branch-and-price adds aggregate branching constraints outside the normal
+	# fire linking constraints.  Whenever we introduce a new plan we need to
+	# inform those constraints so they can price correctly.
 	for rule_ix in eachindex(rmp.fire_allotment_branches)
 		rule = fire_allotment_branching_rules[rule_ix]
 		sign = 2 * Int(rule.geq_flag) - 1
@@ -979,6 +1073,9 @@ function get_fire_incumbent_weighted_average(
 	num_time_periods::Int,
 )
 
+	# Weighted average of all fire plans that currently have positive weight in
+	# the master problem solution.  The result is the expected number of crews
+	# requested by each fire at every time.
 	fire_allotment = zeros(num_fires, num_time_periods)
 	for ix in eachindex(rmp.plans)
 		if value(rmp.plans[ix]) > 0
@@ -998,6 +1095,8 @@ function get_crew_incumbent_weighted_average(
 
 	num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)
 
+	# Similar to `get_fire_incumbent_weighted_average` but preserves the crew
+	# dimension so we can see which team is expected to be at which fire.
 	crew_allotment = zeros(Float64, num_crews, num_fires, num_time_periods)
 	for crew in 1:num_crews
 		for col in rmp.crew_column_ixs[crew]
@@ -1021,6 +1120,8 @@ function get_fire_and_crew_incumbent_weighted_average(
 	# get problem dimensions
 	num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)
 
+	# Convenience wrapper that returns both perspectives at once so callers do
+	# not need to recompute the expensive weighted averages twice.
 	fire_allotment = get_fire_incumbent_weighted_average(
 		rmp,
 		fire_plans,
@@ -1041,6 +1142,9 @@ function get_cost_due_to_fires_and_crews(
 	num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)
 
 	# get the cost due to fires
+	# Iterate over all plan variables because sparsity patterns can change as
+	# new columns are added; relying on `fire_column_ixs` would miss new
+	# entries that JuMP already created.
 	fire_cost = 0
 	for ix in eachindex(solved_rmp.plans)
 		if value(solved_rmp.plans[ix]) > 0
@@ -1051,6 +1155,7 @@ function get_cost_due_to_fires_and_crews(
 	end
 
 	# get the cost due to crews
+	# Same idea as above, but over the crew route columns.
 	crew_cost = 0
 	for ix in eachindex(solved_rmp.routes)
 		if value(solved_rmp.routes[ix]) > 0
@@ -1074,6 +1179,8 @@ function get_fire_and_crew_arcs_used(
 	num_crews, _, num_fires, num_time_periods = size(crew_routes.fires_fought)
 
 	# get the arcs used by fires
+	# Each arc list contains the dynamic-programming path corresponding to the
+	# integer solution.  Having the arcs makes it easier to export maps later.
 	fire_arcs_used = Vector{Vector{Int64}}(undef, num_fires)
 	for f in 1:num_fires
 		fire_arcs_used[f] = Int64[]
@@ -1092,6 +1199,7 @@ function get_fire_and_crew_arcs_used(
 	end
 
 	# get the arcs used by crews
+	# Same story for crews; retain an empty vector for crews not selected.
 	crew_arcs_used = Vector{Vector{Int64}}(undef, num_crews)
 	for c in 1:num_crews
 		crew_arcs_used[c] = Int64[]

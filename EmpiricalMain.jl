@@ -1,5 +1,13 @@
 include("BranchAndPrice.jl") # load the optimizer implementation so this script can initialize and run it
 
+# EmpiricalMain.jl is the CLI driver for running end-to-end wildfire suppression
+# experiments on historical data.  The script parses command-line flags, loads
+# preprocessed datasets, seeds the branch-and-price solver with intuitive plans,
+# iterates a rolling-horizon optimization, and exports a rich set of artifacts
+# (JSON manifests, CSV rollups, per-day logs).  The goal of the extra comments
+# below is to help new contributors trace how data flows from disk into the
+# optimizer and back out into reports.
+
 # Core packages that drive the command-line workflow and optimization.
 # IterTools exports a groupby helper that clashes with DataFrames, so we explicitly
 # import the DataFrames version below.
@@ -41,6 +49,7 @@ const GACC_ABBR = Dict(
 )
 
 const ALL_GACCS = unique(collect(values(GACC_ABBR)))
+     # Keep a unique list of region names for convenience when users specify "all".
 
 const JULIA_EXT_STATE_CODE = 1
 
@@ -74,6 +83,8 @@ end
 
 # Parse command-line GACC abbreviations into canonical names.
 function parse_gaccs(str::String)
+        # Accept CLI values like "gb,nw" and normalize them to canonical names
+        # so the rest of the code can rely on a single naming convention.
         s = uppercase(strip(str))
         if s == "ALL"
                 return ALL_GACCS
@@ -87,6 +98,8 @@ end
 
 # Parse a mapping such as "GB:123,456;NW:789" into a Dict keyed by canonical GACC name.
 function parse_fires_by_gacc(str::String)
+        # Turn a compact "GB:1,2;NW:3" specification into a Dict that mirrors
+        # the CSV schema (keys are canonical names, values are fire IDs).
         s = strip(str)
         if isempty(s)
                 return Dict{String,Vector{Int64}}()
@@ -111,6 +124,8 @@ function count_selected_fires(
         fires_by_gacc::Dict{String,Vector{Int64}},
         input_folder::String,
 )
+        # This helper mirrors the eventual filtering logic so we can log how
+        # many fires will be in play before allocating large data structures.
         selected_fires = CSV.read(joinpath(input_folder, "selected_fires.csv"), DataFrame)
         selected_fires[!, "GACC"] = normalize_gacc.(selected_fires[!, "GACC"]) # normalize to canonical casing
         fire_gaccs = normalize_gacc.(fire_gaccs) # make the filter list consistent too
@@ -343,6 +358,9 @@ num_time_periods = 14
 travel_speed = 40.0 * 6.0
 GC.gc()
 
+# Load all arc arrays, resource pools, and helper lookups from disk.  The
+# initialize_* routine returns both the JuMP column data structures and the raw
+# time-space networks that feed subproblems.
 crew_routes, fire_plans, crew_models, fire_models, cut_data, init_info = initialize_data_structures(
         num_fires,
         num_crews,
@@ -361,7 +379,7 @@ crew_routes, fire_plans, crew_models, fire_models, cut_data, init_info = initial
 )
 
 num_crews = length(crew_models)
-num_fires = length(fire_models)
+num_fires = length(fire_models) # dataset-driven counts might differ from initial guesses
 
 @info "Total crews" num_crews
 @info "Total fires" num_fires
@@ -395,11 +413,16 @@ for t in 0:num_time_periods
 
     global crew_routes, fire_plans, crew_models, fire_models, cut_data
 
+    # Start each day with fresh column containers (the problem structure changes
+    # as fires start/finish), but keep the underlying TSN models so we can prune
+    # arcs based on committed history.
     crew_routes = CrewRouteData(Int(floor(6 * 1e6 / num_crews)), num_fires, num_crews, num_time_periods)
     fire_plans = FirePlanData(Int(floor(6 * 1e6  / num_crews)), num_fires, num_time_periods)
 	cut_data = CutData(num_crews, num_fires, num_time_periods)
 
-    # seed dummy plan/route columns so the restricted master is always feasible
+    # Seed dummy plan/route columns so the restricted master is always feasible.
+    # These enormous-cost columns act as big-M slack so Gurobi has something to
+    # work with before legitimate routes/plans are priced.
     dummy_plan_cost = 1.0e8
     dummy_route_cost = 1.0e8
     for fire in 1:num_fires
@@ -475,6 +498,9 @@ for t in 0:num_time_periods
         end
 
         # Seeding: fastest extinguish
+        # Build a dynamic program that finds the earliest path to the extinguish
+        # state (state 1).  This encourages the master problem to explore plans
+        # that act aggressively as soon as the fire is active.
         if seed_fastest_extinguish
             for g in fires_active
                 fm = fire_models[g]
@@ -484,6 +510,8 @@ for t in 0:num_time_periods
                 reachable = falses(states, times)
                 ext_state_id = 1
                 found_t = nothing
+                # Forward pass: mark which states can be reached by time tt given
+                # the currently known arcs (ignoring reduced costs entirely).
                 for tt in 1:times
                     for s in 1:states
                         for arc_ix in fm.state_in_arcs[s, tt]
@@ -507,6 +535,7 @@ for t in 0:num_time_periods
                     continue
                 end
                 # Backtrack to build path
+                # (Reverse pointers reconstruct the minimum-time plan.)
                 cur_s = ext_state_id
                 cur_t = found_t
                 path_rev = Int[]
@@ -525,6 +554,7 @@ for t in 0:num_time_periods
                     continue
                 end
                 # Seeding guard: if fire is at/after its start day, require at least one post-start arc
+                # (Otherwise we would add columns that only plan before the fire is active.)
                 start_day = fire_models[g].start_time_period
                 if !isnothing(start_day) && current_day >= start_day
                     has_post_start = false
@@ -794,6 +824,7 @@ for t in 0:num_time_periods
 
         # Additional seeding: frontload explicitly at the first positive day (start_day+1)
         # This ensures a heavy plan exists exactly at the first actionable day even when current_day < start_day+1
+        # by taking a single high-crew arc at that day and then greedily continuing.
         if seed_frontloaded
             for g in fires_active
                 fm = fire_models[g]
@@ -907,6 +938,8 @@ for t in 0:num_time_periods
             end
         end
 
+        # Reuse duals from the previous day whenever the matrix dimensions match;
+        # this gives the next branch-and-price solve a head start.
         warm_start_to_use = prev_dual_warm_start
         if !isnothing(warm_start_to_use)
             dims = size(warm_start_to_use.linking_values)
@@ -980,6 +1013,8 @@ for t in 0:num_time_periods
             end
         end
 
+        # Solve the full branch-and-price model for the current rolling-horizon
+        # day.  Most arguments mirror CLI options so experiments can be reproduced.
         result = branch_and_price(num_fires,
                 num_crews,
                 num_time_periods,
@@ -1002,7 +1037,7 @@ for t in 0:num_time_periods
                 dual_warm_start = warm_start_to_use,
                 final_snapshot_only = final_snapshot_only,
                 )
-                # Unpack as many variables as branch_and_price returns, e.g.:
+        # unpack the full return tuple (node stats, incumbent bounds, selected arcs, warm starts, …)
         explored_nodes, ubs, lbs, columns, heuristic_times, times, time_1, root_node_ip_sol, root_node_ip_sol_time, fire_arcs_used, crew_arcs_used, root_dual_warm_start = result
         @debug "final arcs used" fire_arcs_used, crew_arcs_used
 
@@ -1014,6 +1049,7 @@ for t in 0:num_time_periods
         prev_dual_warm_start = root_dual_warm_start
 
         # Commit decisions up to current day (t+1): preserve those arcs in future iterations
+        # so the rolling horizon respects previously executed suppression actions.
         commit_cutoff = t + 1
         for g in 1:num_fires
                 for a_ix in fire_arcs_used[g]
@@ -1039,6 +1075,8 @@ for t in 0:num_time_periods
                         continue
                 end
 		# Preserve both committed history and the current solution’s arcs
+		# by pruning away trajectories we never plan to use again.  This keeps
+		# subsequent DP solves small even as the horizon marches forward.
 		begin
 		    local keep_arcs = unique(vcat(collect(committed_fire_arcs[g]), fire_arcs_used[g]))
 		    modify_in_arcs_and_out_arcs!(fire_models[g], t+1, keep_arcs, FM.TIME_FROM)
@@ -1054,7 +1092,8 @@ for t in 0:num_time_periods
 		@debug "after modify_in_arcs_and_out_arcs!" crew_models[j].state_in_arcs crew_models[j].state_out_arcs
 	end
 
-	# now extract the arc data and costs from the fire_arcs_used and crew_arcs_used and the models
+	# After the day is solved we snapshot the exact arcs we used so downstream
+	# visualization/logging code can refer to them without re-solving DP problems.
 	fire_arcs = Vector{Matrix{Int64}}(undef, num_fires)
 	fire_arc_costs = Vector{Vector{Float64}}(undef, num_fires)
 	crew_arcs = Vector{Matrix{Int64}}(undef, num_crews)
@@ -1070,6 +1109,8 @@ for t in 0:num_time_periods
 
         discretization_bins_used = (:discretization_bins in propertynames(init_info)) ? init_info.discretization_bins : nothing
         bins_for_decoding = discretization_bins_used === nothing ? default_discretization_bins() : collect(Float64.(discretization_bins_used))
+        # Fire manifests capture per-fire metadata (IDs, state info, etc.) and
+        # get enriched each day with references to the newly generated files.
         template_fire_entries = (:fire_order in propertynames(init_info)) ? [deepcopy(entry) for entry in init_info.fire_order] : [Dict{String,Any}("optimizer_index" => g) for g in 1:num_fires]
         fire_manifest_entries = copy(template_fire_entries)
         crew_manifest_entries = Vector{Dict{String,Any}}()
@@ -1086,6 +1127,8 @@ for t in 0:num_time_periods
                 state_area_map_discrete = Dict{Int, Float64}()
                 packed_lookup = Dict{Int, Int}()
                 if state_meta isa AbstractVector
+                        # Normalize metadata into quick lookup tables so we can
+                        # map optimizer state indices back to geospatial/area info.
                         for sm in state_meta
                                 if sm isa Dict && haskey(sm, "state_id")
                                         sid = Int(sm["state_id"])
@@ -1108,6 +1151,9 @@ for t in 0:num_time_periods
 
                 fire_arcs_export = fire_arcs[g]
                 if !isempty(state_lookup)
+                        # When metadata contains "packed state codes" we translate the
+                        # raw optimizer node IDs into those codes so GIS tools can
+                        # align areas-of-origin with the original dataset.
                         fire_arcs_export = copy(fire_arcs[g])
                         map_state = function(state_idx::Int)
                                 sm = get(state_lookup, state_idx, nothing)
@@ -1130,10 +1176,13 @@ for t in 0:num_time_periods
                         JSON.print(io, fire_arc_costs[g])
                 end
 
+                # Convert optimizer states into interpretable acreage values.
                 state_area_map = state_area_map_sim
                 state_area_map_discrete = isempty(state_area_map_discrete) ? Dict{Int,Float64}() : state_area_map_discrete
 
                 num_periods = num_time_periods
+                # Preallocate daily time-series arrays for crews and areas; they
+                # will be filled using both historical commitments and new plans.
                 daily_crews = fill(0, num_periods)
                 daily_area = Vector{Union{Nothing, Float64}}(undef, num_periods)
                 daily_area_discrete = Vector{Union{Nothing, Float64}}(undef, num_periods)
@@ -1238,6 +1287,7 @@ for t in 0:num_time_periods
                         end
                 end
 
+                # Forward-fill any missing area data to keep plots monotone.
                 prev_area = nothing
                 prev_area_discrete = nothing
                 for period_ix in 1:num_periods
@@ -1261,6 +1311,8 @@ for t in 0:num_time_periods
                         end
         end
 
+        # Persist a per-fire stats JSON summarizing the day's crew assignments
+        # and resulting area trajectories.  Downstream dashboards consume this.
         stats_filename = "fire_stats_$(g)_$(t).json"
         stats_payload = Dict{String,Any}(
                         "optimizer_index" => g,
@@ -1274,6 +1326,7 @@ for t in 0:num_time_periods
                 open(joinpath(output_folder, stats_filename), "w") do io
                         JSON.print(io, stats_payload)
                 end
+                # Compose a short narrative for the day's decisions to aid debugging
                 detail_ix = min(current_day, num_periods)
                 crews_today = daily_crews[detail_ix]
                 area_today = daily_area[detail_ix]
@@ -1353,6 +1406,7 @@ for t in 0:num_time_periods
                 fire_manifest_entries[g] = state_entry
         end
 
+        # Keep a rolling log of per-day textual summaries for CLI output.
         @info "Day $(current_day) summary" summary=day_summary_entries
         push!(optimizer_day_rollup, (day=current_day, summary=copy(day_summary_entries)))
 
@@ -1372,6 +1426,8 @@ for t in 0:num_time_periods
                 ))
         end
 
+        # The manifest ties together every JSON/CSV asset generated for this day
+        # so downstream tools can locate the correct files without recomputing.
         manifest_dict = Dict{String,Any}(
                 "generated_at" => Dates.format(Dates.now(), dateformat"YYYY-mm-ddTHH:MM:SS"),
                 "day_index" => t,
@@ -1397,6 +1453,7 @@ for t in 0:num_time_periods
 end
 
 if !isempty(optimizer_day_arc_records)
+        # Aggregate day-level metrics across the whole horizon for quick plotting.
         arc_df = DataFrame(optimizer_day_arc_records)
         select!(arc_df, [:baseline, :day_index, :day_number, :fire_id, :start_day, :current_area, :assigned_crews])
         CSV.write(joinpath(output_folder, "optimizer_arc_summary.csv"), arc_df)

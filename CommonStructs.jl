@@ -22,6 +22,9 @@ struct TimeSpaceNetwork # TODO always make time the first index
 	# hack for fire models
 	start_time_period::Union{Int64, Nothing}
 
+    raw_state_from::Union{Nothing,Vector{Int64}} # preserves packed codes per arc for tracing
+    raw_state_to::Union{Nothing,Vector{Int64}}   # preserves packed codes per arc for tracing
+
 end
 
 struct CrewRouteData

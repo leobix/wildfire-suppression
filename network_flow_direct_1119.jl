@@ -43,66 +43,6 @@ function count_selected_fires(
         return length(unique(selected_fires[:, "FIRE_EVENT_ID"]))
 end
 
-#Ryne added: taken from empiricalmain.jl
-function build_day_one_fire_subset(
-        fire_gaccs::Vector{String},
-        fires_by_gacc::Dict{String,Vector{Int64}},
-        input_folder::String,
-)
-        selected_fires = CSV.read(joinpath(input_folder, "selected_fires.csv"), DataFrame)
-        # normalize column names to handle legacy exports with different casing
-        name_lookup = Dict(lowercase(String(col)) => col for col in names(selected_fires))
-        start_key = "start_day_of_sim" # preferred column for the fire start within the planning window
-        alt_keys = ("sim_start_day_dsfr", "day_since_first_report", "start_day") # fallbacks seen in historical exports
-        if haskey(name_lookup, start_key)
-                start_col = name_lookup[start_key]
-        else
-                start_col = nothing
-                for key in alt_keys
-                        if haskey(name_lookup, key)
-                                start_col = name_lookup[key]
-                                break
-                        end
-                end
-                isnothing(start_col) && error("selected_fires.csv missing 'start_day_of_sim' column required for --day-1-only")
-                selected_fires[!, :start_day_of_sim] = copy(selected_fires[!, start_col])
-        end
-        if start_col !== :start_day_of_sim
-                selected_fires[!, :start_day_of_sim] = copy(selected_fires[!, start_col]) # ensure downstream uses a consistent symbol
-        end
-        selected_fires[!, :GACC] = normalize_gacc.(selected_fires[!, :GACC])
-
-        if !isempty(fires_by_gacc)
-                normalized = Dict{String,Set{Int64}}()
-                for (gacc, fire_list) in fires_by_gacc
-                        normalized[normalize_gacc(gacc)] = Set(Int64.(fire_list)) # store unique fire ids per normalized GACC
-                end
-                mask = falses(nrow(selected_fires))
-                for (gacc, fire_ids) in normalized
-                        mask .|= (selected_fires[:, :GACC] .== gacc) .&
-                                in.(selected_fires[:, :FIRE_EVENT_ID], Ref(fire_ids))
-                end
-        else
-                normalized_gaccs = normalize_gacc.(fire_gaccs)
-                mask = in.(selected_fires[:, :GACC], Ref(normalized_gaccs))
-        end
-
-        mask .&= (selected_fires[:, :start_day_of_sim] .== 0)
-        filtered = selected_fires[mask, :]
-
-        subset = Dict{String,Vector{Int64}}()
-        if nrow(filtered) == 0
-                return subset # no day-0 fires match the requested filters
-        end
-
-        for subdf in groupby(filtered, :GACC)
-                gacc = subdf[1, :GACC]
-                subset[gacc] = collect(unique(Int64.(subdf[!, :FIRE_EVENT_ID])))
-        end
-
-        return subset
-end
-
 function get_command_line_args()
     arg_parse_settings = ArgParseSettings()  # Initialize the argument parser configuration.
     @add_arg_table arg_parse_settings begin  # Declare the supported CLI switches.
@@ -123,6 +63,10 @@ function get_command_line_args()
 			help = "comma-separated list of GACCs (abbreviations like SW,GB,SA are fine)"
 			arg_type = String
 			default = "SW"
+		"--run_label"
+			help = "label appended to output folders for bookkeeping"
+			arg_type = String
+			default = "baseline"
     end
     return parse_args(arg_parse_settings)  # Execute parsing and return a dictionary of arguments.
 end
@@ -382,15 +326,7 @@ println(target_gaccs)
 num_time_periods = 14                     # planning horizon you want
 crew_speed = 40.0 * 6.0                        # keep or change depending on study
 
-day_one_subset = build_day_one_fire_subset(target_gaccs, Dict{String,Vector{Int64}}(), dataset)
-if isempty(day_one_subset)
-	error("No day-1 fires match the requested filters")
-end
-
-filtered_gaccs = collect(keys(day_one_subset))
-num_fires = sum(length(ids) for ids in values(day_one_subset))
-
-# num_fires = count_selected_fires(target_gaccs, Dict{String,Vector{Int64}}(), dataset)
+num_fires = count_selected_fires(target_gaccs, Dict{String,Vector{Int64}}(), dataset)
 
 crew_models, _ = build_crew_models_from_empirical(
 	num_fires,

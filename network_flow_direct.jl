@@ -43,6 +43,9 @@ function count_selected_fires(
         return length(unique(selected_fires[:, "FIRE_EVENT_ID"]))
 end
 
+#Ryne added: ensures the strings are consistent and friendly for folder output names
+slugify(str) = replace(lowercase(strip(str)), r"[^0-9a-z]+" => "_")
+
 function get_command_line_args()
     arg_parse_settings = ArgParseSettings()  # Initialize the argument parser configuration.
     @add_arg_table arg_parse_settings begin  # Declare the supported CLI switches.
@@ -63,6 +66,10 @@ function get_command_line_args()
 			help = "comma-separated list of GACCs (abbreviations like SW,GB,SA are fine)"
 			arg_type = String
 			default = "SW"
+		"--run_label"
+			help = "label appended to output folders for bookkeeping"
+			arg_type = String
+			default = "baseline"
     end
     return parse_args(arg_parse_settings)  # Execute parsing and return a dictionary of arguments.
 end
@@ -72,7 +79,10 @@ function full_network_flow(
 	fire_models::Vector{TimeSpaceNetwork};  # Fire-side time-space networks.
 	integer = true,  # Toggle between LP relaxation and MIP.
 	verbose = false,  # Control solver logging intensity.
-	time_limit = 180.0)  # Wall-clock limit for the solve.
+	time_limit = 180.0,  # Wall-clock limit for the solve.
+	output_dir::Union{Nothing,String} = nothing,
+	fire_meta = nothing, #to track and export original arcs for debugging
+	)
 
 	ub = Inf  # Initialize the best known feasible objective.
 	lb = 0  # Initialize the best known lower bound.
@@ -226,13 +236,19 @@ function full_network_flow(
 		@info "Solve complete cleanly" objective=ub bound=lb gap=(ub - lb)/max(1, abs(ub)) time=solve_seconds
 
 		for fire in 1:num_fires
+			# vals = value.(fire_vars[fire])
+  			# selected = [ix for (ix, v) in pairs(vals) if v > 1e-6]
 			vals = value.(fire_vars[fire])
-			selected = findall(>(1e-6), vals)
+  			selected = [ix for ix in axes(vals, 1) if vals[ix] > 1e-6]
 			for ix in selected
 				arc = fire_models[fire].long_arcs[ix, :]
 				cost = fire_models[fire].arc_costs[ix]
-				raw_from = get(raw_state_lookup[fire], arc[FM.STATE_FROM], arc[FM.STATE_FROM])
-				raw_to = get(raw_state_lookup[fire], arc[FM.STATE_TO], arc[FM.STATE_TO])
+				raw_from = fire_models[fire].raw_state_from === nothing ?
+					get(raw_state_lookup[fire], arc[FM.STATE_FROM], arc[FM.STATE_FROM]) :
+					fire_models[fire].raw_state_from[ix]
+				raw_to = fire_models[fire].raw_state_to === nothing ?
+					get(raw_state_lookup[fire], arc[FM.STATE_TO], arc[FM.STATE_TO]) :
+					fire_models[fire].raw_state_to[ix]
 				personnel = arc[FM.CREWS_PRESENT] * crew_step
 				@info "Fire arc" fire=fire index=ix value=vals[ix] cost=cost arc = repr(arc) data=(
 					state_from_raw = raw_from,
@@ -263,32 +279,132 @@ function full_network_flow(
 			state_to_raw = Int[],
 			personnel = Float64[],
 		)
+		progression_summary = DataFrame(
+			fire = Int[],
+			fire_event_id = String[],
+			day = Int[],
+			acres = Float64[],
+			crews = Float64[],
+		)
 
-		for fire in 1:num_fires
-			vals = value.(fire_vars[fire])
-			selected = findall(>(1e-6), vals)
-			for ix in selected
-				arc = fire_models[fire].long_arcs[ix, :]
-				cost = fire_models[fire].arc_costs[ix]
-				raw_from = get(raw_state_lookup[fire], arc[FM.STATE_FROM], arc[FM.STATE_FROM])
-				raw_to = get(raw_state_lookup[fire], arc[FM.STATE_TO], arc[FM.STATE_TO])
+			for fire in 1:num_fires
+				# vals = value.(fire_vars[fire])
+				# selected = findall(>(1e-6), vals)
+				# vals = value.(fire_vars[fire])
+				# selected = [ix for (ix, v) in pairs(vals) if v > 1e-6]
+				vals = value.(fire_vars[fire])
+				selected = [ix for ix in axes(vals, 1) if vals[ix] > 1e-6]
+				vals_vec = [vals[ix] for ix in selected]
+				for (pos, ix) in enumerate(selected)
+					arc = fire_models[fire].long_arcs[ix, :]
+					cost = fire_models[fire].arc_costs[ix]
+					raw_from = fire_models[fire].raw_state_from === nothing ?
+						get(raw_state_lookup[fire], arc[FM.STATE_FROM], arc[FM.STATE_FROM]) :
+						fire_models[fire].raw_state_from[ix]
+				raw_to = fire_models[fire].raw_state_to === nothing ?
+					get(raw_state_lookup[fire], arc[FM.STATE_TO], arc[FM.STATE_TO]) :
+					fire_models[fire].raw_state_to[ix]
 				personnel = arc[FM.CREWS_PRESENT] * crew_step
-				push!(records, (
-					fire = fire,
-					arc_index = ix,
-					value = vals[ix],
-					cost = cost,
-					state_from_raw = raw_from,
-					time_from = arc[FM.TIME_FROM],
-					time_to = arc[FM.TIME_TO],
-					state_to_raw = raw_to,
+					push!(records, (
+						fire = fire,
+						arc_index = ix,
+						value = vals_vec[pos],
+						cost = cost,
+						state_from_raw = raw_from,
+						time_from = arc[FM.TIME_FROM],
+						time_to = arc[FM.TIME_TO],
+						state_to_raw = raw_to,
 					personnel = personnel,
 				))
 			end
 		end
-		@info "Solve complete cleanly" objective=ub.*1e4 bound=lb.*1e4 gap=(ub - lb)/max(1, abs(ub)) time=solve_seconds
+		gap = (ub - lb) / max(1, abs(ub))
+		@info "Solve complete cleanly" objective=ub.*1e4 bound=lb.*1e4 gap=gap time=solve_seconds
 
-		CSV.write("selected_fire_arcs.csv", records)
+		# CSV.write("selected_fire_arcs.csv", records)
+
+		if isnothing(output_dir)
+			CSV.write("selected_fire_arcs.csv", records)
+		else
+			CSV.write(joinpath(output_dir, "selected_fire_arcs.csv"), records)
+			fire_count = length(fire_models)
+			for fire in 1:fire_count
+				fire_rows = records[records.fire .== fire, :]
+				nrow(fire_rows) == 0 && continue
+				arc_info = fire_meta !== nothing ? fire_meta.fire_order[fire] : Dict{String,Any}()
+				fire_id = get(arc_info, "fire_event_id", fire)
+				arc_file = get(arc_info, "arc_file", "arc_file")
+				filename = string("fire_", slugify(string(fire_id)), "_", slugify(splitext(basename(string(arc_file)))[1]),".csv",)
+				# append the model-state columns so the file mirrors the original arc array
+				selected = fire_rows.arc_index
+				subset = DataFrame(fire_models[fire].long_arcs[selected, :], :auto)
+				rename!(subset, [:col1, :state_from, :time_from_model, :time_to_model, :state_to, :crews_present])
+				fire_export = hcat(fire_rows, subset[:, Not(:col1)])
+				CSV.write(joinpath(output_dir, filename),fire_export)
+				for ix in selected
+					arc = fire_models[fire].long_arcs[ix, :]
+					day = arc[FM.TIME_TO] - 1
+					acres = round(fire_models[fire].arc_costs[ix] * 1e4)
+					crews = arc[FM.CREWS_PRESENT] * crew_step / 50.0
+					push!(progression_summary, (
+						fire = fire,
+						fire_event_id = string(fire_id),
+						day = day,
+						acres = acres,
+						crews = crews,
+					))
+				end
+			end
+			CSV.write(joinpath(output_dir, "fire_progression_summary.csv"), progression_summary)
+		end
+
+		if !isnothing(output_dir)
+				for crew in 1:num_crews
+					# vals = value.(crew_vars[crew])
+					# selected = findall(>(1e-6), vals)
+					# vals = value.(crew_vars[crew])
+					# selected = [ix for (ix, v) in pairs(vals) if v > 1e-6]
+					vals = value.(crew_vars[crew])
+					selected = [ix for ix in axes(vals, 1) if vals[ix] > 1e-6]
+					isempty(selected) && continue
+					vals_vec = [vals[ix] for ix in selected]
+					crew_arc_data = DataFrame(
+						crew_models[crew].long_arcs[selected, :], [:crew_number, :from_type, :loc_from, :to_type, :loc_to, :time_from, :time_to, :rest_from, :rest_to],
+					)
+					crew_export = DataFrame(
+						arc_index = selected,
+						value = vals_vec,
+						cost = crew_models[crew].arc_costs[selected],
+					)
+				crew_export = hcat(crew_export, crew_arc_data)
+				crew_filename = string("crew_", lpad(string(crew), 3, '0'), "_selected_arcs.csv")
+				CSV.write(joinpath(output_dir, crew_filename), crew_export)
+			end
+
+			summary_payload = Dict(
+				"objective" => round(ub * 1e4),
+				"bound" => round(lb * 1e4),
+				"gap" => gap,
+				"solve_seconds" => solve_seconds,
+			)
+			summary_path = joinpath(output_dir, "run_summary.json")
+			summary_json = JSON.json(summary_payload)
+			open(summary_path, "w") do io
+				write(io, summary_json)
+			end
+		else
+			summary_payload = Dict(
+				"objective" => round(ub * 1e4),
+				"bound" => round(lb * 1e4),
+				"gap" => gap,
+				"solve_seconds" => solve_seconds,
+			)
+			summary_json = JSON.json(summary_payload)
+			open("run_summary.json", "w") do io
+				write(io, summary_json)
+			end
+		end
+
 	end
 
 	return lb, ub  # Return both bounds to the caller.
@@ -300,6 +416,16 @@ args = get_command_line_args()  # Parse CLI configuration once on startup.
 dataset = joinpath(@__DIR__, "..", "ai_wildfire", "fire_models_" * args["date"])
 raw_gaccs = split(strip(args["gaccs"]), ',')
 target_gaccs = [String(normalize_gacc(strip(g))) for g in raw_gaccs if !isempty(strip(g))]
+
+#Ryne added: creates output folder for this specific run
+# gacc_slug = join([slugify(g) for g in target_gaccs], "-")
+# gacc_slug = join([slugify(g) for g in raw_gaccs], "-")
+gacc_slug = join([uppercase(strip(g)) for g in raw_gaccs if !isempty(strip(g))],"-")
+run_label_slug = slugify(args["run_label"])
+run_folder = string(args["date"], "_", gacc_slug, "_", run_label_slug)
+run_output_dir = joinpath(args["directory_output"], run_folder)
+mkpath(run_output_dir)
+
 # target_gaccs = ["Southwest"]
 println(dataset)
 println(target_gaccs)
@@ -355,4 +481,4 @@ for (f, entry) in enumerate(fire_meta.fire_order)
 end
 crew_step = hasproperty(fire_meta, :crew_step) ? fire_meta.crew_step : 50  #firefighters per crew
 
-full_network_flow(crew_models, fire_models, verbose = false, integer = true, time_limit = 1200)
+full_network_flow(crew_models, fire_models, verbose = false, integer = true, time_limit = 300, output_dir = run_output_dir, fire_meta = fire_meta)

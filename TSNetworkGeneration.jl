@@ -911,7 +911,7 @@ function build_crew_models_from_empirical(
         end
 
         crew_sp =
-            TimeSpaceNetwork(crew_arc_costs, state_in_arcs, state_out_arcs, "crew", crew_arcs, crew_wide_arcs, copy(crew_arc_costs), falses(length(crew_arc_costs)), linking_dual_arc_lookup, nothing)
+            TimeSpaceNetwork(crew_arc_costs, state_in_arcs, state_out_arcs, "crew", crew_arcs, crew_wide_arcs, copy(crew_arc_costs), falses(length(crew_arc_costs)), linking_dual_arc_lookup, nothing, nothing, nothing)
         push!(crew_sps, crew_sp)
     end
 
@@ -1025,7 +1025,7 @@ function build_crew_models(
         end
 
         crew_sp =
-            TimeSpaceNetwork(crew_arc_costs, state_in_arcs, state_out_arcs, "crew", crew_arcs, crew_wide_arcs, copy(crew_arc_costs), falses(length(crew_arc_costs)), linking_dual_arc_lookup, nothing)
+            TimeSpaceNetwork(crew_arc_costs, state_in_arcs, state_out_arcs, "crew", crew_arcs, crew_wide_arcs, copy(crew_arc_costs), falses(length(crew_arc_costs)), linking_dual_arc_lookup, nothing, nothing, nothing)
         push!(crew_sps, crew_sp)
     end
 
@@ -1450,7 +1450,9 @@ function build_fire_models(
             copy(arc_costs[round_type]),
             falses(length(arc_costs[round_type])),
             linking_dual_arc_lookup,
-            nothing
+            nothing,
+            nothing,
+            nothing,
         )
         push!(fire_models, fire_model)
     end
@@ -1560,6 +1562,8 @@ function build_fire_models_from_empirical(
 
         num_states = 0
         state_meta_lookup = Dict{Int64, Dict{String,Any}}()
+        raw_state_from = copy(arc_array[:, FM.STATE_FROM]) # snapshot packed labels before remapping
+        raw_state_to = copy(arc_array[:, FM.STATE_TO])     # snapshot packed labels before remapping
 
         # Track decoded state metadata so downstream analytics can recover the original labels.
         function ensure_state_entry!(
@@ -1723,6 +1727,8 @@ function build_fire_models_from_empirical(
             falses(length(arc_costs)),
             linking_dual_arc_lookup,
             start_day,
+            raw_state_from,
+            raw_state_to,
         )
         push!(fire_models, fire_model)
 

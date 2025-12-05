@@ -70,18 +70,23 @@ function normalize_gacc(g::AbstractString)
 end
 
 const JULIA_EXT_STATE_CODE = 1
+const ACTIVE_OFFSET = JULIA_EXT_STATE_CODE + 1
 
 function unpack_state(code::Int, num_bins::Int)
+    terminal_base = ACTIVE_OFFSET + num_bins * num_bins
     if code == JULIA_EXT_STATE_CODE
-        return (nothing, 1)
+        return (nothing, 1, :extinguished)
+    elseif code ≥ terminal_base
+        area_idx = code - terminal_base + 1
+        return (nothing, area_idx, :terminal)
     end
-    active = code - (JULIA_EXT_STATE_CODE + 1)
+    active = code - ACTIVE_OFFSET
     if active < 0
-        return (nothing, 1)
+        return (nothing, 1, :extinguished)
     end
     next_idx = active ÷ num_bins + 1
     prev_idx = active % num_bins + 1
-    return (prev_idx, next_idx)
+    return (prev_idx, next_idx, :active)
 end
 
 function load_discretization_bins(path::String)
@@ -1573,6 +1578,7 @@ function build_fire_models_from_empirical(
             next_idx::Union{Nothing,Int}=nothing,
             area_discrete::Union{Nothing,Float64}=nothing,
             area_sim::Union{Nothing,Float64}=nothing,
+            is_terminal::Bool=false,
         )
             entry = get!(state_meta_lookup, idx) do
                 Dict{String,Any}("state_id" => idx)
@@ -1612,6 +1618,10 @@ function build_fire_models_from_empirical(
                 end
             end
 
+            if is_terminal
+                entry["is_terminal"] = true
+            end
+
             return entry
         end
 
@@ -1644,23 +1654,35 @@ function build_fire_models_from_empirical(
         else
             state_cache = Dict{Int64, Int64}()
             num_bins = length(discretization_bins)
+            terminal_base = ACTIVE_OFFSET + num_bins * num_bins
 
             function decode_and_cache!(code::Int64)
                 cache_val = get(state_cache, code, nothing)
                 if isnothing(cache_val)
-                    prev_idx_raw, next_idx_raw = unpack_state(code, num_bins)
-                    prev_idx_clamped = isnothing(prev_idx_raw) ? nothing : clamp(prev_idx_raw, 1, num_bins)
-                    next_idx_clamped = clamp(next_idx_raw, 1, num_bins)
-                    state_cache[code] = next_idx_clamped
-                    sim_area = discretization_bins[next_idx_clamped]
-                    ensure_state_entry!(
-                        next_idx_clamped,
+                    prev_idx_raw, next_idx_raw, state_type = unpack_state(code, num_bins)
+                    idx = if state_type == :terminal
+                        num_bins + next_idx_raw
+                    elseif state_type == :extinguished
+                        JULIA_EXT_STATE_CODE
+                    else
+                        clamp(next_idx_raw, 1, num_bins)
+                    end
+                    state_cache[code] = idx
+                    area_idx = clamp(next_idx_raw, 1, num_bins)
+                    sim_area = discretization_bins[area_idx]
+                    entry = ensure_state_entry!(
+                        idx,
                         code;
                         prev_idx = prev_idx_raw,
                         next_idx = next_idx_raw,
-                        area_discrete = discretization_bins[next_idx_clamped],
+                        area_discrete = discretization_bins[area_idx],
                         area_sim = sim_area,
                     )
+                    if state_type == :terminal
+                        entry["is_terminal"] = true
+                    elseif state_type == :extinguished
+                        entry["is_terminal"] = true
+                    end
                 end
                 return state_cache[code]
             end
@@ -1672,7 +1694,7 @@ function build_fire_models_from_empirical(
                 arc_array[i, FM.STATE_FROM] = decode_and_cache!(from_state)
                 arc_array[i, FM.STATE_TO] = decode_and_cache!(to_state)
             end
-            num_states = maximum(vcat(arc_array[:, FM.STATE_FROM], arc_array[:, FM.STATE_TO]))
+            num_states = maximum(values(state_cache))
         end
 
         # for each arc, we need to update the linking_dual_arc_lookup

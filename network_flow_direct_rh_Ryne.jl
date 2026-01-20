@@ -419,13 +419,62 @@ function full_network_flow(
             mkpath(output_dir)
             CSV.write(joinpath(output_dir, "selected_fire_arcs.csv"), records)
             fire_count = length(fire_models)
-            progression_summary = DataFrame(
-                fire = Int[],
-                fire_event_id = String[],
-                day = Int[],
-                acres = Float64[],
-                crews = Float64[],
-            )
+        progression_summary = DataFrame(
+            fire = Int[],
+            fire_event_id = String[],
+            day = Int[],
+            acres = Float64[],
+            crews = Float64[],
+        )
+
+        crews_on_fire_counts = Int[]
+        crews_in_transit_counts = Int[]
+        crews_resting_counts = Int[]
+        crews_at_base_counts = Int[]
+
+        function ensure_length!(vec::Vector{T}, len::Int) where {T}
+            current = length(vec)
+            if current < len
+                resize!(vec, len)
+                for idx in (current + 1):len
+                    vec[idx] = zero(T)
+                end
+            end
+        end
+
+        function accumulate_range!(vec::Vector{Int}, start_day::Int, end_day::Int, amount::Int)
+            if end_day <= start_day
+                return
+            end
+            for day in max(start_day, 0):(end_day - 1)
+                idx = day + 1
+                ensure_length!(vec, idx)
+                vec[idx] += amount
+            end
+        end
+
+        function classify_arc_status(arc)::Symbol
+            ft = arc[CM.FROM_TYPE]
+            tt = arc[CM.TO_TYPE]
+            lf = arc[CM.LOC_FROM]
+            lt = arc[CM.LOC_TO]
+            rt = arc[CM.REST_TO]
+            if tt == CM.FIRE_CODE && ft == CM.FIRE_CODE && lf == lt
+                return :fire
+            elseif (ft == CM.BASE_CODE && tt == CM.FIRE_CODE) || (ft == CM.FIRE_CODE && tt == CM.BASE_CODE)
+                return :travel
+            elseif tt == CM.FIRE_CODE && ft == CM.FIRE_CODE && lf != lt
+                return :travel
+            elseif tt == CM.BASE_CODE && rt > 0
+                return :rest
+            elseif ft == CM.BASE_CODE && tt == CM.BASE_CODE && rt > 0
+                return :rest
+            elseif tt == CM.BASE_CODE
+                return :base
+            else
+                return :base
+            end
+        end
             for fire in 1:fire_count
                 fire_rows = records[records.fire .== fire, :]
                 nrow(fire_rows) == 0 && continue
@@ -461,6 +510,11 @@ function full_network_flow(
                     ))
                 end
             end
+            for row in eachrow(progression_summary)
+                day_idx = max(0, Int(row.day))
+                ensure_length!(crews_on_fire_counts, day_idx + 1)
+                crews_on_fire_counts[day_idx + 1] += Int(round(row.crews))
+            end
             CSV.write(joinpath(output_dir, "fire_progression_summary.csv"), progression_summary)
 
             for crew in 1:num_crews
@@ -479,7 +533,43 @@ function full_network_flow(
                 crew_export = hcat(crew_export, crew_arc_data)
                 crew_filename = string("crew_", lpad(string(crew), 3, '0'), "_selected_arcs.csv")
                 CSV.write(joinpath(output_dir, crew_filename), crew_export)
+                for ix in selected
+                    arc = crew_models[crew].long_arcs[ix, :]
+                    status = classify_arc_status(arc)
+                    start_day = Int(max(0, arc[CM.TIME_FROM]))
+                    end_day = Int(max(0, arc[CM.TIME_TO]))
+                    if status == :travel
+                        accumulate_range!(crews_in_transit_counts, start_day, end_day, 1)
+                    elseif status == :rest
+                        accumulate_range!(crews_resting_counts, start_day, end_day, 1)
+                    elseif status == :base
+                        accumulate_range!(crews_at_base_counts, start_day, end_day, 1)
+                    else
+                        accumulate_range!(crews_on_fire_counts, start_day, end_day, 1)
+                    end
+                end
             end
+
+            lengths = [
+                length(crews_on_fire_counts),
+                length(crews_in_transit_counts),
+                length(crews_resting_counts),
+                length(crews_at_base_counts),
+            ]
+            max_days = max(1, maximum([num_times, maximum(lengths)]))
+            for vec in (crews_on_fire_counts, crews_in_transit_counts, crews_resting_counts, crews_at_base_counts)
+                ensure_length!(vec, max_days)
+            end
+            status_df = DataFrame(
+                baseline = fill("Optimizer RH", max_days),
+                day_index = collect(0:(max_days - 1)),
+                day_number = collect(1:max_days),
+                crews_on_fire = crews_on_fire_counts,
+                crews_in_transit = crews_in_transit_counts,
+                crews_resting = crews_resting_counts,
+                crews_at_base = crews_at_base_counts,
+            )
+            CSV.write(joinpath(output_dir, "crew_status.csv"), status_df)
 
             summary_payload = Dict(
                 "objective" => round(ub * 1e4),

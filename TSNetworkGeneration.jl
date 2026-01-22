@@ -678,6 +678,9 @@ function build_crew_models_from_empirical(
     # remove the "start_day_of_sim" column from tau_base_to_fire
     select!(tau_base_to_fire, Not(:start_day_of_sim))
 
+    # Capture crew names before dropping metadata so we can align with empirical starts.
+    crew_names = string.(names(tau_base_to_fire)[2:end])
+
     # turn the tau_base_to_fire into a matrix, dropping the columns names and the fire_id column
     tau_base_to_fire = Matrix(tau_base_to_fire)
     tau_base_to_fire = tau_base_to_fire[:, 2:end] # drop the first column (fire ids)
@@ -769,53 +772,70 @@ function build_crew_models_from_empirical(
         error("Not enough crews to assign to fires")
     end
 
-    unassigned_crews = 1:num_crews
-
-    # Seed initial crew assignments by greedily matching closest available crews to each active fire.
-    current_fire = [-1 for _ in 1:num_crews]
-    for i in 1:num_fires
-        
-        #  get the closest crews to this fire
-        order = sortperm(
-            [tau_base_to_fire[c, i] for c in unassigned_crews],
-            rev = false,
-        )
-        # assign the crews to the fire, up to the number of crews at this fire
-        for j in 1:type_1_crews[i]
-            crew = unassigned_crews[order[j]]
-            current_fire[crew] = i
-            unassigned_crews = [i for i in unassigned_crews if i != crew]
+    crew_start_path = joinpath(fire_folder, "empirical_crew_start.csv")
+    if !isfile(crew_start_path)
+        error("Crew start specification not found at $(crew_start_path)")
+    end
+    crew_start_df = CSV.read(crew_start_path, DataFrame)
+    name_col = if :crew_id in names(crew_start_df)
+        :crew_id
+    elseif :crew in names(crew_start_df)
+        :crew
+    else
+        nothing
+    end
+    crew_row_lookup = Dict{String,DataFrameRow}()
+    if name_col !== nothing
+        for row in eachrow(crew_start_df)
+            val = row[name_col]
+            if !(val === nothing || val === missing)
+                crew_row_lookup[string(val)] = row
+            end
         end
-
+    end
+    fallback_rows = collect(eachrow(crew_start_df))
+    fallback_idx = 1
+    fire_lookup = Dict{String,Int}()
+    for (pos, fid) in enumerate(string.(selected_fires[idx, "FIRE_EVENT_ID"]))
+        fire_lookup[fid] = pos
     end
 
-    # Approximate how long each crew can keep working before rest is mandatory.
-    rest_by = []
-    rested_periods = []
+    rest_by = fill(num_time_periods, num_crews)
+    current_fire = fill(-1, num_crews)
+    rested_periods = fill(0, num_crews)
 
-    # if a crew is at a fire, they have to rest in some random number of days from 5 to num_time_periods
-    # but we want to seed this for reproducibility
-    
-    Random.seed!(1234)
-    for i in 1:num_crews
-        if current_fire[i] != -1
-            append!(rest_by, rand(5:num_time_periods))
-            append!(rested_periods, -1)
+    for (i, crew_name) in enumerate(crew_names)
+        row = get(crew_row_lookup, crew_name, nothing)
+        if row === nothing
+            if fallback_idx <= length(fallback_rows)
+                row = fallback_rows[fallback_idx]
+                fallback_idx += 1
+            else
+                continue
+            end
+        end
+        rb = hasproperty(row, :rest_by) && !(row[:rest_by] === missing) ? Int(row[:rest_by]) : num_time_periods
+        rest_by[i] = rb
+        rp = hasproperty(row, :rested_periods) && !(row[:rested_periods] === missing) ? Int(row[:rested_periods]) : 0
+        rested_periods[i] = rp
+        fire_token = ""
+        if :current_fire_id in names(crew_start_df)
+            val = row[:current_fire_id]
+            if !(val === nothing || val === missing)
+                fire_token = string(val)
+            end
+        end
+        if fire_token != ""
+            current_fire[i] = get(fire_lookup, fire_token, -1)
         else
-            append!(rest_by, num_time_periods)
-            append!(rested_periods, rand(0:1))
+            cf_val = hasproperty(row, :current_fire) && !(row[:current_fire] === missing) ? Int(row[:current_fire]) : -1
+            if cf_val >= 1 && cf_val <= num_fires
+                current_fire[i] = cf_val
+            else
+                current_fire[i] = -1
+            end
         end
     end
-
-    # make a CSV file with these three columns and write it
-    # Users can inspect emprical_crew_starts.csv to validate the seeding.
-    crew_starts = DataFrame(
-        rest_by = rest_by,
-        current_fire = current_fire,
-        rested_periods = rested_periods,
-    )
-    CSV.write(fire_folder * "/" * "emprical_crew_starts.csv", crew_starts)
-
 
     crew_status = LocationAndRestStatus(rest_by, current_fire, rested_periods)
     dists_and_times = DistancesAndTravelTimes(fire_dists, base_fire_dists, tau, tau_base_to_fire)

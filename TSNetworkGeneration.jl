@@ -38,6 +38,55 @@ end
 const CM = CrewArcArrayIndices # short alias for the crew index namespace
 const FM = FireArcArrayIndices # short alias for the fire index namespace
 
+const NON_FRONTLINE_PREFIXES = [
+    "personnel_Overhead",
+    "personnel_Ambulance",
+    "personnel_Technical Rescue Team",
+    "personnel_Hazardous Materials Unit",
+    "personnel_Medic Squad",
+    "personnel_Mobile Communications Center",
+    "personnel_Canine, SAR",
+    "personnel_Mobile Kitchen Unit",
+    "personnel_Fixed Wing, Air Tactical",
+    "personnel_Track Vehicle",
+    "personnel_Boat, Rescue",
+    "personnel_Tender, Potable Water",
+    "personnel_Shower, Mobile",
+    "personnel_Rescue/Medical Unit",
+    "personnel_Decontamination Unit",
+    "personnel_Urban SAR Team",
+    "personnel_Fixed Wing, ASM",
+    "personnel_Transportation, Bus, Coach",
+    "personnel_Boat, Transportation",
+    "personnel_Crash Rescue (Aircraft)",
+    "personnel_Crew, Camp",
+    "personnel_Illumination Unit (Lighting)",
+    "personnel_Food Dispensing Unit",
+    "personnel_GIS Unit",
+    "personnel_Mountain SAR Team",
+    "personnel_Salvage Unit",
+    "personnel_Water Rescue Team",
+    "personnel_Truck, Hazmat",
+    "personnel_Underwater Search & Recovery Team",
+    "personnel_Water Purification Plant",
+    "personnel_Air Supply Truck",
+    "personnel_ALS Ambulance",
+    "personnel_Rescue Unit",
+    "personnel_Aerial Apparatus",
+    "personnel_Air Attack Platform",
+    "personnel_Laundry, Mobile",
+    "personnel_Alpine Rescue Team",
+    "personnel_Underwater SAR",
+    "personnel_Canine, Police",
+    "personnel_Canine Search Team",
+    "personnel_Heavy Rescue Unit",
+    "personnel_Air Attack",
+    "personnel_Support (All Types)",
+    "personnel_Lead Plane",
+    "personnel_Reconnaissance Aircraft",
+    "personnel_ASM",
+]
+
 const GACC_CANONICAL = Dict(
     "ALASKA" => "Alaska",
     "EASTERN" => "Eastern",
@@ -244,6 +293,8 @@ function generate_arcs(
     ]
     if length(from_start_rf) > 0
         from_start_rf = copy(reduce(hcat, from_start_rf)')
+    else
+        from_start_rf = zeros(Int64, 0, 9)
     end
 
     # get fire-to-base arcs
@@ -317,7 +368,11 @@ function generate_arcs(
             rest]
         for c ∈ 1:num_crews, rest ∈ 0:1 if crew_status.current_fire[c] == -1
     ]
-    from_start_rr = copy(reduce(hcat, from_start_rr)')
+    if length(from_start_rr) > 0
+        from_start_rr = copy(reduce(hcat, from_start_rr)')
+    else
+        from_start_rr = zeros(Int64, 0, 9)
+    end
 
     # Stack all arc families into one giant matrix that downstream routines
     # expect; each row is one potential movement option.
@@ -746,8 +801,24 @@ function build_crew_models_from_empirical(
 
     # TODO make better crew starts
 
-    # get the personnel (type 1 crews) at each fire
-    type_1_crews = selected_fires[idx, "personnel_Crew, Type 1"]
+    # compute adjusted frontline personnel and convert to crew counts
+    adjusted_personnel = zeros(Float64, num_fires)
+    if :total_personnel in names(selected_fires)
+        totals = coalesce.(selected_fires[idx, :total_personnel], 0.0)
+        adjusted_personnel .= Float64.(totals)
+        for prefix in NON_FRONTLINE_PREFIXES
+            sym = Symbol(prefix)
+            if sym in names(selected_fires)
+                adjusted_personnel .-= Float64.(coalesce.(selected_fires[idx, sym], 0.0))
+            end
+        end
+        for j in 1:num_fires
+            if adjusted_personnel[j] < 0.0
+                adjusted_personnel[j] = 0.0
+            end
+        end
+    end
+    type_1_crews = ceil.(Int, adjusted_personnel ./ initial_firefighters_per_crew)
 
     # get the fires that are active at day 0
     fires_start_day = selected_fires[idx, "start_day_of_sim"]
@@ -802,7 +873,6 @@ function build_crew_models_from_empirical(
 
     rest_by = fill(num_time_periods, num_crews)
     current_fire = fill(-1, num_crews)
-    rested_periods = fill(0, num_crews)
 
     for (i, crew_name) in enumerate(crew_names)
         row = get(crew_row_lookup, crew_name, nothing)
@@ -816,8 +886,6 @@ function build_crew_models_from_empirical(
         end
         rb = hasproperty(row, :rest_by) && !(row[:rest_by] === missing) ? Int(row[:rest_by]) : num_time_periods
         rest_by[i] = rb
-        rp = hasproperty(row, :rested_periods) && !(row[:rested_periods] === missing) ? Int(row[:rested_periods]) : 0
-        rested_periods[i] = rp
         fire_token = ""
         if :current_fire_id in names(crew_start_df)
             val = row[:current_fire_id]
@@ -837,7 +905,7 @@ function build_crew_models_from_empirical(
         end
     end
 
-    crew_status = LocationAndRestStatus(rest_by, current_fire, rested_periods)
+    crew_status = LocationAndRestStatus(rest_by, current_fire, zeros(Int, num_crews))
     dists_and_times = DistancesAndTravelTimes(fire_dists, base_fire_dists, tau, tau_base_to_fire)
 
     # write these four matrices to CSV files as well

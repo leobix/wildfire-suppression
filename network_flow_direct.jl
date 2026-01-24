@@ -82,6 +82,7 @@ function full_network_flow(
 	time_limit = 180.0,  # Wall-clock limit for the solve.
 	output_dir::Union{Nothing,String} = nothing,
 	fire_meta = nothing, #to track and export original arcs for debugging
+	crew_rest_deadlines::Union{Nothing,Vector{Int}} = nothing,
 	)
 
 	ub = Inf  # Initialize the best known feasible objective.
@@ -291,6 +292,7 @@ function full_network_flow(
 		crews_in_transit_counts = Int[]
 		crews_resting_counts = Int[]
 		crews_at_base_counts = Int[]
+		fire_daily_counts = [Int[] for _ in 1:num_fires]
 
 		function ensure_length!(vec::Vector{T}, len::Int) where {T}
 			current = length(vec)
@@ -404,12 +406,6 @@ function full_network_flow(
 					))
 				end
 			end
-				for row in eachrow(progression_summary)
-					day_idx = max(0, Int(row.day))
-					idx = day_idx + 1
-					ensure_length!(crews_on_fire_counts, idx)
-					crews_on_fire_counts[idx] += Int(round(row.crews))
-				end
 				CSV.write(joinpath(output_dir, "fire_progression_summary.csv"), progression_summary)
 		end
 
@@ -420,8 +416,11 @@ function full_network_flow(
 					# vals = value.(crew_vars[crew])
 					# selected = [ix for (ix, v) in pairs(vals) if v > 1e-6]
 					vals = value.(crew_vars[crew])
-					selected = [ix for ix in axes(vals, 1) if vals[ix] > 1e-6]
-					isempty(selected) && continue
+				selected = [ix for ix in axes(vals, 1) if vals[ix] > 1e-6]
+				if isempty(selected)
+					accumulate_range!(crews_at_base_counts, 0, num_times, 1)
+					continue
+				end
 					vals_vec = [vals[ix] for ix in selected]
 					crew_arc_data = DataFrame(
 						crew_models[crew].long_arcs[selected, :], [:crew_number, :from_type, :loc_from, :to_type, :loc_to, :time_from, :time_to, :rest_from, :rest_to],
@@ -434,30 +433,73 @@ function full_network_flow(
 				crew_export = hcat(crew_export, crew_arc_data)
 				crew_filename = string("crew_", lpad(string(crew), 3, '0'), "_selected_arcs.csv")
 				CSV.write(joinpath(output_dir, crew_filename), crew_export)
+				has_positive_duration = false
+				crew_needs_rest = crew_rest_deadlines === nothing ? true : (crew_rest_deadlines[crew] <= num_times)
 				for ix in selected
 					arc = crew_models[crew].long_arcs[ix, :]
 					status = classify_arc_status(arc)
+					if status == :rest && !crew_needs_rest
+						status = :base
+					end
 					start_day = Int(max(0, arc[CM.TIME_FROM]))
 					end_day = Int(max(0, arc[CM.TIME_TO]))
+					if end_day > start_day
+						has_positive_duration = true
+					end
 					if status == :travel
 						accumulate_range!(crews_in_transit_counts, start_day, end_day, 1)
 					elseif status == :rest
 						accumulate_range!(crews_resting_counts, start_day, end_day, 1)
 					elseif status == :base
 						accumulate_range!(crews_at_base_counts, start_day, end_day, 1)
+					elseif status == :fire
+						accumulate_range!(crews_on_fire_counts, start_day, end_day, 1)
+						loc = Int(arc[CM.LOC_TO])
+						if 1 <= loc <= length(fire_daily_counts)
+							vec = fire_daily_counts[loc]
+							for day in max(0, start_day):(end_day - 1)
+								idx = day + 1
+								ensure_length!(vec, idx)
+								vec[idx] += 1
+							end
+						end
 					end
+				end
+				if !has_positive_duration
+					accumulate_range!(crews_at_base_counts, 0, num_times, 1)
 				end
 			end
 
-			lengths = [
-				length(crews_on_fire_counts),
-				length(crews_in_transit_counts),
-				length(crews_resting_counts),
-				length(crews_at_base_counts),
-			]
-			max_days = max(1, max(num_times, maximum(lengths)))
+			fire_daily_records = DataFrame(
+				fire = Int[],
+				fire_event_id = String[],
+				day = Int[],
+				crews = Int[],
+			)
+			for (fire_idx, counts) in enumerate(fire_daily_counts)
+				fire_info = fire_meta !== nothing ? fire_meta.fire_order[fire_idx] : Dict{String,Any}()
+				fire_id = haskey(fire_info, "fire_event_id") ? fire_info["fire_event_id"] : fire_idx
+				for (day_idx, crews) in enumerate(counts)
+					if crews <= 0
+						continue
+					end
+					push!(fire_daily_records, (
+						fire = fire_idx,
+						fire_event_id = string(fire_id),
+						day = day_idx - 1,
+						crews = crews,
+					))
+				end
+			end
+			CSV.write(joinpath(output_dir, "fire_daily_crews.csv"), fire_daily_records)
+
+			max_days = max(1, num_times)
 			for vec in (crews_on_fire_counts, crews_in_transit_counts, crews_resting_counts, crews_at_base_counts)
-				ensure_length!(vec, max_days)
+				if length(vec) > max_days
+					resize!(vec, max_days)
+				else
+					ensure_length!(vec, max_days)
+				end
 			end
 			status_df = DataFrame(
 				baseline = fill("Optimizer", max_days),
@@ -531,7 +573,7 @@ crew_speed = 40.0 * 6.0                        # keep or change depending on stu
 
 num_fires = count_selected_fires(target_gaccs, Dict{String,Vector{Int64}}(), dataset)
 
-crew_models, _ = build_crew_models_from_empirical(
+crew_models, crew_info = build_crew_models_from_empirical(
 	num_fires,
 	num_time_periods,
 	crew_speed;
@@ -570,4 +612,13 @@ for (f, entry) in enumerate(fire_meta.fire_order)
 end
 crew_step = hasproperty(fire_meta, :crew_step) ? fire_meta.crew_step : 50  #firefighters per crew
 
-full_network_flow(crew_models, fire_models, verbose = false, integer = true, time_limit = 300, output_dir = run_output_dir, fire_meta = fire_meta)
+full_network_flow(
+	crew_models,
+	fire_models,
+	verbose = false,
+	integer = true,
+	time_limit = 300,
+	output_dir = run_output_dir,
+	fire_meta = fire_meta,
+	crew_rest_deadlines = hasproperty(crew_info, :rest_by) ? crew_info.rest_by : nothing,
+)

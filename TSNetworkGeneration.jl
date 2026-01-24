@@ -218,7 +218,7 @@ function generate_arcs(
     num_crews::Int64,
     num_fires::Int64,
     num_time_periods::Int64,
-    break_length::Int64=2,
+    break_length::Int64=3,
 )
 
     # get fire-to-fire arcs
@@ -677,6 +677,7 @@ function build_crew_models_from_empirical(
     fire_folder::String = "data/empirical_fire_models/raw/arc_arrays",
     sorted_fire_output_folder::Union{Nothing,String} = nothing,
     zero_crew_costs::Bool = false,
+    rest_periods::Int = 3,
 )
 
     # read in the selected fires
@@ -873,6 +874,7 @@ function build_crew_models_from_empirical(
 
     rest_by = fill(num_time_periods, num_crews)
     current_fire = fill(-1, num_crews)
+    rested_periods = fill(0, num_crews)
 
     for (i, crew_name) in enumerate(crew_names)
         row = get(crew_row_lookup, crew_name, nothing)
@@ -902,10 +904,15 @@ function build_crew_models_from_empirical(
             else
                 current_fire[i] = -1
             end
+            end
+        rp = hasproperty(row, :rested_periods) && !(row[:rested_periods] === missing) ? Int(row[:rested_periods]) : 0
+        rested_periods[i] = min(rest_periods, max(0, rp))
+        if current_fire[i] == -1 && rested_periods[i] >= rest_periods
+            rest_by[i] = num_time_periods + 1
         end
     end
 
-    crew_status = LocationAndRestStatus(rest_by, current_fire, zeros(Int, num_crews))
+    crew_status = LocationAndRestStatus(rest_by, current_fire, rested_periods)
     dists_and_times = DistancesAndTravelTimes(fire_dists, base_fire_dists, tau, tau_base_to_fire)
 
     # write these four matrices to CSV files as well
@@ -921,6 +928,7 @@ function build_crew_models_from_empirical(
         num_crews,
         num_fires,
         num_time_periods,
+        rest_periods,
     )
 
     # Build static arc cost parameters; tests sometimes request zero-cost networks.
@@ -1014,6 +1022,8 @@ function build_crew_models_from_empirical(
         start_days = fire_start_days,
         crew_assignments = current_fire,
         crews_per_fire = type_1_crews,
+        rest_by = rest_by,
+        rested_periods = rested_periods,
         selection = "Filtered to GACCs $(join(fire_gaccs, ",")) and sorted by start_day_of_sim then FIRE_EVENT_ID"
     )
 

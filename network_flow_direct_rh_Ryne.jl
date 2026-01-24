@@ -173,6 +173,7 @@ function full_network_flow(
     time_limit = 180.0,
     output_dir::Union{Nothing,String} = nothing,
     fire_meta = nothing,
+    crew_rest_deadlines::Union{Nothing,Vector{Int}} = nothing,
     fixed_fire_values::Union{Nothing,Vector{Dict{Int64, Float64}}} = nothing,
     fixed_crew_values::Union{Nothing,Vector{Dict{Int64, Float64}}} = nothing,
     active_fires::Vector{Int} = collect(1:length(fire_models)),
@@ -431,6 +432,7 @@ function full_network_flow(
         crews_in_transit_counts = Int[]
         crews_resting_counts = Int[]
         crews_at_base_counts = Int[]
+        fire_daily_counts = [Int[] for _ in 1:fire_count]
 
         function ensure_length!(vec::Vector{T}, len::Int) where {T}
             current = length(vec)
@@ -510,16 +512,14 @@ function full_network_flow(
                     ))
                 end
             end
-            for row in eachrow(progression_summary)
-                day_idx = max(0, Int(row.day))
-                ensure_length!(crews_on_fire_counts, day_idx + 1)
-                crews_on_fire_counts[day_idx + 1] += Int(round(row.crews))
-            end
             CSV.write(joinpath(output_dir, "fire_progression_summary.csv"), progression_summary)
 
             for crew in 1:num_crews
                 selected = crew_selected[crew]
-                isempty(selected) && continue
+                if isempty(selected)
+                    accumulate_range!(crews_at_base_counts, 0, num_time_periods, 1)
+                    continue
+                end
                 vals = crew_selected_values[crew]
                 crew_arc_data = DataFrame(
                     crew_models[crew].long_arcs[selected, :],
@@ -533,11 +533,19 @@ function full_network_flow(
                 crew_export = hcat(crew_export, crew_arc_data)
                 crew_filename = string("crew_", lpad(string(crew), 3, '0'), "_selected_arcs.csv")
                 CSV.write(joinpath(output_dir, crew_filename), crew_export)
+                has_positive_duration = false
+                crew_needs_rest = crew_rest_deadlines === nothing ? true : (crew_rest_deadlines[crew] <= num_time_periods)
                 for ix in selected
                     arc = crew_models[crew].long_arcs[ix, :]
                     status = classify_arc_status(arc)
+                    if status == :rest && !crew_needs_rest
+                        status = :base
+                    end
                     start_day = Int(max(0, arc[CM.TIME_FROM]))
                     end_day = Int(max(0, arc[CM.TIME_TO]))
+                    if end_day > start_day
+                        has_positive_duration = true
+                    end
                     if status == :travel
                         accumulate_range!(crews_in_transit_counts, start_day, end_day, 1)
                     elseif status == :rest
@@ -546,19 +554,52 @@ function full_network_flow(
                         accumulate_range!(crews_at_base_counts, start_day, end_day, 1)
                     else
                         accumulate_range!(crews_on_fire_counts, start_day, end_day, 1)
+                        loc = Int(arc[CM.LOC_TO])
+                        if 1 <= loc <= length(fire_daily_counts)
+                            vec = fire_daily_counts[loc]
+                            for day in max(0, start_day):(end_day - 1)
+                                idx = day + 1
+                                ensure_length!(vec, idx)
+                                vec[idx] += 1
+                            end
+                        end
                     end
+                end
+                if !has_positive_duration
+                    accumulate_range!(crews_at_base_counts, 0, num_time_periods, 1)
                 end
             end
 
-            lengths = [
-                length(crews_on_fire_counts),
-                length(crews_in_transit_counts),
-                length(crews_resting_counts),
-                length(crews_at_base_counts),
-            ]
-            max_days = max(1, maximum([num_times, maximum(lengths)]))
+            fire_daily_records = DataFrame(
+                fire = Int[],
+                fire_event_id = String[],
+                day = Int[],
+                crews = Int[],
+            )
+            for (fire_idx, counts) in enumerate(fire_daily_counts)
+                fire_info = fire_meta !== nothing ? fire_meta.fire_order[fire_idx] : Dict{String,Any}()
+                fire_id = haskey(fire_info, "fire_event_id") ? fire_info["fire_event_id"] : fire_idx
+                for (day_idx, crews) in enumerate(counts)
+                    if crews <= 0
+                        continue
+                    end
+                    push!(fire_daily_records, (
+                        fire = fire_idx,
+                        fire_event_id = string(fire_id),
+                        day = day_idx - 1,
+                        crews = crews,
+                    ))
+                end
+            end
+            CSV.write(joinpath(output_dir, "fire_daily_crews.csv"), fire_daily_records)
+
+            max_days = max(1, num_times)
             for vec in (crews_on_fire_counts, crews_in_transit_counts, crews_resting_counts, crews_at_base_counts)
-                ensure_length!(vec, max_days)
+                if length(vec) > max_days
+                    resize!(vec, max_days)
+                else
+                    ensure_length!(vec, max_days)
+                end
             end
             status_df = DataFrame(
                 baseline = fill("Optimizer RH", max_days),
@@ -621,7 +662,7 @@ function rolling_horizon_network_flow()
     crew_speed = 40.0 * 6.0
 
     num_fires = count_selected_fires(target_gaccs, Dict{String,Vector{Int64}}(), dataset)
-    crew_models, _ = build_crew_models_from_empirical(
+    crew_models, crew_info = build_crew_models_from_empirical(
         num_fires,
         num_time_periods,
         crew_speed;
@@ -724,6 +765,7 @@ function rolling_horizon_network_flow()
             time_limit = args["time_limit"],
             output_dir = day_output_dir,
             fire_meta = fire_meta,
+            crew_rest_deadlines = hasproperty(crew_info, :rest_by) ? crew_info.rest_by : nothing,
             fixed_fire_values = fixed_fire,
             fixed_crew_values = fixed_crew,
             active_fires = fires_active,

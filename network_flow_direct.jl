@@ -435,20 +435,20 @@ function full_network_flow(
 				CSV.write(joinpath(output_dir, crew_filename), crew_export)
 				has_positive_duration = false
 				crew_needs_rest = crew_rest_deadlines === nothing ? true : (crew_rest_deadlines[crew] <= num_times)
-				for ix in selected
-					arc = crew_models[crew].long_arcs[ix, :]
-					status = classify_arc_status(arc)
-					if status == :rest && !crew_needs_rest
-						status = :base
-					end
-					start_day = Int(max(0, arc[CM.TIME_FROM]))
-					end_day = Int(max(0, arc[CM.TIME_TO]))
-					if end_day > start_day
-						has_positive_duration = true
-					end
+					for ix in selected
+						arc = crew_models[crew].long_arcs[ix, :]
+						status = classify_arc_status(arc)
+						if status == :rest && !crew_needs_rest
+							status = :base
+						end
+						start_day = Int(max(0, arc[CM.TIME_FROM]))
+						end_day = Int(max(0, arc[CM.TIME_TO]))
+						if end_day > start_day
+							has_positive_duration = true
+						end
 					if status == :travel
 						accumulate_range!(crews_in_transit_counts, start_day, end_day, 1)
-					elseif status == :rest
+						elseif status == :rest
 						accumulate_range!(crews_resting_counts, start_day, end_day, 1)
 					elseif status == :base
 						accumulate_range!(crews_at_base_counts, start_day, end_day, 1)

@@ -1024,7 +1024,8 @@ function build_crew_models_from_empirical(
         crews_per_fire = type_1_crews,
         rest_by = rest_by,
         rested_periods = rested_periods,
-        selection = "Filtered to GACCs $(join(fire_gaccs, ",")) and sorted by start_day_of_sim then FIRE_EVENT_ID"
+        selection = "Filtered to GACCs $(join(fire_gaccs, ",")) and sorted by start_day_of_sim then FIRE_EVENT_ID",
+        crew_names = crew_names,
     )
 
     return crew_sps, info

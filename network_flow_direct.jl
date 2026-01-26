@@ -582,6 +582,14 @@ crew_models, crew_info = build_crew_models_from_empirical(
 	fire_folder = dataset,
 )
 num_crews = length(crew_models)
+crew_names = hasproperty(crew_info, :crew_names) ? crew_info.crew_names : nothing
+if crew_names !== nothing && !isempty(run_output_dir)
+	mapping = DataFrame(
+		crew_index = collect(1:length(crew_names)),
+		crew_name = crew_names,
+	)
+	CSV.write(joinpath(run_output_dir, "crew_index_mapping.csv"), mapping)
+end
 
 fire_models, fire_meta = build_fire_models_from_empirical(
 	num_fires,

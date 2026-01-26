@@ -433,14 +433,16 @@ function full_network_flow(
 				crew_export = hcat(crew_export, crew_arc_data)
 				crew_filename = string("crew_", lpad(string(crew), 3, '0'), "_selected_arcs.csv")
 				CSV.write(joinpath(output_dir, crew_filename), crew_export)
+				post_status = Vector{String}(undef, length(selected))
 				has_positive_duration = false
 				crew_needs_rest = crew_rest_deadlines === nothing ? true : (crew_rest_deadlines[crew] <= num_times)
-					for ix in selected
+					for (pos, ix) in enumerate(selected)
 						arc = crew_models[crew].long_arcs[ix, :]
 						status = classify_arc_status(arc)
 						if status == :rest && !crew_needs_rest
 							status = :base
 						end
+						post_status[pos] = string(status)
 						start_day = Int(max(0, arc[CM.TIME_FROM]))
 						end_day = Int(max(0, arc[CM.TIME_TO]))
 						if end_day > start_day
@@ -464,7 +466,11 @@ function full_network_flow(
 							end
 						end
 					end
-				end
+					end
+				crew_post_export = copy(crew_export)
+				crew_post_export[!, :status] = post_status
+				post_filename = string("crew_", lpad(string(crew), 3, '0'), "_selected_arcs_post_processed.csv")
+				CSV.write(joinpath(output_dir, post_filename), crew_post_export)
 				if !has_positive_duration
 					accumulate_range!(crews_at_base_counts, 0, num_times, 1)
 				end

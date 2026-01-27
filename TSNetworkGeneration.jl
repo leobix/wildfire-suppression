@@ -849,24 +849,30 @@ function build_crew_models_from_empirical(
         error("Crew start specification not found at $(crew_start_path)")
     end
     crew_start_df = CSV.read(crew_start_path, DataFrame)
-    name_col = if :crew_id in names(crew_start_df)
-        :crew_id
-    elseif :crew in names(crew_start_df)
-        :crew
-    else
-        nothing
+    normalize_symbol(sym) = lowercase(join(split(strip(String(sym))), " "))
+    name_col = nothing
+    for sym in names(crew_start_df)
+        norm = normalize_symbol(sym)
+        if norm == "crew_id"
+            name_col = sym
+            break
+        elseif norm == "crew"
+            name_col = sym
+        end
     end
+    normalize_name(name::AbstractString) = lowercase(join(split(strip(name)), " "))
     crew_row_lookup = Dict{String,DataFrameRow}()
+    crew_row_lookup_norm = Dict{String,DataFrameRow}()
     if name_col !== nothing
         for row in eachrow(crew_start_df)
             val = row[name_col]
             if !(val === nothing || val === missing)
-                crew_row_lookup[string(val)] = row
+                raw = string(val)
+                crew_row_lookup[raw] = row
+                crew_row_lookup_norm[normalize_name(raw)] = row
             end
         end
     end
-    fallback_rows = collect(eachrow(crew_start_df))
-    fallback_idx = 1
     fire_lookup = Dict{String,Int}()
     for (pos, fid) in enumerate(string.(selected_fires[idx, "FIRE_EVENT_ID"]))
         fire_lookup[fid] = pos
@@ -879,12 +885,13 @@ function build_crew_models_from_empirical(
     for (i, crew_name) in enumerate(crew_names)
         row = get(crew_row_lookup, crew_name, nothing)
         if row === nothing
-            if fallback_idx <= length(fallback_rows)
-                row = fallback_rows[fallback_idx]
-                fallback_idx += 1
-            else
-                continue
-            end
+            row = get(crew_row_lookup_norm, normalize_name(crew_name), nothing)
+        end
+        if row === nothing
+            available = collect(keys(crew_row_lookup))
+            sample = isempty(available) ? "(none found)" : join(available[1:min(length(available), 5)], ", ")
+            cols = join(string.(names(crew_start_df)), ", ")
+            error("Crew starts missing entry for '$(crew_name)'. The names in empirical_crew_start.csv must match the travel matrix. Example entries: $(sample). Columns observed: $(cols). Rows observed: $(nrow(crew_start_df)).")
         end
         rb = hasproperty(row, :rest_by) && !(row[:rest_by] === missing) ? Int(row[:rest_by]) : num_time_periods
         rest_by[i] = rb

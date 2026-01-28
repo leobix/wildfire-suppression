@@ -677,7 +677,7 @@ function build_crew_models_from_empirical(
     fire_folder::String = "data/empirical_fire_models/raw/arc_arrays",
     sorted_fire_output_folder::Union{Nothing,String} = nothing,
     zero_crew_costs::Bool = false,
-    rest_periods::Int = 3,
+    rest_periods::Int = 0,
 )
 
     # read in the selected fires

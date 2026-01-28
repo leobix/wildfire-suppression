@@ -81,6 +81,10 @@ function get_command_line_args()
         help = "solver time limit per rolling-horizon day (seconds)"
         arg_type = Float64
         default = 300.0
+        "--rest_periods"
+        help = "number of consecutive rest periods required (set 0 to disable rest arcs)"
+        arg_type = Int
+        default = 3
     end
     return parse_args(settings)
 end
@@ -517,7 +521,7 @@ function full_network_flow(
             for crew in 1:num_crews
                 selected = crew_selected[crew]
                 if isempty(selected)
-                    accumulate_range!(crews_at_base_counts, 0, num_time_periods, 1)
+                    accumulate_range!(crews_at_base_counts, 0, num_times, 1)
                     continue
                 end
                 vals = crew_selected_values[crew]
@@ -533,14 +537,20 @@ function full_network_flow(
                 crew_export = hcat(crew_export, crew_arc_data)
                 crew_filename = string("crew_", lpad(string(crew), 3, '0'), "_selected_arcs.csv")
                 CSV.write(joinpath(output_dir, crew_filename), crew_export)
+                post_status = Vector{String}(undef, length(selected))
                 has_positive_duration = false
-                crew_needs_rest = crew_rest_deadlines === nothing ? true : (crew_rest_deadlines[crew] <= num_time_periods)
-                for ix in selected
+                rest_requirement_pending = crew_rest_deadlines === nothing ? false : (crew_rest_deadlines[crew] <= num_times)
+                for (pos, ix) in enumerate(selected)
                     arc = crew_models[crew].long_arcs[ix, :]
                     status = classify_arc_status(arc)
-                    if status == :rest && !crew_needs_rest
-                        status = :base
+                    if status == :rest
+                        if rest_requirement_pending
+                            rest_requirement_pending = false
+                        else
+                            status = :base
+                        end
                     end
+                    post_status[pos] = string(status)
                     start_day = Int(max(0, arc[CM.TIME_FROM]))
                     end_day = Int(max(0, arc[CM.TIME_TO]))
                     if end_day > start_day
@@ -565,8 +575,12 @@ function full_network_flow(
                         end
                     end
                 end
+                crew_post_export = copy(crew_export)
+                crew_post_export[!, :status] = post_status
+                post_filename = string("crew_", lpad(string(crew), 3, '0'), "_selected_arcs_post_processed.csv")
+                CSV.write(joinpath(output_dir, post_filename), crew_post_export)
                 if !has_positive_duration
-                    accumulate_range!(crews_at_base_counts, 0, num_time_periods, 1)
+                    accumulate_range!(crews_at_base_counts, 0, num_times, 1)
                 end
             end
 
@@ -669,8 +683,33 @@ function rolling_horizon_network_flow()
         crew_gaccs = target_gaccs,
         fire_gaccs = target_gaccs,
         fire_folder = dataset,
+        rest_periods = args["rest_periods"],
     )
     num_crews = length(crew_models)
+    start_base_arc_indices = Vector{Union{Nothing,Int64}}(undef, num_crews)
+    for c in 1:num_crews
+        arcs = crew_models[c].long_arcs
+        substitute = nothing
+        for arc_ix in 1:size(arcs, 1)
+            if arcs[arc_ix, CM.FROM_TYPE] == CM.BASE_CODE &&
+               arcs[arc_ix, CM.TO_TYPE] == CM.BASE_CODE &&
+               arcs[arc_ix, CM.TIME_FROM] == 0 &&
+               arcs[arc_ix, CM.TIME_TO] == 1 &&
+               arcs[arc_ix, CM.REST_FROM] == 0
+                substitute = arc_ix
+                break
+            end
+        end
+        start_base_arc_indices[c] = substitute
+    end
+    crew_names = hasproperty(crew_info, :crew_names) ? crew_info.crew_names : nothing
+    if crew_names !== nothing && !isempty(run_output_dir)
+        mapping = DataFrame(
+            crew_index = collect(1:length(crew_names)),
+            crew_name = crew_names,
+        )
+        CSV.write(joinpath(run_output_dir, "crew_index_mapping.csv"), mapping)
+    end
 
     fire_models, fire_meta = build_fire_models_from_empirical(
         num_fires,
@@ -710,9 +749,10 @@ function rolling_horizon_network_flow()
     crew_step = hasproperty(fire_meta, :crew_step) ? fire_meta.crew_step : 50
 
     fire_start_periods = [fsp.start_time_period for fsp in fire_models]
-    for j in 1:num_crews
-        no_fire_anticipation!(crew_models[j], fire_start_periods)
-    end
+    # Rolling horizon now allows full pre-travel (matches single-shot behavior). Re-enable if future solves must forbid early departures.
+    # for j in 1:num_crews
+    #     no_fire_anticipation!(crew_models[j], fire_start_periods)
+    # end
 
     # Precompute which arc indices originate at each time stage.  This lets us
     # translate “everything before current_day must stay fixed” into `fix()` calls
@@ -790,7 +830,18 @@ function rolling_horizon_network_flow()
         for c in 1:num_crews
             for arc_ix in result.crew_selected[c]
                 tf = crew_models[c].long_arcs[arc_ix, CM.TIME_FROM]
-                if tf < commit_cutoff
+                tt = crew_models[c].long_arcs[arc_ix, CM.TIME_TO]
+                if tf >= commit_cutoff
+                    continue
+                end
+                if tf == 0 && tt == 0
+                    substitute = start_base_arc_indices[c]
+                    if substitute !== nothing
+                        push!(committed_crew_arcs[c], substitute)
+                    else
+                        push!(committed_crew_arcs[c], arc_ix)
+                    end
+                else
                     push!(committed_crew_arcs[c], arc_ix)
                 end
             end

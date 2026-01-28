@@ -435,16 +435,20 @@ function full_network_flow(
 				CSV.write(joinpath(output_dir, crew_filename), crew_export)
 				post_status = Vector{String}(undef, length(selected))
 				has_positive_duration = false
-				crew_needs_rest = crew_rest_deadlines === nothing ? true : (crew_rest_deadlines[crew] <= num_times)
-					for (pos, ix) in enumerate(selected)
-						arc = crew_models[crew].long_arcs[ix, :]
-						status = classify_arc_status(arc)
-						if status == :rest && !crew_needs_rest
+				rest_requirement_pending = crew_rest_deadlines === nothing ? false : (crew_rest_deadlines[crew] <= num_times)
+				for (pos, ix) in enumerate(selected)
+					arc = crew_models[crew].long_arcs[ix, :]
+					status = classify_arc_status(arc)
+					if status == :rest
+						if rest_requirement_pending
+							rest_requirement_pending = false
+						else
 							status = :base
 						end
-						post_status[pos] = string(status)
-						start_day = Int(max(0, arc[CM.TIME_FROM]))
-						end_day = Int(max(0, arc[CM.TIME_TO]))
+					end
+					post_status[pos] = string(status)
+					start_day = Int(max(0, arc[CM.TIME_FROM]))
+					end_day = Int(max(0, arc[CM.TIME_TO]))
 						if end_day > start_day
 							has_positive_duration = true
 						end

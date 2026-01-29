@@ -80,7 +80,7 @@ function get_command_line_args()
         "--time_limit"
         help = "solver time limit per rolling-horizon day (seconds)"
         arg_type = Float64
-        default = 600.0
+        default = 300.0
         "--rest_periods"
         help = "number of consecutive rest periods required (set 0 to disable rest arcs)"
         arg_type = Int

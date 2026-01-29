@@ -80,7 +80,7 @@ function get_command_line_args()
         "--time_limit"
         help = "solver time limit per rolling-horizon day (seconds)"
         arg_type = Float64
-        default = 300.0
+        default = 600.0
         "--rest_periods"
         help = "number of consecutive rest periods required (set 0 to disable rest arcs)"
         arg_type = Int
@@ -155,14 +155,15 @@ function active_fire_indices(
     current_day::Int,
 )
     """
-    Returns a vector of fire indices whose `start_time_period` is not set or is
-    less than/equal to `current_day`. Fires that have not started yet are
-    treated as invisible to the optimizer.
+    Returns a vector of fire indices that have started strictly before the end
+    of the 1-indexed `current_day`. Empirical start-day metadata is zero-based
+    (0 ⇒ the first simulation day), so a start period of 1 means the fire
+    should first appear on day 2, and so on.
     """
     active = Int[]
     for (idx, fm) in enumerate(fire_models)
         start_period = fm.start_time_period
-        if isnothing(start_period) || start_period <= current_day
+        if isnothing(start_period) || start_period < current_day
             push!(active, idx)
         end
     end
@@ -749,10 +750,10 @@ function rolling_horizon_network_flow()
     crew_step = hasproperty(fire_meta, :crew_step) ? fire_meta.crew_step : 50
 
     fire_start_periods = [fsp.start_time_period for fsp in fire_models]
-    # Rolling horizon now allows full pre-travel (matches single-shot behavior). Re-enable if future solves must forbid early departures.
-    # for j in 1:num_crews
-    #     no_fire_anticipation!(crew_models[j], fire_start_periods)
-    # end
+    # Prevent crews from departing toward fires before their modeled start day.
+    for j in 1:num_crews
+        no_fire_anticipation!(crew_models[j], fire_start_periods)
+    end
 
     # Precompute which arc indices originate at each time stage.  This lets us
     # translate “everything before current_day must stay fixed” into `fix()` calls
@@ -761,6 +762,7 @@ function rolling_horizon_network_flow()
     crew_arcs_by_time = build_arc_time_lookup(crew_models, CM.TIME_FROM)
     committed_fire_arcs = [Set{Int64}() for _ in 1:num_fires]
     committed_crew_arcs = [Set{Int64}() for _ in 1:num_crews]
+    fire_has_history = falses(num_fires)
 
     for t in 0:num_time_periods
         current_day = t + 1
@@ -769,7 +771,10 @@ function rolling_horizon_network_flow()
 
         # UI-style logging so the user can see how the horizon is sliding.
         fires_active = active_fire_indices(fire_models, current_day)
-        fires_starting_today = [g for g in 1:num_fires if fire_start_periods[g] == current_day]
+        fires_starting_today = [
+            g for g in 1:num_fires
+            if fire_start_periods[g] == current_day - 1
+        ]
         @info "Active fires" total = length(fires_active) fires = fires_active
         if isempty(fires_active)
             @info "No active fires yet; solver will ignore future ignitions until they start"
@@ -784,10 +789,7 @@ function rolling_horizon_network_flow()
         # horizon exactly.
         # Allow a newly started fire to plan freely on its first day by only
         # fixing history for fires that have already appeared in prior solves.
-        fires_with_history = [
-            g for g in fires_active
-            if isnothing(fire_start_periods[g]) || fire_start_periods[g] < current_day
-        ]
+        fires_with_history = [g for g in fires_active if fire_has_history[g]]
         fixed_fire = build_fixed_arc_values(
             fire_arcs_by_time,
             committed_fire_arcs,
@@ -814,6 +816,9 @@ function rolling_horizon_network_flow()
         if result.fire_selected === nothing || result.crew_selected === nothing
             @warn "Solver did not return a feasible solution on day $(current_day); terminating rolling horizon"
             break
+        end
+        for g in fires_active
+            fire_has_history[g] = true
         end
 
         # Commit any arcs whose `TIME_FROM` lies before the upcoming day so the

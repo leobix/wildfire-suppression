@@ -467,7 +467,9 @@ for t in 0:rolling_loop_end
     total_days = num_time_periods + 1
     # determine which fires are active or starting this day for user feedback
     fire_start_periods = [fsp.start_time_period for fsp in fire_models]
-    fires_active = [g for g in 1:num_fires if isnothing(fire_start_periods[g]) || fire_start_periods[g] <= current_day]
+    fires_active = perfect_info_mode ?
+        collect(1:num_fires) :
+        [g for g in 1:num_fires if isnothing(fire_start_periods[g]) || fire_start_periods[g] <= current_day]
     fires_starting_today = [g for g in 1:num_fires if fire_start_periods[g] == current_day]
 
     @info "##### Simulation Day $(current_day) of $(total_days) #####"
@@ -574,7 +576,7 @@ for t in 0:rolling_loop_end
                 # Seeding guard: if fire is at/after its start day, require at least one post-start arc
                 # (Otherwise we would add columns that only plan before the fire is active.)
                 start_day = fire_models[g].start_time_period
-                if !isnothing(start_day) && current_day >= start_day
+                if !perfect_info_mode && !isnothing(start_day) && current_day >= start_day
                     has_post_start = false
                     for a_ix in path_chrono
                         if fm.long_arcs[a_ix, FM.TIME_FROM] >= start_day + 1
@@ -694,7 +696,7 @@ for t in 0:rolling_loop_end
                 end
                 # Seeding guard: if fire is at/after its start day, require at least one post-start arc
                 start_day = fire_models[g].start_time_period
-                if !isnothing(start_day) && current_day >= start_day
+                if !perfect_info_mode && !isnothing(start_day) && current_day >= start_day
                     has_post_start = false
                     for a_ix in path_chrono
                         if fm.long_arcs[a_ix, FM.TIME_FROM] >= start_day + 1
@@ -816,7 +818,7 @@ for t in 0:rolling_loop_end
                 end
                 # Seeding guard: if fire is at/after its start day, require at least one post-start arc
                 start_day = fire_models[g].start_time_period
-                if !isnothing(start_day) && current_day >= start_day
+                if !perfect_info_mode && !isnothing(start_day) && current_day >= start_day
                     has_post_start = false
                     for a_ix in path_chrono
                         if fm.long_arcs[a_ix, FM.TIME_FROM] >= start_day + 1
@@ -1058,7 +1060,7 @@ for t in 0:rolling_loop_end
                 include_future_fires = perfect_info_mode,
                 )
         # unpack the full return tuple (node stats, incumbent bounds, selected arcs, warm starts, …)
-        explored_nodes, ubs, lbs, columns, heuristic_times, times, time_1, root_node_ip_sol, root_node_ip_sol_time, fire_arcs_used, crew_arcs_used, root_dual_warm_start, final_ub, final_lb, total_solve_time = result
+        explored_nodes, ubs, lbs, columns, heuristic_times, times, time_1, root_node_ip_sol, root_node_ip_sol_time, fire_arcs_used, crew_arcs_used, root_dual_warm_start, final_ub, final_lb, total_solve_time, algo_summary = result
         @info "BPC explored_nodes" explored_nodes = explored_nodes
         @info "BPC upper bounds" ubs = ubs
         @info "BPC lower bounds" lbs = lbs
@@ -1407,6 +1409,9 @@ for t in 0:rolling_loop_end
                 crews_today = daily_crews[detail_ix]
                 area_today = daily_area[detail_ix]
                 area_discrete_today = daily_area_discrete[detail_ix]
+                if area_discrete_today === nothing && area_today !== nothing
+                        area_discrete_today = Float64(area_today)
+                end
                 area_today_exact = begin
                         candidate_ix = detail_ix
                         found = nothing
@@ -1534,6 +1539,10 @@ for t in 0:rolling_loop_end
                 denom = max(1.0, abs(objective_val))
                 gap_val = abs(objective_val - bound_val) / denom
         end
+        heuristic_best = get(algo_summary, :heuristic_best_objective, nothing)
+        if heuristic_best isa Real && !isfinite(heuristic_best)
+                heuristic_best = nothing
+        end
         summary_payload = Dict{String,Any}(
                 "objective" => objective_val,
                 "bound" => bound_val,
@@ -1551,6 +1560,27 @@ for t in 0:rolling_loop_end
                 "root_node_ip_time" => root_node_ip_sol_time,
                 "final_upper_bound" => final_ub,
                 "final_lower_bound" => final_lb,
+                "algo_crew_subproblem_time" => get(algo_summary, :crew_subproblem_time, nothing),
+                "algo_fire_subproblem_time" => get(algo_summary, :fire_subproblem_time, nothing),
+                "algo_master_problem_time" => get(algo_summary, :master_problem_time, nothing),
+                "algo_crew_subproblem_solves" => get(algo_summary, :crew_subproblem_solves, nothing),
+                "algo_fire_subproblem_solves" => get(algo_summary, :fire_subproblem_solves, nothing),
+                "algo_crew_columns_added" => get(algo_summary, :crew_columns_added, nothing),
+                "algo_fire_columns_added" => get(algo_summary, :fire_columns_added, nothing),
+                "algo_cuts_added_total" => get(algo_summary, :cuts_added, nothing),
+                "algo_cut_separation_time" => get(algo_summary, :cut_separation_time, nothing),
+                "algo_dcg_iterations" => get(algo_summary, :dcg_iterations, nothing),
+                "algo_crew_route_pool_size" => get(algo_summary, :crew_route_pool_size, nothing),
+                "algo_fire_plan_pool_size" => get(algo_summary, :fire_plan_pool_size, nothing),
+                "algo_total_columns_active" => get(algo_summary, :total_columns_active, nothing),
+                "algo_total_cuts_generated" => get(algo_summary, :total_cuts_generated, nothing),
+                "algo_final_binding_cuts" => get(algo_summary, :final_binding_cuts, nothing),
+                "algo_heuristic_runs" => get(algo_summary, :heuristic_runs, nothing),
+                "algo_heuristic_total_time" => get(algo_summary, :heuristic_total_time, nothing),
+                "algo_heuristic_best_objective" => heuristic_best,
+                "algo_warm_start_used" => get(algo_summary, :warm_start_used, nothing),
+                "algo_warm_start_rows" => get(algo_summary, :warm_start_rows, nothing),
+                "algo_warm_start_cols" => get(algo_summary, :warm_start_cols, nothing),
         )
         if !isempty(explored_nodes)
                 summary_payload["explored_nodes"] = explored_nodes[end]

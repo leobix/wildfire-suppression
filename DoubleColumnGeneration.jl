@@ -73,6 +73,10 @@ function double_column_generation!!!!(
 	details["master_problem"] = 0.0
 	details["fire_subproblems"] = 0.0
 	details["crew_subproblems"] = 0.0
+	details["crew_subproblem_solves"] = 0.0
+	details["fire_subproblem_solves"] = 0.0
+	details["new_crew_columns"] = 0.0
+	details["new_fire_columns"] = 0.0
 	t = time()
 
 	# gather global information about the dimensionality of the problem
@@ -137,10 +141,7 @@ function double_column_generation!!!!(
 		iteration += 1
 		reduced_cost_sum = 0
 
-		if timing
-			t = time()
-		end
-
+		phase_start = time()
 		crew_objectives = zeros(Float64, num_crews)
 		crew_arcs_used = [Int[] for crew ∈ 1:num_crews]
 
@@ -234,13 +235,12 @@ function double_column_generation!!!!(
 					crew,
 					new_route_ix,
 				)
+				details["new_crew_columns"] += 1
 			end
 		end
 
-		if timing
-			details["crew_subproblems"] += time() - t
-			t = time()
-		end
+		details["crew_subproblems"] += time() - phase_start
+		details["crew_subproblem_solves"] += num_crews
 
 		# Solve fire pricing problems next.  They share the same structure as
 		# the crew problems but demand different data and dual adjustments.
@@ -250,7 +250,9 @@ function double_column_generation!!!!(
 		# for each fire
 		# Fires that should be ignored are skipped entirely since they already
 		# have dummy plans in the master problem.
-		Threads.@threads for fire in [g for g ∈ 1:num_fires if g ∉ fires_to_ignore]
+		active_fires = [g for g ∈ 1:num_fires if g ∉ fires_to_ignore]
+		phase_start = time()
+		Threads.@threads for fire in active_fires
 
 			# generate the local costs of the arcs
 			fire_subproblems[fire].prohibited_arcs .&= false
@@ -312,10 +314,11 @@ function double_column_generation!!!!(
 		
 
 
-		for fire ∈ [fire for fire ∈ 1:num_fires if fire ∉ fires_to_ignore]
+		for fire ∈ active_fires
 
 			objective = fire_objectives[fire]
 			arcs_used = fire_arcs_used[fire]
+			@debug "fire pricing" iteration fire objective dual = fire_duals[fire] reduced_cost = objective - fire_duals[fire]
 
 			# if there is an improving plan
 			if objective < fire_duals[fire] - improving_column_abs_tolerance
@@ -371,14 +374,14 @@ function double_column_generation!!!!(
 					fire,
 					new_plan_ix,
 				)
+				details["new_fire_columns"] += 1
 			end
 		end
 
 
 
-		if timing
-			details["fire_subproblems"] += time() - t
-		end
+		details["fire_subproblems"] += time() - phase_start
+		details["fire_subproblem_solves"] += length(active_fires)
 
 		@debug "total reduced cost" reduced_cost_sum ub reduced_cost_sum / ub local_gap_rel_tolerance
 		# Continue iterating if at least one improving column was added or if
@@ -410,16 +413,12 @@ function double_column_generation!!!!(
         if continue_iterating
 
 			# TODO dual warm start passed in here
-			if timing
-				t = time()
-			end
+			phase_start = time()
 			# Resolve the restricted master problem with the newly added columns.
 			# The solution provides updated dual prices that feed back into the
 			# next round of pricing problems.
             optimize!(rmp.model)
-			if timing
-				details["master_problem"] += (time() - t)
-			end
+			details["master_problem"] += (time() - phase_start)
 
 			if termination_status(rmp.model) != MOI.OPTIMAL
                             @debug "non optimal termination status" termination_status(rmp.model)
@@ -520,9 +519,7 @@ function double_column_generation!!!!(
 			# re-optimze for JuMP reasons (access attrs) just in case we added a column 
 			# but then stopped due to too small reduced cost improvement
 			# (Without this call JuMP may prevent us from querying objective/dual info.)
-			if timing
-				t = time()
-			end
+			phase_start = time()
 			optimize!(rmp.model)
 
 			if (termination_status(rmp.model) == MOI.INFEASIBLE) |
@@ -541,9 +538,7 @@ function double_column_generation!!!!(
 
 			end
 
-			if timing
-				details["master_problem"] += (time() - t)
-			end
+			details["master_problem"] += (time() - phase_start)
 
 		end
 	end

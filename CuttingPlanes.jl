@@ -93,7 +93,7 @@ function cut_generating_LP(gurobi_env,
 	method::String)
 
 	crew_usages = vec(mapslices(sum, crew_allots, dims = 2))
-	@debug "cglp" fire_allots crew_usages
+	# @debug "cglp" fire_allots crew_usages
 	inactive_crews = vec(findall(x -> x < 1e-20, crew_usages))
 
 	# for now, assume that these crews were inactive for a "good" reason and force those to be part of any cover
@@ -160,7 +160,7 @@ function cut_generating_LP(gurobi_env,
 		end
 		cartesian_product = product(allotment_option_ixs...)
 		if length(cartesian_product) > cut_search_enumeration_limit
-                    @debug "CGLP too big for enumeration"
+                    # @debug "CGLP too big for enumeration"
 			if method == "adaptive"
 				do_cutting_planes = true
 			end
@@ -278,7 +278,7 @@ function cut_generating_LP(gurobi_env,
 		@debug "CGLP helped!" cut
 		return cut
 	end
-	@debug "cglp model" length(cartesian_product)
+		# @debug "cglp model" length(cartesian_product)
 end
 
 
@@ -602,7 +602,7 @@ function find_knapsack_cuts(
 				end
 				if incorporate_cut
 					push!(knapsack_gub_cuts, max_viol_cut)
-					@debug "pushing max viol cglp cut!" max_viol_cut
+			# @debug "pushing max viol cglp cut!" max_viol_cut
 				end
 			end
 		end

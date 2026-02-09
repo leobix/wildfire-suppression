@@ -136,6 +136,18 @@ function price_and_cut!!!!(
 		cut_times = []
 	end
 
+	aggregate_stats = Dict{Symbol, Float64}()
+	aggregate_stats[:crew_subproblem_time] = 0.0
+	aggregate_stats[:fire_subproblem_time] = 0.0
+	aggregate_stats[:master_problem_time] = 0.0
+	aggregate_stats[:crew_subproblem_solves] = 0.0
+	aggregate_stats[:fire_subproblem_solves] = 0.0
+	aggregate_stats[:crew_columns_added] = 0.0
+	aggregate_stats[:fire_columns_added] = 0.0
+	aggregate_stats[:cuts_added] = 0.0
+	aggregate_stats[:cut_separation_time] = 0.0
+	aggregate_stats[:dcg_iterations] = 0.0
+
 	t = time()
 	loop_ix = 0
 	most_recent_obj = 0
@@ -161,6 +173,14 @@ function price_and_cut!!!!(
 		dual_warm_start = dual_warm_start,
 		final_snapshot_only = final_snapshot_only,
 	)
+		aggregate_stats[:crew_subproblem_time] += get(dcg_times, "crew_subproblems", 0.0)
+		aggregate_stats[:fire_subproblem_time] += get(dcg_times, "fire_subproblems", 0.0)
+		aggregate_stats[:master_problem_time] += get(dcg_times, "master_problem", 0.0)
+		aggregate_stats[:crew_subproblem_solves] += get(dcg_times, "crew_subproblem_solves", 0.0)
+		aggregate_stats[:fire_subproblem_solves] += get(dcg_times, "fire_subproblem_solves", 0.0)
+		aggregate_stats[:crew_columns_added] += get(dcg_times, "new_crew_columns", 0.0)
+		aggregate_stats[:fire_columns_added] += get(dcg_times, "new_fire_columns", 0.0)
+		aggregate_stats[:dcg_iterations] += 1.0
 		if (rmp.termination_status == MOI.OBJECTIVE_LIMIT) || (rmp.termination_status == MOI.INFEASIBLE)
 			@debug "no more cuts needed"
 			break
@@ -215,6 +235,8 @@ function price_and_cut!!!!(
 			decrease_gub_allots = decrease_gub_allots,
 			single_fire_lift = single_fire_lift,
 		)
+		aggregate_stats[:cut_separation_time] += t2
+		aggregate_stats[:cuts_added] += num_cuts
 
 		if log_flag
 			push!(cut_times, t2)
@@ -252,6 +274,7 @@ function price_and_cut!!!!(
 
 	@debug "After price-and-cut" dual.(rmp.supply_demand_linking)
 
+	return aggregate_stats
 end
 
 """
@@ -357,6 +380,18 @@ function branch_and_price(
 	heuristic_times = []
 	times = []
 	time_1 = time() - start_time
+	global_algo_summary = Dict{Symbol, Any}()
+	global_algo_summary[:heuristic_runs] = 0.0
+	global_algo_summary[:heuristic_total_time] = 0.0
+	global_algo_summary[:heuristic_best_objective] = Inf
+	global_algo_summary[:warm_start_used] = dual_warm_start !== nothing
+	if dual_warm_start === nothing
+		global_algo_summary[:warm_start_rows] = 0
+		global_algo_summary[:warm_start_cols] = 0
+	else
+		global_algo_summary[:warm_start_rows] = size(dual_warm_start.linking_values, 1)
+		global_algo_summary[:warm_start_cols] = size(dual_warm_start.linking_values, 2)
+	end
 
 	# initialize last heuristic time to ensure running heuristic at root node
 	last_heuristic_time = time_1 - heuristic_cadence_secs 
@@ -414,7 +449,7 @@ function branch_and_price(
 
 		# else explore the next node
 		# Explore the chosen node: solve the relaxed problem, generate cuts/columns, and branch if needed.
-		explore_node!!(
+		_, _, _, node_stats = explore_node!!(
 			nodes[node_ix],
 				nodes,
 				ub,
@@ -438,6 +473,9 @@ function branch_and_price(
 			fires_to_ignore = fires_to_ignore,
 			dual_warm_start = (node_ix == 1 ? dual_warm_start : nothing),
 		)
+		for (k, v) in node_stats
+			global_algo_summary[k] = get(global_algo_summary, k, 0.0) + v
+		end
 		if node_ix == 1 && !isnothing(nodes[node_ix].master_problem)
 			termin_status = nodes[node_ix].master_problem.termination_status
 			if termin_status ∈ (MOI.LOCALLY_SOLVED, MOI.OBJECTIVE_LIMIT)
@@ -504,6 +542,17 @@ function branch_and_price(
 					crew_routes,
 					fire_plans,
 				)
+			end
+
+			if heuristic_time > 0
+				global_algo_summary[:heuristic_runs] =
+					get(global_algo_summary, :heuristic_runs, 0.0) + 1.0
+				global_algo_summary[:heuristic_total_time] =
+					get(global_algo_summary, :heuristic_total_time, 0.0) + heuristic_time
+				if isfinite(heuristic_ub)
+					global_algo_summary[:heuristic_best_objective] =
+						min(get(global_algo_summary, :heuristic_best_objective, Inf), heuristic_ub)
+				end
 			end
 		end
 
@@ -628,7 +677,29 @@ function branch_and_price(
         @info "Branch-and-price optimization complete" lower_bound = lb upper_bound = ub explored_nodes = node_explored_count
 	        root_dual_warm_start = isnothing(root_dual_linking) ? nothing : DualWarmStart(linking_values = root_dual_linking)
         total_solve_time = time() - start_time
-	        return explored_nodes, ubs, lbs, columns, heuristic_times, times, time_1, root_node_ip_sol, root_node_ip_sol_time, fire_arcs_used, crew_arcs_used, root_dual_warm_start, ub, lb, total_solve_time
+        global_algo_summary[:crew_route_pool_size] = sum(crew_routes.routes_per_crew)
+        global_algo_summary[:fire_plan_pool_size] = sum(fire_plans.plans_per_fire)
+        global_algo_summary[:total_columns_active] =
+                global_algo_summary[:crew_route_pool_size] + global_algo_summary[:fire_plan_pool_size]
+        global_algo_summary[:total_cuts_generated] = sum(cut_data.cuts_per_time)
+        final_master = nothing
+        if (ub_ix > 0) && (ub_ix ≤ length(nodes)) && !isnothing(nodes[ub_ix].master_problem)
+                final_master = nodes[ub_ix].master_problem
+        elseif !isnothing(nodes[1].master_problem)
+                final_master = nodes[1].master_problem
+        end
+        if final_master === nothing
+                global_algo_summary[:final_binding_cuts] = 0.0
+        else
+                binding = 0.0
+                for i in eachindex(final_master.gub_cover_cuts)
+                        if dual(final_master.gub_cover_cuts[i]) > 1e-4
+                                binding += 1.0
+                        end
+                end
+                global_algo_summary[:final_binding_cuts] = binding
+        end
+	        return explored_nodes, ubs, lbs, columns, heuristic_times, times, time_1, root_node_ip_sol, root_node_ip_sol_time, fire_arcs_used, crew_arcs_used, root_dual_warm_start, ub, lb, total_solve_time, global_algo_summary
 
 end
 
@@ -1607,7 +1678,8 @@ function explore_node!!(
     end
 
     # Solve the relaxation at this node via the alternating price-and-cut procedure.
-    t = @elapsed price_and_cut!!!!(
+    local_stats = Dict{Symbol, Float64}()
+    t = @elapsed local_stats = price_and_cut!!!!(
 		rmp,
 		crew_routes,
 		fire_plans,
@@ -1804,5 +1876,5 @@ function explore_node!!(
 		@debug "branching rules" left_branching_rule right_branching_rule
 	end
 
-	return used_plans, used_routes, binding_cuts
+	return used_plans, used_routes, binding_cuts, local_stats
 end

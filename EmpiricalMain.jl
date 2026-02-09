@@ -11,7 +11,7 @@ include("BranchAndPrice.jl") # load the optimizer implementation so this script 
 # Core packages that drive the command-line workflow and optimization.
 # IterTools exports a groupby helper that clashes with DataFrames, so we explicitly
 # import the DataFrames version below.
-using JuMP, Gurobi, JSON, Profile, ArgParse, Logging, IterTools, CSV, DataFrames, Dates
+using JuMP, Gurobi, JSON, Profile, ArgParse, Logging, IterTools, CSV, DataFrames, Dates, DelimitedFiles
 import DataFrames: groupby
 import Logging: min_enabled_level, shouldlog, handle_message # grant direct access to these logging hooks
 
@@ -69,6 +69,15 @@ function default_discretization_bins()
                 push!(unique_bins, 100000.0)
         end
         return unique_bins
+end
+
+function load_discretization_bins_file(folder::String)
+        bin_path = joinpath(folder, "discretization_bins.csv")
+        if isfile(bin_path)
+                data = readdlm(bin_path, ',')
+                return vec(Float64.(data))
+        end
+        return nothing
 end
 
 function decode_packed_state_area(packed_code::Int, bins::Vector{Float64})
@@ -248,6 +257,9 @@ function get_command_line_args()
                 "--day-1-only"
                 help = "restrict inputs to fires that start on day 1 of the planning window (start_day_of_sim == 0)"
                 action = :store_true
+                "--perfect-info"
+                help = "solve the entire horizon once with full knowledge of future fires (no rolling re-solve)"
+                action = :store_true
                 "--crew-costs"
                 help = "crew cost mode: 'on' (default) or 'off' to ignore crew travel/rest costs in the objective"
                 default = "on"
@@ -295,6 +307,7 @@ seed_max_daily = args["seed-max-daily"]
 seed_crew_routes = args["seed-crew-routes"]
 final_snapshot_only = args["final-snapshot-only"]
 day_one_only = args["day-1-only"] # new flag that activates the day-0 fire filter
+perfect_info_mode = args["perfect-info"]
 crew_costs_mode = lowercase(String(args["crew-costs"]))
 zero_crew_costs = (crew_costs_mode in ("off","0","false","no")) # interpret truthy variations of "off"
 firefighters_per_crew = args["firefighters-per-crew"]
@@ -348,6 +361,7 @@ global_logger(DualLogger((console_logger, file_logger)))
 @info "Seed crew routes" seed_crew_routes
 @info "Final snapshot only" final_snapshot_only
 @info "Day 1 only" day_one_only
+@info "Perfect info mode" perfect_info_mode
 @info "Crew costs mode" (zero_crew_costs ? "off" : "on")
 @info "Arc CSV baseline label" baseline_label
 
@@ -395,9 +409,9 @@ unassigned_crews = findall(==( -1 ), init_info.crew_assignments)
 if !isempty(unassigned_crews)
         @info "Crews initially without fire assignment" unassigned_crews
 end
-for j in 1:num_crews
-	no_fire_anticipation!(crew_models[j], [fsp.start_time_period for fsp in fire_models]) # ensure crew subproblems respect fire activation timing
-end
+# for j in 1:num_crews
+# 	no_fire_anticipation!(crew_models[j], [fsp.start_time_period for fsp in fire_models]) # ensure crew subproblems respect fire activation timing
+# end
 
 # Track committed arcs (history) so past-day decisions are preserved across re-solves
 committed_fire_arcs = [Set{Int64}() for _ in 1:num_fires]
@@ -406,10 +420,14 @@ committed_crew_arcs = [Set{Int64}() for _ in 1:num_crews]
 let prev_dual_warm_start = nothing
 optimizer_day_rollup = Any[]
 optimizer_day_arc_records = Vector{Dict{Symbol,Any}}()
+final_fire_arcs = nothing
+final_fire_arc_costs = nothing
 
 # Main rolling-horizon loop: each iteration finalizes decisions for the current day,
 # seeds additional columns, and re-optimizes the branch-and-price master problem.
-for t in 0:num_time_periods
+# Perfect-info mode only executes the first iteration (t = 0) with omniscient foresight.
+rolling_loop_end = perfect_info_mode ? 0 : num_time_periods
+for t in 0:rolling_loop_end
 
     global crew_routes, fire_plans, crew_models, fire_models, cut_data
 
@@ -1032,13 +1050,25 @@ for t in 0:num_time_periods
                 crew_models = crew_models,
                 fire_models = fire_models,
                 cut_data = cut_data,
+                algo_tracking = true,
                 total_time_limit = time_limit,
                 output_folder = output_folder,
                 dual_warm_start = warm_start_to_use,
                 final_snapshot_only = final_snapshot_only,
+                include_future_fires = perfect_info_mode,
                 )
         # unpack the full return tuple (node stats, incumbent bounds, selected arcs, warm starts, …)
-        explored_nodes, ubs, lbs, columns, heuristic_times, times, time_1, root_node_ip_sol, root_node_ip_sol_time, fire_arcs_used, crew_arcs_used, root_dual_warm_start = result
+        explored_nodes, ubs, lbs, columns, heuristic_times, times, time_1, root_node_ip_sol, root_node_ip_sol_time, fire_arcs_used, crew_arcs_used, root_dual_warm_start, final_ub, final_lb, total_solve_time = result
+        @info "BPC explored_nodes" explored_nodes = explored_nodes
+        @info "BPC upper bounds" ubs = ubs
+        @info "BPC lower bounds" lbs = lbs
+        @info "BPC column counts" columns = columns
+        @info "BPC heuristic times" heuristic_times = heuristic_times
+        @info "BPC cumulative times" times = times
+        @info "BPC time_1 snapshot" time_1 = time_1
+        @info "BPC root node IP objective" root_node_ip_sol = root_node_ip_sol root_node_ip_sol_time = root_node_ip_sol_time
+        @info "BPC final bounds" final_ub = final_ub final_lb = final_lb
+        @info "BPC total solve time" total_solve_time = total_solve_time
         @debug "final arcs used" fire_arcs_used, crew_arcs_used
 
         if fire_arcs_used === nothing || crew_arcs_used === nothing
@@ -1048,49 +1078,51 @@ for t in 0:num_time_periods
 
         prev_dual_warm_start = root_dual_warm_start
 
-        # Commit decisions up to current day (t+1): preserve those arcs in future iterations
-        # so the rolling horizon respects previously executed suppression actions.
-        commit_cutoff = t + 1
-        for g in 1:num_fires
-                for a_ix in fire_arcs_used[g]
-                        tf = fire_models[g].long_arcs[a_ix, FM.TIME_FROM]
-                        if tf < commit_cutoff
-                                push!(committed_fire_arcs[g], a_ix)
+        if !perfect_info_mode
+                # Commit decisions up to current day (t+1): preserve those arcs in future iterations
+                # so the rolling horizon respects previously executed suppression actions.
+                commit_cutoff = t + 1
+                for g in 1:num_fires
+                        for a_ix in fire_arcs_used[g]
+                                tf = fire_models[g].long_arcs[a_ix, FM.TIME_FROM]
+                                if tf < commit_cutoff
+                                        push!(committed_fire_arcs[g], a_ix)
+                                end
                         end
                 end
-        end
-        for j in 1:num_crews
-                for a_ix in crew_arcs_used[j]
-                        tf = crew_models[j].long_arcs[a_ix, CM.TIME_FROM]
-                        if tf < commit_cutoff
-                                push!(committed_crew_arcs[j], a_ix)
+                for j in 1:num_crews
+                        for a_ix in crew_arcs_used[j]
+                                tf = crew_models[j].long_arcs[a_ix, CM.TIME_FROM]
+                                if tf < commit_cutoff
+                                        push!(committed_crew_arcs[j], a_ix)
+                                end
                         end
                 end
-        end
 
-        for g in 1:num_fires
-                @debug "before modify_in_arcs_and_out_arcs!" fire_models[g].state_in_arcs fire_models[g].state_out_arcs fire_arcs_used[g]
-                if !isnothing(fire_models[g].start_time_period) && fire_models[g].start_time_period > t
-                        @debug "fire model start time period is greater than current time, skipping modify_in_arcs_and_out_arcs!" g
-                        continue
+                for g in 1:num_fires
+                        @debug "before modify_in_arcs_and_out_arcs!" fire_models[g].state_in_arcs fire_models[g].state_out_arcs fire_arcs_used[g]
+                        if !isnothing(fire_models[g].start_time_period) && fire_models[g].start_time_period > t
+                                @debug "fire model start time period is greater than current time, skipping modify_in_arcs_and_out_arcs!" g
+                                continue
+                        end
+                        # Preserve both committed history and the current solution’s arcs
+                        # by pruning away trajectories we never plan to use again.  This keeps
+                        # subsequent DP solves small even as the horizon marches forward.
+                        begin
+                            local keep_arcs = unique(vcat(collect(committed_fire_arcs[g]), fire_arcs_used[g]))
+                            modify_in_arcs_and_out_arcs!(fire_models[g], t+1, keep_arcs, FM.TIME_FROM)
+                        end
+                        @debug "after modify_in_arcs_and_out_arcs!" fire_models[g].state_in_arcs fire_models[g].state_out_arcs
                 end
-		# Preserve both committed history and the current solution’s arcs
-		# by pruning away trajectories we never plan to use again.  This keeps
-		# subsequent DP solves small even as the horizon marches forward.
-		begin
-		    local keep_arcs = unique(vcat(collect(committed_fire_arcs[g]), fire_arcs_used[g]))
-		    modify_in_arcs_and_out_arcs!(fire_models[g], t+1, keep_arcs, FM.TIME_FROM)
-		end
-		@debug "after modify_in_arcs_and_out_arcs!" fire_models[g].state_in_arcs fire_models[g].state_out_arcs
-	end
-	for j in 1:num_crews
-		@debug "before modify_in_arcs_and_out_arcs!" crew_models[j].state_in_arcs crew_models[j].state_out_arcs crew_arcs_used[j]
-		begin
-		    local keep_arcs = unique(vcat(collect(committed_crew_arcs[j]), crew_arcs_used[j]))
-		    modify_in_arcs_and_out_arcs!(crew_models[j], t+1, keep_arcs, CM.TIME_FROM)
-		end
-		@debug "after modify_in_arcs_and_out_arcs!" crew_models[j].state_in_arcs crew_models[j].state_out_arcs
-	end
+                for j in 1:num_crews
+                        @debug "before modify_in_arcs_and_out_arcs!" crew_models[j].state_in_arcs crew_models[j].state_out_arcs crew_arcs_used[j]
+                        begin
+                            local keep_arcs = unique(vcat(collect(committed_crew_arcs[j]), crew_arcs_used[j]))
+                            modify_in_arcs_and_out_arcs!(crew_models[j], t+1, keep_arcs, CM.TIME_FROM)
+                        end
+                        @debug "after modify_in_arcs_and_out_arcs!" crew_models[j].state_in_arcs crew_models[j].state_out_arcs
+                end
+        end
 
 	# After the day is solved we snapshot the exact arcs we used so downstream
 	# visualization/logging code can refer to them without re-solving DP problems.
@@ -1106,8 +1138,17 @@ for t in 0:num_time_periods
 		crew_arcs[j] = crew_models[j].wide_arcs[:, reverse(crew_arcs_used[j])]
 		crew_arc_costs[j] = crew_models[j].arc_costs[reverse(crew_arcs_used[j])]
 	end
+        if t == rolling_loop_end
+                final_fire_arcs = deepcopy(fire_arcs)
+                final_fire_arc_costs = deepcopy(fire_arc_costs)
+        end
 
-        discretization_bins_used = (:discretization_bins in propertynames(init_info)) ? init_info.discretization_bins : nothing
+        discretization_bins_used = (
+                (init_info !== nothing) && (:discretization_bins in propertynames(init_info))
+        ) ? init_info.discretization_bins : nothing
+        if discretization_bins_used === nothing
+                discretization_bins_used = load_discretization_bins_file(input_folder)
+        end
         bins_for_decoding = discretization_bins_used === nothing ? default_discretization_bins() : collect(Float64.(discretization_bins_used))
         # Fire manifests capture per-fire metadata (IDs, state info, etc.) and
         # get enriched each day with references to the newly generated files.
@@ -1126,6 +1167,10 @@ for t in 0:num_time_periods
                 state_area_map_sim = Dict{Int, Float64}()
                 state_area_map_discrete = Dict{Int, Float64}()
                 packed_lookup = Dict{Int, Int}()
+                if !(state_meta isa AbstractVector)
+                        state_meta = Any[]
+                        state_entry["state_metadata"] = state_meta
+                end
                 if state_meta isa AbstractVector
                         # Normalize metadata into quick lookup tables so we can
                         # map optimizer state indices back to geospatial/area info.
@@ -1147,6 +1192,33 @@ for t in 0:num_time_periods
                                         end
                                 end
                         end
+                end
+                begin
+                        existing_packed_codes = Set(values(packed_lookup))
+                        raw_state_codes = isnothing(fire_models[g].raw_state_to) ? Int[] : unique(Int.(fire_models[g].raw_state_to))
+                        next_state_id = isempty(state_lookup) ? 1 : (maximum(keys(state_lookup)) + 1)
+                        for code in raw_state_codes
+                                code <= 0 && continue
+                                if code in existing_packed_codes
+                                        continue
+                                end
+                                area_val = decode_packed_state_area(code, bins_for_decoding)
+                                area_val <= 0 && continue
+                                entry = Dict{String,Any}(
+                                        "state_id" => next_state_id,
+                                        "packed_code" => code,
+                                        "area_acres_sim" => area_val,
+                                        "area_acres_discrete" => area_val,
+                                )
+                                push!(state_meta, entry)
+                                state_lookup[next_state_id] = entry
+                                state_area_map_sim[next_state_id] = area_val
+                                state_area_map_discrete[next_state_id] = area_val
+                                packed_lookup[next_state_id] = code
+                                push!(existing_packed_codes, code)
+                                next_state_id += 1
+                        end
+                        state_entry["state_metadata"] = state_meta
                 end
 
                 fire_arcs_export = fire_arcs[g]
@@ -1320,14 +1392,18 @@ for t in 0:num_time_periods
                         "arc_file" => get(state_entry, "arc_file", nothing),
                         "day_index" => t,
                         "daily_crews" => daily_crews,
-                        "daily_area_acres" => [daily_area[i] === nothing ? nothing : daily_area[i] for i in 1:num_periods],
+                        "daily_area_acres" => [daily_area_discrete[i] === nothing ? nothing : daily_area_discrete[i] for i in 1:num_periods],
                         "daily_area_acres_discrete" => [daily_area_discrete[i] === nothing ? nothing : daily_area_discrete[i] for i in 1:num_periods],
                 )
                 open(joinpath(output_folder, stats_filename), "w") do io
                         JSON.print(io, stats_payload)
                 end
                 # Compose a short narrative for the day's decisions to aid debugging
-                detail_ix = min(current_day, num_periods)
+                if perfect_info_mode
+                        detail_ix = num_periods
+                else
+                        detail_ix = min(current_day, num_periods)
+                end
                 crews_today = daily_crews[detail_ix]
                 area_today = daily_area[detail_ix]
                 area_discrete_today = daily_area_discrete[detail_ix]
@@ -1448,7 +1524,39 @@ for t in 0:num_time_periods
 
         manifest_filename = joinpath(output_folder, "arc_manifest_$(t).json")
         open(manifest_filename, "w") do io
-        JSON.print(io, manifest_dict)
+                JSON.print(io, manifest_dict)
+        end
+
+        objective_val = isfinite(final_ub) ? final_ub : nothing
+        bound_val = isfinite(final_lb) ? final_lb : nothing
+        gap_val = nothing
+        if objective_val !== nothing && bound_val !== nothing
+                denom = max(1.0, abs(objective_val))
+                gap_val = abs(objective_val - bound_val) / denom
+        end
+        summary_payload = Dict{String,Any}(
+                "objective" => objective_val,
+                "bound" => bound_val,
+                "gap" => gap_val,
+                "solve_seconds" => total_solve_time,
+                "day_index" => t,
+                "explored_nodes_series" => explored_nodes,
+                "upper_bounds_series" => ubs,
+                "lower_bounds_series" => lbs,
+                "column_counts_series" => columns,
+                "heuristic_times_series" => heuristic_times,
+                "cumulative_times_series" => times,
+                "time_1_snapshot" => time_1,
+                "root_node_ip_objective" => root_node_ip_sol,
+                "root_node_ip_time" => root_node_ip_sol_time,
+                "final_upper_bound" => final_ub,
+                "final_lower_bound" => final_lb,
+        )
+        if !isempty(explored_nodes)
+                summary_payload["explored_nodes"] = explored_nodes[end]
+        end
+        open(joinpath(output_folder, "run_summary.json"), "w") do io
+                JSON.print(io, summary_payload)
         end
 end
 
@@ -1457,6 +1565,32 @@ if !isempty(optimizer_day_arc_records)
         arc_df = DataFrame(optimizer_day_arc_records)
         select!(arc_df, [:baseline, :day_index, :day_number, :fire_id, :start_day, :current_area, :assigned_crews])
         CSV.write(joinpath(output_folder, "optimizer_arc_summary.csv"), arc_df)
+end
+
+if (final_fire_arcs !== nothing) && (final_fire_arc_costs !== nothing)
+        fire_rows = Vector{Dict{Symbol,Any}}()
+        final_arcs = final_fire_arcs
+        final_costs = final_fire_arc_costs
+        num_fires_final = length(final_arcs)
+        for g in 1:num_fires_final
+                arc_matrix = final_arcs[g]
+                arc_costs = final_costs[g]
+                num_arcs = size(arc_matrix, 2)
+                fire_event_id = (!isnothing(init_info) && (:fire_ids in propertynames(init_info))) ? init_info.fire_ids[g] : missing
+                for k in 1:num_arcs
+                        acres_val = arc_costs[k] * 1.0e4
+                        crews_val = arc_matrix[FM.CREWS_PRESENT, k]
+                        push!(fire_rows, Dict(
+                                :fire => g,
+                                :fire_event_id => fire_event_id,
+                                :day => k,
+                                :acres => acres_val,
+                                :crews => crews_val,
+                        ))
+                end
+        end
+        fire_progression_df = DataFrame(fire_rows)
+        CSV.write(joinpath(output_folder, "fire_progression_summary.csv"), fire_progression_df)
 end
 
 @info "Optimizer horizon summary" summary=[

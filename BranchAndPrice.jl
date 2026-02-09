@@ -308,6 +308,7 @@ function branch_and_price(
         cut_data  = nothing,
         dual_warm_start = nothing,
         final_snapshot_only::Bool = false,
+        include_future_fires::Bool = false,
 )
         start_time = time()
         @info "Starting branch-and-price optimization" fires = num_fires crews = num_crews periods = num_time_periods
@@ -339,13 +340,15 @@ function branch_and_price(
 	end
 
 	fires_to_ignore = Int64[]
-	for fire in 1:num_fires
-		if !isnothing(fire_models[fire].start_time_period) && fire_models[fire].start_time_period > current_time + 1
-                        push!(fires_to_ignore, fire)
-                        @debug "Ignoring fire" fire "because it starts at time" fire_models[fire].start_time_period
+	if !include_future_fires
+		for fire in 1:num_fires
+			if !isnothing(fire_models[fire].start_time_period) && fire_models[fire].start_time_period > current_time + 1
+	                        push!(fires_to_ignore, fire)
+	                        @debug "Ignoring fire" fire "because it starts at time" fire_models[fire].start_time_period
+			end
 		end
+		# Fires may have delayed start times; avoid generating columns for them until they activate.
 	end
-	# Fires may have delayed start times; avoid generating columns for them until they activate.
 
 	explored_nodes = []
 	ubs = []
@@ -624,7 +627,8 @@ function branch_and_price(
         end
         @info "Branch-and-price optimization complete" lower_bound = lb upper_bound = ub explored_nodes = node_explored_count
 	        root_dual_warm_start = isnothing(root_dual_linking) ? nothing : DualWarmStart(linking_values = root_dual_linking)
-	        return explored_nodes, ubs, lbs, columns, heuristic_times, times, time_1, root_node_ip_sol, root_node_ip_sol_time, fire_arcs_used, crew_arcs_used, root_dual_warm_start
+        total_solve_time = time() - start_time
+	        return explored_nodes, ubs, lbs, columns, heuristic_times, times, time_1, root_node_ip_sol, root_node_ip_sol_time, fire_arcs_used, crew_arcs_used, root_dual_warm_start, ub, lb, total_solve_time
 
 end
 

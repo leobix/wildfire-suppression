@@ -26,7 +26,7 @@ end
 
 module FireArcArrayIndices
 
-# indices for each crew arc
+# indices for each fore arc
 STATE_FROM = 2
 TIME_FROM = 3
 TIME_TO = 4
@@ -844,11 +844,13 @@ function build_crew_models_from_empirical(
         error("Not enough crews to assign to fires")
     end
 
+    # Load the empirical crew start metadata so we can align each travel-row with an initial status.
     crew_start_path = joinpath(fire_folder, "empirical_crew_start.csv")
     if !isfile(crew_start_path)
         error("Crew start specification not found at $(crew_start_path)")
     end
     crew_start_df = CSV.read(crew_start_path, DataFrame)
+    # Column headers vary between data drops, so normalize them when searching for the crew name column.
     normalize_symbol(sym) = lowercase(join(split(strip(String(sym))), " "))
     name_col = nothing
     for sym in names(crew_start_df)
@@ -860,6 +862,7 @@ function build_crew_models_from_empirical(
             name_col = sym
         end
     end
+    # Keep both raw and normalized mappings so we can tolerate differences in whitespace/casing.
     normalize_name(name::AbstractString) = lowercase(join(split(strip(name)), " "))
     crew_row_lookup = Dict{String,DataFrameRow}()
     crew_row_lookup_norm = Dict{String,DataFrameRow}()
@@ -873,29 +876,35 @@ function build_crew_models_from_empirical(
             end
         end
     end
+    # Map external FIRE_EVENT_ID strings to the 1..num_fires ordering used internally.
     fire_lookup = Dict{String,Int}()
     for (pos, fid) in enumerate(string.(selected_fires[idx, "FIRE_EVENT_ID"]))
         fire_lookup[fid] = pos
     end
 
+    # Initialize crew state vectors that will later be overwritten with empirical values.
     rest_by = fill(num_time_periods, num_crews)
     current_fire = fill(-1, num_crews)
     rested_periods = fill(0, num_crews)
 
     for (i, crew_name) in enumerate(crew_names)
+        # Try to find an exact match for the crew name; fall back to normalized lookup.
         row = get(crew_row_lookup, crew_name, nothing)
         if row === nothing
             row = get(crew_row_lookup_norm, normalize_name(crew_name), nothing)
         end
         if row === nothing
+            # Surface a helpful error so data fixes are easier when crew names are missing.
             available = collect(keys(crew_row_lookup))
             sample = isempty(available) ? "(none found)" : join(available[1:min(length(available), 5)], ", ")
             cols = join(string.(names(crew_start_df)), ", ")
             error("Crew starts missing entry for '$(crew_name)'. The names in empirical_crew_start.csv must match the travel matrix. Example entries: $(sample). Columns observed: $(cols). Rows observed: $(nrow(crew_start_df)).")
         end
+        # Pull rest deadlines, defaulting to the horizon if unspecified.
         rb = hasproperty(row, :rest_by) && !(row[:rest_by] === missing) ? Int(row[:rest_by]) : num_time_periods
         rest_by[i] = rb
         fire_token = ""
+        # Determine the initial fire assignment using the string ID when available.
         if :current_fire_id in names(crew_start_df)
             val = row[:current_fire_id]
             if !(val === nothing || val === missing)
@@ -912,6 +921,7 @@ function build_crew_models_from_empirical(
                 current_fire[i] = -1
             end
             end
+        # Track how many periods the crew has already rested (bounded by policy).
         rp = hasproperty(row, :rested_periods) && !(row[:rested_periods] === missing) ? Int(row[:rested_periods]) : 0
         rested_periods[i] = min(rest_periods, max(0, rp))
         if current_fire[i] == -1 && rested_periods[i] >= rest_periods
@@ -1774,7 +1784,14 @@ function build_fire_models_from_empirical(
                         clamp(next_idx_raw, 1, num_bins)
                     end
                     state_cache[code] = idx
-                    area_idx = clamp(next_idx_raw, 1, num_bins)
+                    area_idx = begin
+                        if state_type == :terminal
+                            raw = code - terminal_base
+                            mod(raw, num_bins) + 1
+                        else
+                            clamp(next_idx_raw, 1, num_bins)
+                        end
+                    end
                     sim_area = discretization_bins[area_idx]
                     entry = ensure_state_entry!(
                         idx,

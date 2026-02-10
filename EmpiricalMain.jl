@@ -395,6 +395,18 @@ crew_routes, fire_plans, crew_models, fire_models, cut_data, init_info = initial
 num_crews = length(crew_models)
 num_fires = length(fire_models) # dataset-driven counts might differ from initial guesses
 
+crew_names = hasproperty(init_info, :crew_names) ? init_info.crew_names : nothing
+if crew_names !== nothing && !isempty(output_folder)
+        try
+                mapping = DataFrame(
+                        crew_index = collect(1:length(crew_names)),
+                        crew_name = crew_names,
+                )
+                CSV.write(joinpath(output_folder, "crew_index_mapping.csv"), mapping)
+        catch
+        end
+end
+
 @info "Total crews" num_crews
 @info "Total fires" num_fires
 @info "Fire selection criterion" init_info.selection
@@ -422,6 +434,8 @@ optimizer_day_rollup = Any[]
 optimizer_day_arc_records = Vector{Dict{Symbol,Any}}()
 final_fire_arcs = nothing
 final_fire_arc_costs = nothing
+final_crew_arcs = nothing
+final_crew_arc_costs = nothing
 
 # Main rolling-horizon loop: each iteration finalizes decisions for the current day,
 # seeds additional columns, and re-optimizes the branch-and-price master problem.
@@ -1143,6 +1157,8 @@ for t in 0:rolling_loop_end
         if t == rolling_loop_end
                 final_fire_arcs = deepcopy(fire_arcs)
                 final_fire_arc_costs = deepcopy(fire_arc_costs)
+                final_crew_arcs = deepcopy(crew_arcs)
+                final_crew_arc_costs = deepcopy(crew_arc_costs)
         end
 
         discretization_bins_used = (
@@ -1623,28 +1639,226 @@ end
 
 if (final_fire_arcs !== nothing) && (final_fire_arc_costs !== nothing)
         fire_rows = Vector{Dict{Symbol,Any}}()
+        selected_fire_arc_records = DataFrame(
+                fire = Int[],
+                arc_index = Int[],
+                value = Float64[],
+                cost = Float64[],
+                state_from_raw = Int[],
+                time_from = Int[],
+                time_to = Int[],
+                state_to_raw = Int[],
+                personnel = Float64[],
+        )
         final_arcs = final_fire_arcs
         final_costs = final_fire_arc_costs
         num_fires_final = length(final_arcs)
+        crew_step_for_personnel = (init_info !== nothing && (:crew_step in propertynames(init_info))) ?
+                init_info.crew_step : firefighters_per_crew
+        fire_order_entries = (init_info !== nothing && (:fire_order in propertynames(init_info))) ? init_info.fire_order : nothing
         for g in 1:num_fires_final
                 arc_matrix = final_arcs[g]
                 arc_costs = final_costs[g]
                 num_arcs = size(arc_matrix, 2)
                 fire_event_id = (!isnothing(init_info) && (:fire_ids in propertynames(init_info))) ? init_info.fire_ids[g] : missing
+                state_entry = (fire_order_entries !== nothing && g ≤ length(fire_order_entries)) ? fire_order_entries[g] : Dict{String,Any}()
+                state_meta = get(state_entry, "state_metadata", nothing)
+                packed_lookup = Dict{Int,Int}()
+                if state_meta isa AbstractVector
+                        for sm in state_meta
+                                if sm isa Dict && haskey(sm, "state_id")
+                                        sid = Int(sm["state_id"])
+                                        raw = get(sm, "packed_code", nothing)
+                                        if !(raw === nothing || raw === missing)
+                                                packed_lookup[sid] = Int(raw)
+                                        end
+                                end
+                        end
+                end
+                map_state = s -> get(packed_lookup, s, s)
                 for k in 1:num_arcs
                         acres_val = arc_costs[k] * 1.0e4
                         crews_val = arc_matrix[FM.CREWS_PRESENT, k]
+                        time_from = Int(arc_matrix[FM.TIME_FROM, k])
+                        time_to = Int(arc_matrix[FM.TIME_TO, k])
+                        day_idx = time_to - 1
+                        state_from_raw = map_state(Int(arc_matrix[FM.STATE_FROM, k]))
+                        state_to_raw = map_state(Int(arc_matrix[FM.STATE_TO, k]))
                         push!(fire_rows, Dict(
                                 :fire => g,
                                 :fire_event_id => fire_event_id,
-                                :day => k,
+                                :day => day_idx,
                                 :acres => acres_val,
-                                :crews => crews_val,
+                                :crews => crews_val * (crew_step_for_personnel / 50.0),
+                        ))
+                        push!(selected_fire_arc_records, (
+                                fire = g,
+                                arc_index = k,
+                                value = 1.0,
+                                cost = arc_costs[k],
+                                state_from_raw = state_from_raw,
+                                time_from = time_from,
+                                time_to = time_to,
+                                state_to_raw = state_to_raw,
+                                personnel = Float64(crews_val * crew_step_for_personnel),
                         ))
                 end
         end
         fire_progression_df = DataFrame(fire_rows)
         CSV.write(joinpath(output_folder, "fire_progression_summary.csv"), fire_progression_df)
+        CSV.write(joinpath(output_folder, "selected_fire_arcs.csv"), selected_fire_arc_records)
+
+        if final_crew_arcs !== nothing
+                fire_daily_counts = [Int[] for _ in 1:num_fires_final]
+                crews_on_fire_counts = Int[]
+                crews_in_transit_counts = Int[]
+                crews_resting_counts = Int[]
+                crews_at_base_counts = Int[]
+                crew_status_records = [Vector{Symbol}() for _ in 1:length(final_crew_arcs)]
+                crew_cost_vectors = final_crew_arc_costs === nothing ? [Float64[] for _ in final_crew_arcs] : final_crew_arc_costs
+
+                function ensure_length!(vec::Vector{Int}, len::Int)
+                        while length(vec) < len
+                                push!(vec, 0)
+                        end
+                end
+
+                function accumulate_range!(vec::Vector{Int}, start_day::Int, end_day::Int, amount::Int)
+                        if end_day <= start_day
+                                return
+                        end
+                        for day in max(start_day, 0):(end_day - 1)
+                                idx = day + 1
+                                ensure_length!(vec, idx)
+                                vec[idx] += amount
+                        end
+                end
+
+                function classify_arc_status(arc)::Symbol
+                        ft = arc[CM.FROM_TYPE]
+                        tt = arc[CM.TO_TYPE]
+                        lf = arc[CM.LOC_FROM]
+                        lt = arc[CM.LOC_TO]
+                        rt = arc[CM.REST_TO]
+                        if tt == CM.FIRE_CODE && ft == CM.FIRE_CODE && lf == lt
+                                return :fire
+                        elseif (ft == CM.BASE_CODE && tt == CM.FIRE_CODE) || (ft == CM.FIRE_CODE && tt == CM.BASE_CODE)
+                                return :travel
+                        elseif tt == CM.FIRE_CODE && ft == CM.FIRE_CODE && lf != lt
+                                return :travel
+                        elseif tt == CM.BASE_CODE && rt > 0
+                                return :rest
+                        elseif ft == CM.BASE_CODE && tt == CM.BASE_CODE && rt > 0
+                                return :rest
+                        elseif tt == CM.BASE_CODE
+                                return :base
+                        else
+                                return :base
+                        end
+                end
+
+                for (crew_idx, crew_matrix) in enumerate(final_crew_arcs)
+                        num_arcs = size(crew_matrix, 2)
+                        statuses = Vector{Symbol}(undef, max(num_arcs, 0))
+                        for k in 1:num_arcs
+                                arc = crew_matrix[:, k]
+                                status = classify_arc_status(arc)
+                                statuses[k] = status
+                                start_day = Int(max(0, arc[CM.TIME_FROM]))
+                                end_day = Int(max(0, arc[CM.TIME_TO]))
+                                if status == :travel
+                                        accumulate_range!(crews_in_transit_counts, start_day, end_day, 1)
+                                elseif status == :rest
+                                        accumulate_range!(crews_resting_counts, start_day, end_day, 1)
+                                elseif status == :base
+                                        accumulate_range!(crews_at_base_counts, start_day, end_day, 1)
+                                else
+                                        accumulate_range!(crews_on_fire_counts, start_day, end_day, 1)
+                                        loc = Int(arc[CM.LOC_TO])
+                                        if 1 <= loc <= length(fire_daily_counts)
+                                                vec = fire_daily_counts[loc]
+                                                for day in max(0, start_day):(end_day - 1)
+                                                        idx = day + 1
+                                                        ensure_length!(vec, idx)
+                                                        vec[idx] += 1
+                                                end
+                                        end
+                                end
+                        end
+                        crew_status_records[crew_idx] = statuses
+                end
+
+                fire_daily_records = DataFrame(
+                        fire = Int[],
+                        fire_event_id = String[],
+                        day = Int[],
+                        crews = Int[],
+                )
+                for (fire_idx, counts) in enumerate(fire_daily_counts)
+                        fire_event_id_val = (!isnothing(init_info) && (:fire_ids in propertynames(init_info))) ? init_info.fire_ids[fire_idx] : fire_idx
+                        for (day_idx, crew_val) in enumerate(counts)
+                                crew_val <= 0 && continue
+                                push!(fire_daily_records, (
+                                        fire = fire_idx,
+                                        fire_event_id = string(fire_event_id_val),
+                                        day = day_idx - 1,
+                                        crews = crew_val,
+                                ))
+                        end
+                end
+                CSV.write(joinpath(output_folder, "fire_daily_crews.csv"), fire_daily_records)
+
+                max_days = max(1, num_time_periods)
+                for vec in (crews_on_fire_counts, crews_in_transit_counts, crews_resting_counts, crews_at_base_counts)
+                        ensure_length!(vec, max_days)
+                        if length(vec) > max_days
+                                resize!(vec, max_days)
+                        end
+                end
+                status_df = DataFrame(
+                        baseline = fill(baseline_label, max_days),
+                        day_index = collect(0:(max_days - 1)),
+                        day_number = collect(1:max_days),
+                        crews_on_fire = crews_on_fire_counts,
+                        crews_in_transit = crews_in_transit_counts,
+                        crews_resting = crews_resting_counts,
+                        crews_at_base = crews_at_base_counts,
+                )
+                CSV.write(joinpath(output_folder, "crew_status.csv"), status_df)
+
+                for (crew_idx, crew_matrix) in enumerate(final_crew_arcs)
+                        num_arcs = size(crew_matrix, 2)
+                        num_arcs == 0 && continue
+                        cost_vec = crew_cost_vectors[crew_idx]
+                        if length(cost_vec) != num_arcs
+                                cost_vec = collect(cost_vec)
+                                while length(cost_vec) < num_arcs
+                                        push!(cost_vec, 0.0)
+                                end
+                                if length(cost_vec) > num_arcs
+                                        resize!(cost_vec, num_arcs)
+                                end
+                        end
+                        df = DataFrame(
+                                arc_index = collect(1:num_arcs),
+                                value = ones(Float64, num_arcs),
+                                cost = cost_vec,
+                                crew_number = fill(crew_idx, num_arcs),
+                                from_type = Int.(vec(crew_matrix[CM.FROM_TYPE, :])),
+                                loc_from = Int.(vec(crew_matrix[CM.LOC_FROM, :])),
+                                to_type = Int.(vec(crew_matrix[CM.TO_TYPE, :])),
+                                loc_to = Int.(vec(crew_matrix[CM.LOC_TO, :])),
+                                time_from = Int.(vec(crew_matrix[CM.TIME_FROM, :])),
+                                time_to = Int.(vec(crew_matrix[CM.TIME_TO, :])),
+                                rest_from = Int.(vec(crew_matrix[CM.REST_FROM, :])),
+                                rest_to = Int.(vec(crew_matrix[CM.REST_TO, :])),
+                        )
+                        statuses = crew_status_records[crew_idx]
+                        df[!, :status] = [String(statuses[k]) for k in 1:num_arcs]
+                        filename = string("crew_", lpad(string(crew_idx), 3, '0'), "_selected_arcs_post_processed.csv")
+                        CSV.write(joinpath(output_folder, filename), df)
+                end
+        end
 end
 
 @info "Optimizer horizon summary" summary=[

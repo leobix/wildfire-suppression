@@ -1194,6 +1194,24 @@ for t in 0:rolling_loop_end
                                         end
                                 end
                         end
+                        # Fill missing discrete areas by decoding packed codes so
+                        # downstream logs never see a zero/unknown value.
+                        for (sid, sm) in state_lookup
+                                if !haskey(state_area_map_discrete, sid)
+                                        packed_code = get(packed_lookup, sid, 0)
+                                        decoded_area = decode_packed_state_area(packed_code, bins_for_decoding)
+                                        if decoded_area > 0
+                                                state_area_map_discrete[sid] = decoded_area
+                                        end
+                                end
+                                if !haskey(state_area_map_sim, sid)
+                                        packed_code = get(packed_lookup, sid, 0)
+                                        decoded_area = decode_packed_state_area(packed_code, bins_for_decoding)
+                                        if decoded_area > 0
+                                                state_area_map_sim[sid] = decoded_area
+                                        end
+                                end
+                        end
                 end
                 begin
                         existing_packed_codes = Set(values(packed_lookup))
@@ -1383,7 +1401,10 @@ for t in 0:rolling_loop_end
                                         daily_area_discrete[period_ix] = prev_area_discrete
                                 end
                         end
-        end
+                        if daily_area_discrete[period_ix] === nothing && daily_area[period_ix] !== nothing
+                                daily_area_discrete[period_ix] = daily_area[period_ix]
+                        end
+                end
 
         # Persist a per-fire stats JSON summarizing the day's crew assignments
         # and resulting area trajectories.  Downstream dashboards consume this.
@@ -1427,6 +1448,9 @@ for t in 0:rolling_loop_end
                 end
                 if area_today_exact !== nothing
                         area_today = area_today_exact
+                        if area_discrete_today === nothing
+                                area_discrete_today = Float64(area_today_exact)
+                        end
                 end
                 start_day_val = init_info.start_days[g]
                 base_label = replace(basename(input_folder), "fire_models_" => "")

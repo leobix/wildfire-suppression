@@ -1646,13 +1646,28 @@ function explore_node!!(
 	)
 	@debug "Define rmp time (b-and-b)" t
 
-    # Add any pre-seeded fire plan columns (>1) to the RMP so they're available
+    # Always make sure the baseline (index 1) plan for each fire is active so
+    # every fire has at least one column (e.g., the zero-crew dummy plan).
     for fire in 1:num_fires
-        for ix in 2:fire_plans.plans_per_fire[fire]
-            if (fire, ix) ∉ eachindex(rmp.plans)
-                add_column_to_master_problem!!(
-                    rmp,
-                    cut_data,
+        if fire_plans.plans_per_fire[fire] ≥ 1 && (fire, 1) ∉ eachindex(rmp.plans)
+            add_column_to_master_problem!!(
+                rmp,
+                cut_data,
+                fire_plans,
+                global_rules,
+                fire,
+                1,
+            )
+        end
+    end
+
+	# Add any additional pre-seeded fire plan columns (>1) to the RMP so they're available
+	for fire in 1:num_fires
+		for ix in 2:fire_plans.plans_per_fire[fire]
+			if (fire, ix) ∉ eachindex(rmp.plans)
+				add_column_to_master_problem!!(
+					rmp,
+					cut_data,
                     fire_plans,
                     global_rules,
                     fire,

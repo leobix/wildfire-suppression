@@ -587,10 +587,9 @@ for t in 0:rolling_loop_end
                 if isempty(path_chrono)
                     continue
                 end
-                # Seeding guard: if fire is at/after its start day, require at least one post-start arc
-                # (Otherwise we would add columns that only plan before the fire is active.)
+                # Require at least one post-start arc so the plan extends into the active window.
                 start_day = fire_models[g].start_time_period
-                if !perfect_info_mode && !isnothing(start_day) && current_day >= start_day
+                if !isnothing(start_day)
                     has_post_start = false
                     for a_ix in path_chrono
                         if fm.long_arcs[a_ix, FM.TIME_FROM] >= start_day + 1
@@ -708,9 +707,9 @@ for t in 0:rolling_loop_end
                 if isempty(path_chrono)
                     continue
                 end
-                # Seeding guard: if fire is at/after its start day, require at least one post-start arc
+                # Require at least one post-start arc so the plan extends into the active window.
                 start_day = fire_models[g].start_time_period
-                if !perfect_info_mode && !isnothing(start_day) && current_day >= start_day
+                if !isnothing(start_day)
                     has_post_start = false
                     for a_ix in path_chrono
                         if fm.long_arcs[a_ix, FM.TIME_FROM] >= start_day + 1
@@ -830,9 +829,9 @@ for t in 0:rolling_loop_end
                 if isempty(path_chrono)
                     continue
                 end
-                # Seeding guard: if fire is at/after its start day, require at least one post-start arc
+                # Require at least one post-start arc so the plan extends into the active window.
                 start_day = fire_models[g].start_time_period
-                if !perfect_info_mode && !isnothing(start_day) && current_day >= start_day
+                if !isnothing(start_day)
                     has_post_start = false
                     for a_ix in path_chrono
                         if fm.long_arcs[a_ix, FM.TIME_FROM] >= start_day + 1

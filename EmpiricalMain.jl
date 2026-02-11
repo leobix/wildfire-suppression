@@ -11,7 +11,7 @@ include("BranchAndPrice.jl") # load the optimizer implementation so this script 
 # Core packages that drive the command-line workflow and optimization.
 # IterTools exports a groupby helper that clashes with DataFrames, so we explicitly
 # import the DataFrames version below.
-using JuMP, Gurobi, JSON, Profile, ArgParse, Logging, IterTools, CSV, DataFrames, Dates, DelimitedFiles
+using JuMP, Gurobi, JSON, Profile, ArgParse, Logging, IterTools, CSV, DataFrames, Dates, DelimitedFiles, Printf
 import DataFrames: groupby
 import Logging: min_enabled_level, shouldlog, handle_message # grant direct access to these logging hooks
 
@@ -213,6 +213,236 @@ function build_day_one_fire_subset(
         return subset
 end
 
+function build_fire_arc_lookup(fire_model::TimeSpaceNetwork)
+        lookup = Dict{NTuple{5,Int64},Int64}()
+        raw_from = fire_model.raw_state_from
+        raw_to = fire_model.raw_state_to
+        for ix in 1:size(fire_model.long_arcs, 1)
+                from_raw = raw_from === nothing ? fire_model.long_arcs[ix, FM.STATE_FROM] : raw_from[ix]
+                to_raw = raw_to === nothing ? fire_model.long_arcs[ix, FM.STATE_TO] : raw_to[ix]
+                time_from = fire_model.long_arcs[ix, FM.TIME_FROM]
+                time_to = fire_model.long_arcs[ix, FM.TIME_TO]
+                crews = fire_model.long_arcs[ix, FM.CREWS_PRESENT]
+                lookup[(from_raw, to_raw, time_from, time_to, crews)] = ix
+        end
+        return lookup
+end
+
+function build_crew_arc_lookup(crew_model::TimeSpaceNetwork)
+        lookup = Dict{NTuple{8,Int64},Int64}()
+        for ix in 1:size(crew_model.long_arcs, 1)
+                arc = crew_model.long_arcs[ix, :]
+                key = (
+                        arc[CM.FROM_TYPE],
+                        arc[CM.LOC_FROM],
+                        arc[CM.TO_TYPE],
+                        arc[CM.LOC_TO],
+                        arc[CM.TIME_FROM],
+                        arc[CM.TIME_TO],
+                        arc[CM.REST_FROM],
+                        arc[CM.REST_TO],
+                )
+                lookup[key] = ix
+        end
+        return lookup
+end
+
+function final_snapshot_cost(fire_model::TimeSpaceNetwork, arcs_used::Vector{Int}, num_time_periods::Int)
+        best_arc = 0
+        best_t = -1
+        for a_ix in arcs_used
+                to_t = fire_model.long_arcs[a_ix, FM.TIME_TO]
+                c = fire_model.arc_costs[a_ix]
+                if (to_t <= num_time_periods + 1) && (c > 1e-12) && (to_t - 1) > best_t
+                        best_arc = a_ix
+                        best_t = to_t - 1
+                end
+        end
+        if best_arc != 0
+                return fire_model.arc_costs[best_arc]
+        end
+        return sum(fire_model.arc_costs[arcs_used])
+end
+
+function seed_fire_plans_from_arc!(
+        seed_dir::String,
+        init_info,
+        fire_plans::FirePlanData,
+        fire_models::Vector{TimeSpaceNetwork},
+        num_time_periods::Int,
+        firefighters_per_crew::Int,
+)
+        fire_csv = joinpath(seed_dir, "selected_fire_arcs.csv")
+        isfile(fire_csv) || return 0
+        df = CSV.read(fire_csv, DataFrame)
+        if isempty(df)
+                        return 0
+        end
+        name_lookup = Dict(lowercase(String(col)) => col for col in names(df))
+        personnel_col = get(name_lookup, "personnel", nothing)
+        if personnel_col === nothing
+                @warn "selected_fire_arcs.csv missing personnel column" fire_csv
+                return 0
+        end
+        idx_col = :__fire_ix
+        if haskey(name_lookup, "fire_event_id")
+                fire_symbol = name_lookup["fire_event_id"]
+                fire_lookup = Dict(string(init_info.fire_ids[ix]) => ix for ix in 1:length(init_info.fire_ids))
+                df[!, idx_col] = [get(fire_lookup, string(fid), 0) for fid in df[!, fire_symbol]]
+        elseif haskey(name_lookup, "fire")
+                df[!, idx_col] = [Int(round(val)) for val in df[!, name_lookup["fire"]]]
+        else
+                @warn "selected_fire_arcs.csv missing fire identifier columns (fire_event_id or fire)" fire_csv
+                return 0
+        end
+        valid_mask = (df[!, idx_col] .>= 1) .& (df[!, idx_col] .<= length(init_info.fire_ids))
+        if !all(valid_mask)
+                @warn "Skipping fire arcs that do not map to optimizer indices" discarded = sum(.!valid_mask)
+                df = df[valid_mask, :]
+        end
+        crew_step = (:crew_step in propertynames(init_info)) ? init_info.crew_step : firefighters_per_crew
+        total_seeded = 0
+        grouped = groupby(df, idx_col)
+        for group in grouped
+                fire_ix = first(group[!, idx_col])
+                sub = sort(DataFrame(group), [:time_from, :arc_index])
+                lookup = build_fire_arc_lookup(fire_models[fire_ix])
+                arcs_used = Int[]
+                missing_arc = false
+                for row in eachrow(sub)
+                        raw_from = Int(round(row.state_from_raw))
+                        raw_to = Int(round(row.state_to_raw))
+                        time_from = Int(round(row.time_from))
+                        time_to = Int(round(row.time_to))
+                        crew_count = Int(round(row[personnel_col] / crew_step))
+                        key = (raw_from, raw_to, time_from, time_to, crew_count)
+                        arc_ix = get(lookup, key, 0)
+                        if arc_ix == 0
+                                missing_arc = true
+                                fire_label = (:fire_event_id in keys(name_lookup)) ? group[1, name_lookup["fire_event_id"]] : init_info.fire_ids[fire_ix]
+                                @warn "Could not map network-flow fire arc to BPC arc" fire_id=fire_label key=key
+                                break
+                        end
+                        push!(arcs_used, arc_ix)
+                end
+                if missing_arc || isempty(arcs_used)
+                        continue
+                end
+                crew_demands = zeros(Int, num_time_periods)
+                for arc_ix in arcs_used
+                        tf = fire_models[fire_ix].long_arcs[arc_ix, FM.TIME_FROM]
+                        if 1 <= tf <= num_time_periods
+                                crew_demands[tf] = fire_models[fire_ix].long_arcs[arc_ix, FM.CREWS_PRESENT]
+                        end
+                end
+                cost = final_snapshot_cost(fire_models[fire_ix], arcs_used, num_time_periods)
+                add_column_to_plan_data!(fire_plans, fire_ix, cost, crew_demands, arcs_used)
+                total_seeded += 1
+                @debug "Seeded fire plan from network_flow_direct" fire=fire_ix crew_demands=crew_demands cost=cost arcs=length(arcs_used)
+        end
+        return total_seeded
+end
+
+function seed_crew_routes_from_arc!(
+        seed_dir::String,
+        crew_routes::CrewRouteData,
+        crew_models::Vector{TimeSpaceNetwork},
+        num_fires::Int,
+        num_time_periods::Int,
+)
+        num_crews = length(crew_models)
+        seeded = 0
+        for crew_ix in 1:num_crews
+                base = @sprintf("crew_%03d_selected_arcs_post_processed.csv", crew_ix)
+                path = joinpath(seed_dir, base)
+                if !isfile(path)
+                        alt = @sprintf("crew_%03d_selected_arcs.csv", crew_ix)
+                        path = joinpath(seed_dir, alt)
+                        isfile(path) || continue
+                end
+                df = CSV.read(path, DataFrame)
+                has_value_col = :value in names(df)
+                rows = has_value_col ?
+                        [row for row in eachrow(df) if row[:value] > 1e-6] :
+                        collect(eachrow(df))
+                if isempty(rows)
+                        continue
+                end
+                lookup = build_crew_arc_lookup(crew_models[crew_ix])
+                arcs_used = Int[]
+                missing_arc = false
+                for row in rows
+                        key = (
+                                Int(round(row[:from_type])),
+                                Int(round(row[:loc_from])),
+                                Int(round(row[:to_type])),
+                                Int(round(row[:loc_to])),
+                                Int(round(row[:time_from])),
+                                Int(round(row[:time_to])),
+                                Int(round(row[:rest_from])),
+                                Int(round(row[:rest_to])),
+                        )
+                        arc_ix = get(lookup, key, 0)
+                        if arc_ix == 0
+                                missing_arc = true
+                                @warn "Could not map network-flow crew arc to BPC arc" crew_ix key
+                                break
+                        end
+                        push!(arcs_used, arc_ix)
+                end
+                if missing_arc || isempty(arcs_used)
+                        continue
+                end
+                fires_fought = get_fires_fought(
+                        crew_models[crew_ix].wide_arcs,
+                        arcs_used,
+                        (num_fires, num_time_periods),
+                )
+                cost = sum(crew_models[crew_ix].arc_costs[arcs_used])
+                add_column_to_route_data!(crew_routes, crew_ix, cost, fires_fought, arcs_used)
+                seeded += 1
+                @debug "Seeded crew route from network_flow_direct" crew=crew_ix fires_fought=fires_fought cost=cost arcs=length(arcs_used)
+        end
+        return seeded
+end
+
+function seed_from_arc_solution!(
+        seed_dir::String,
+        init_info,
+        crew_routes::CrewRouteData,
+        fire_plans::FirePlanData,
+        crew_models::Vector{TimeSpaceNetwork},
+        fire_models::Vector{TimeSpaceNetwork},
+        num_time_periods::Int,
+        firefighters_per_crew::Int,
+)
+        path = strip(seed_dir)
+        if isempty(path)
+                return
+        end
+        arc_dir = abspath(path)
+        if !isdir(arc_dir)
+                @warn "Seed arc directory does not exist" arc_dir
+                return
+        end
+        fire_seeded = seed_fire_plans_from_arc!(
+                arc_dir,
+                init_info,
+                fire_plans,
+                fire_models,
+                num_time_periods,
+                firefighters_per_crew,
+        )
+        crew_seeded = seed_crew_routes_from_arc!(
+                arc_dir,
+                crew_routes,
+                crew_models,
+                length(fire_models),
+                num_time_periods,
+        )
+        @info "Seeded columns from network_flow_direct output" arc_dir fire_plans=fire_seeded crew_routes=crew_seeded
+end
+
 function resolve_input_folder(folder::String)
         # try the user-specified path directly
         # if the provided path already points to a folder with selected_fires.csv, use it
@@ -287,6 +517,9 @@ function get_command_line_args()
                 help = "Time limit in seconds for the branch-and-price algorithm"
                 arg_type = Float64
                 default = 1800.0
+                "--seed-arc-output-dir"
+                help = "Optional path to a network_flow_direct output folder whose solution will be seeded into the master problem"
+                default = ""
                 "--input-folder"
                 help = "Directory containing input files (full path or dataset under data/empirical_fire_models)"
                 default = "raw"
@@ -317,6 +550,7 @@ time_limit = args["time-limit"]
 input_folder = resolve_input_folder(args["input-folder"]) # locate arc_arrays directory automatically if needed
 output_folder = args["output-folder"]
 baseline_label = String(args["baseline-label"])
+seed_arc_output_dir = String(strip(String(args["seed-arc-output-dir"])))
 
 if day_one_only
         # Build a reduced GACC -> fire list containing only incidents active on day 0.
@@ -394,6 +628,23 @@ crew_routes, fire_plans, crew_models, fire_models, cut_data, init_info = initial
 
 num_crews = length(crew_models)
 num_fires = length(fire_models) # dataset-driven counts might differ from initial guesses
+
+if !isempty(seed_arc_output_dir)
+        try
+                seed_from_arc_solution!(
+                        seed_arc_output_dir,
+                        init_info,
+                        crew_routes,
+                        fire_plans,
+                        crew_models,
+                        fire_models,
+                        num_time_periods,
+                        firefighters_per_crew,
+                )
+        catch err
+                @warn "Failed to seed columns from arc solution" seed_arc_output_dir err
+        end
+end
 
 crew_names = hasproperty(init_info, :crew_names) ? init_info.crew_names : nothing
 if crew_names !== nothing && !isempty(output_folder)

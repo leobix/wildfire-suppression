@@ -236,6 +236,18 @@ function full_network_flow(
 		#Ryne added
 		@info "Solve complete cleanly" objective=ub bound=lb gap=(ub - lb)/max(1, abs(ub)) time=solve_seconds
 
+		fire_id_lookup = Vector{String}(undef, num_fires)
+		if fire_meta !== nothing && hasproperty(fire_meta, :fire_order)
+			for fire in 1:num_fires
+				entry = fire_meta.fire_order[fire]
+				fire_id_lookup[fire] = string(get(entry, "fire_event_id", fire))
+			end
+		else
+			for fire in 1:num_fires
+				fire_id_lookup[fire] = string(fire)
+			end
+		end
+
 		for fire in 1:num_fires
 			# vals = value.(fire_vars[fire])
   			# selected = [ix for (ix, v) in pairs(vals) if v > 1e-6]
@@ -271,6 +283,7 @@ function full_network_flow(
 		# end
 		records = DataFrame(
 			fire = Int[],
+			fire_event_id = String[],
 			arc_index = Int[],
 			value = Float64[],
 			cost = Float64[],
@@ -346,23 +359,24 @@ function full_network_flow(
 				vals = value.(fire_vars[fire])
 				selected = [ix for ix in axes(vals, 1) if vals[ix] > 1e-6]
 				vals_vec = [vals[ix] for ix in selected]
-				for (pos, ix) in enumerate(selected)
-					arc = fire_models[fire].long_arcs[ix, :]
-					cost = fire_models[fire].arc_costs[ix]
-					raw_from = fire_models[fire].raw_state_from === nothing ?
-						get(raw_state_lookup[fire], arc[FM.STATE_FROM], arc[FM.STATE_FROM]) :
-						fire_models[fire].raw_state_from[ix]
-				raw_to = fire_models[fire].raw_state_to === nothing ?
-					get(raw_state_lookup[fire], arc[FM.STATE_TO], arc[FM.STATE_TO]) :
-					fire_models[fire].raw_state_to[ix]
-				personnel = arc[FM.CREWS_PRESENT] * crew_step
-					push!(records, (
-						fire = fire,
-						arc_index = ix,
-						value = vals_vec[pos],
-						cost = cost,
-						state_from_raw = raw_from,
-						time_from = arc[FM.TIME_FROM],
+			for (pos, ix) in enumerate(selected)
+				arc = fire_models[fire].long_arcs[ix, :]
+				cost = fire_models[fire].arc_costs[ix]
+				raw_from = fire_models[fire].raw_state_from === nothing ?
+					get(raw_state_lookup[fire], arc[FM.STATE_FROM], arc[FM.STATE_FROM]) :
+					fire_models[fire].raw_state_from[ix]
+			raw_to = fire_models[fire].raw_state_to === nothing ?
+				get(raw_state_lookup[fire], arc[FM.STATE_TO], arc[FM.STATE_TO]) :
+				fire_models[fire].raw_state_to[ix]
+			personnel = arc[FM.CREWS_PRESENT] * crew_step
+				push!(records, (
+					fire = fire,
+					fire_event_id = fire_id_lookup[fire],
+					arc_index = ix,
+					value = vals_vec[pos],
+					cost = cost,
+					state_from_raw = raw_from,
+					time_from = arc[FM.TIME_FROM],
 						time_to = arc[FM.TIME_TO],
 						state_to_raw = raw_to,
 					personnel = personnel,

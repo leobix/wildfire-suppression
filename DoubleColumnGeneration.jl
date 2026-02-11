@@ -364,7 +364,7 @@ function double_column_generation!!!!(
 				new_plan_ix =
 					add_column_to_plan_data!(fire_plans, fire, cost, crew_demands, arcs_used)
 
-				@debug "fire plan" fire crew_demands
+					@debug "fire plan" fire crew_demands cost
 				# update the master problem
 				add_column_to_master_problem!!(
 					rmp,

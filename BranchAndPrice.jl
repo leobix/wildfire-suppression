@@ -517,13 +517,13 @@ function branch_and_price(
 					plans_best_sol = plans_best_sol,
 					price_and_cut_soft_time_limit = price_and_cut_soft_time_limit,
 					cut_loop_max = cut_loop_max,
-					relative_improvement_cut_req = relative_improvement_cut_req,
-					gub_cover_cuts = heuristic_gub_cover_cuts,
-					general_gub_cuts = heuristic_general_gub_cuts,
-					single_fire_cuts = heuristic_single_fire_cuts,
-					decrease_gub_allots = heuristic_decrease_gub_allots,
-					single_fire_lift = heuristic_single_fire_lift,
-				)
+				relative_improvement_cut_req = relative_improvement_cut_req,
+				gub_cover_cuts = heuristic_gub_cover_cuts,
+				general_gub_cuts = heuristic_general_gub_cuts,
+				single_fire_cuts = heuristic_single_fire_cuts,
+				decrease_gub_allots = heuristic_decrease_gub_allots,
+				single_fire_lift = heuristic_single_fire_lift,
+			)
 
                         if time() - start_time > total_time_limit
                                 @debug "Full time limit reached"
@@ -1385,10 +1385,10 @@ function heuristic_upper_bound!!(
             general_gub_cuts = general_gub_cuts,
             single_fire_cuts = single_fire_cuts,
             decrease_gub_allots = decrease_gub_allots,
-            single_fire_lift = single_fire_lift,
-            upper_bound = ub,
-            time_limit = 20.0,
-            final_snapshot_only = final_snapshot_only)
+			single_fire_lift = single_fire_lift,
+			upper_bound = ub,
+			time_limit = 20.0,
+			final_snapshot_only = final_snapshot_only)
 		@debug "Price and cut time (heuristic)" t
 
 		# add in columns from best feasible solution so far

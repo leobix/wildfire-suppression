@@ -66,7 +66,7 @@ function double_column_generation!!!!(
 	improving_column_abs_tolerance::Float64 = 1e-10,
 	local_gap_rel_tolerance::Float64 = 1e-5,
 	final_snapshot_only::Bool = false,
-	dual_warm_start::Union{Nothing, DualWarmStart} = nothing)
+    dual_warm_start::Union{Nothing, DualWarmStart} = nothing)
 
 	# initialize timing dictionary so that callers can understand where the time goes
 	details = Dict{String, Float64}()
@@ -158,23 +158,23 @@ function double_column_generation!!!!(
 			for i ∈ eachindex(crew_subproblems[crew].modified_arc_costs)
 				crew_subproblems[crew].modified_arc_costs[i] = crew_subproblems[crew].arc_costs[i]
 			end
-			# Incorporate supply/demand dual prices and branching decisions into
-			# the arc costs so the shortest-path solution returns the reduced cost.
-			adjust_crew_arc_costs!!(
-				crew_subproblems[crew].modified_arc_costs,
-				crew_subproblems[crew].prohibited_arcs,
-				crew,
-				linking_duals,
-				crew_subproblems[crew].supply_demand_dual_arc_lookup,
-				crew_branching_rules,
-			)
+            # Incorporate supply/demand dual prices and branching decisions into
+            # the arc costs so the shortest-path solution returns the reduced cost.
+            adjust_crew_arc_costs!!(
+                crew_subproblems[crew].modified_arc_costs,
+                crew_subproblems[crew].prohibited_arcs,
+                crew,
+                linking_duals,
+                crew_subproblems[crew].supply_demand_dual_arc_lookup,
+                crew_branching_rules,
+            )
 
-			# adjust the arc costs for the cuts
-			cut_adjust_arc_costs!(
-				crew_subproblems[crew].modified_arc_costs,
-				cut_data.crew_sp_lookup[crew],
-				cut_duals,
-			)
+            # adjust the arc costs for the cuts
+            cut_adjust_arc_costs!(
+                crew_subproblems[crew].modified_arc_costs,
+                cut_data.crew_sp_lookup[crew],
+                cut_duals,
+            )
 
 			# solve the subproblem
 			objective, arcs_used = crew_dp_subproblem(
@@ -184,14 +184,14 @@ function double_column_generation!!!!(
 				crew_subproblems[crew].state_in_arcs,
 			)
 
-			# Adjust the objective for the cuts (we gave - coeff if allotment
-			# not broken, give + coeff here) so that the reduced cost matches
-			# the dual constraints that involve this route.
-			for (ix, cut) in cut_data.cut_dict
-				if cut.crew_coeffs[crew] > 1e-20
-					objective += (cut.crew_coeffs[crew] * cut_duals[ix])
-				end
-			end
+            # Adjust the objective for the cuts (we gave - coeff if allotment
+            # not broken, give + coeff here) so that the reduced cost matches
+            # the dual constraints that involve this route.
+            for (ix, cut) in cut_data.cut_dict
+                if cut.crew_coeffs[crew] > 1e-20
+                    objective += (cut.crew_coeffs[crew] * cut_duals[ix])
+                end
+            end
 
 			crew_objectives[crew] = objective
 			crew_arcs_used[crew] = arcs_used
@@ -259,46 +259,46 @@ function double_column_generation!!!!(
 			for i ∈ eachindex(fire_subproblems[fire].modified_arc_costs)
 				fire_subproblems[fire].modified_arc_costs[i] = fire_subproblems[fire].arc_costs[i]
 			end
-			adjust_fire_arc_costs!!(
-				fire_subproblems[fire].modified_arc_costs,
-				fire_subproblems[fire].prohibited_arcs,
-				fire,
-				fire_subproblems[fire].supply_demand_dual_arc_lookup,
-				fire_subproblems[fire].long_arcs,
-				linking_duals[fire, :],
-				[rule for rule ∈ fire_branching_rules if rule.fire_ix == fire],
-			)
+            adjust_fire_arc_costs!!(
+                fire_subproblems[fire].modified_arc_costs,
+                fire_subproblems[fire].prohibited_arcs,
+                fire,
+                fire_subproblems[fire].supply_demand_dual_arc_lookup,
+                fire_subproblems[fire].long_arcs,
+                linking_duals[fire, :],
+                [rule for rule ∈ fire_branching_rules if rule.fire_ix == fire],
+            )
 
-			# adjust the arc costs for the cuts
-			cut_adjust_arc_costs!(
-				fire_subproblems[fire].modified_arc_costs,
-				cut_data.fire_sp_lookup[fire],
-				cut_duals,
-			)
+            # adjust the arc costs for the cuts
+            cut_adjust_arc_costs!(
+                fire_subproblems[fire].modified_arc_costs,
+                cut_data.fire_sp_lookup[fire],
+                cut_duals,
+            )
 
-			# for each branching rule
-			for ix in eachindex(global_fire_allotment_branching_rules)
+            # for each branching rule
+            for ix in eachindex(global_fire_allotment_branching_rules)
 
-				rule = global_fire_allotment_branching_rules[ix]
+                rule = global_fire_allotment_branching_rules[ix]
 
-				# if this is a <= 0 rule, we have more prohibited arcs
-				if ~rule.geq_flag
-					for arc_ix ∈ rule.fire_sp_arc_lookup[fire]
-						fire_subproblems[fire].prohibited_arcs[arc_ix] = true
-					end
-				end
+                # if this is a <= 0 rule, we have more prohibited arcs
+                if ~rule.geq_flag
+                    for arc_ix ∈ rule.fire_sp_arc_lookup[fire]
+                        fire_subproblems[fire].prohibited_arcs[arc_ix] = true
+                    end
+                end
 
-				# we need to do a proper dual adjustment
-				# The branching rules restrict cumulative demand across several
-				# fires; we use an extra set of dual multipliers to communicate
-				# them down to each fire subproblem.
-				adjust_fire_sp_arc_costs!(
-					fire_subproblems[fire].modified_arc_costs,
-					rule,
-					fire,
-					global_fire_allot_duals[ix],
-				)
-			end
+                # we need to do a proper dual adjustment
+                # The branching rules restrict cumulative demand across several
+                # fires; we use an extra set of dual multipliers to communicate
+                # them down to each fire subproblem.
+                adjust_fire_sp_arc_costs!(
+                    fire_subproblems[fire].modified_arc_costs,
+                    rule,
+                    fire,
+                    global_fire_allot_duals[ix],
+                )
+            end
 
 			# solve the subproblem
 			objective, arcs_used = fire_dp_subproblem(

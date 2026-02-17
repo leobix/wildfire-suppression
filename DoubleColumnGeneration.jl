@@ -259,6 +259,16 @@ function double_column_generation!!!!(
 			for i ∈ eachindex(fire_subproblems[fire].modified_arc_costs)
 				fire_subproblems[fire].modified_arc_costs[i] = fire_subproblems[fire].arc_costs[i]
 			end
+            if final_snapshot_only
+                # Keep base costs only on arcs that enter the terminal snapshot so the
+                # DP objective mirrors the final-snapshot-only metric.
+                for i ∈ eachindex(fire_subproblems[fire].modified_arc_costs)
+                    to_t = fire_subproblems[fire].long_arcs[i, FM.TIME_TO]
+                    if to_t != num_time_periods + 1
+                        fire_subproblems[fire].modified_arc_costs[i] = 0.0
+                    end
+                end
+            end
             adjust_fire_arc_costs!!(
                 fire_subproblems[fire].modified_arc_costs,
                 fire_subproblems[fire].prohibited_arcs,

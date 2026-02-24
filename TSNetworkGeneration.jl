@@ -677,6 +677,7 @@ function build_crew_models_from_empirical(
     fire_folder::String = "data/empirical_fire_models/raw/arc_arrays",
     sorted_fire_output_folder::Union{Nothing,String} = nothing,
     zero_crew_costs::Bool = false,
+    enforce_rest_penalties::Bool = false,
     rest_periods::Int = 0,
 )
 
@@ -949,8 +950,17 @@ function build_crew_models_from_empirical(
     )
 
     # Build static arc cost parameters; tests sometimes request zero-cost networks.
+    rest_cost_active = enforce_rest_penalties || !zero_crew_costs
+    rest_pen = rest_cost_active ?
+               get_rest_penalties(
+        num_crews,
+        num_time_periods,
+        crew_status.rest_by,
+        1e10,
+        positive,
+    ) : zeros(num_crews, num_time_periods)
+
     if zero_crew_costs
-        rest_pen = zeros(num_crews, num_time_periods)
         ALPHA = 0
         cost_params = Dict(
             "cost_per_mile" => 0,
@@ -958,13 +968,6 @@ function build_crew_models_from_empirical(
             "fight_fire" => ALPHA,
         )
     else
-        rest_pen = get_rest_penalties(
-            num_crews,
-            num_time_periods,
-            crew_status.rest_by,
-            1e10,
-            positive,
-        )
         ALPHA = 200
         cost_params = Dict(
             "cost_per_mile" => 1,
@@ -1063,6 +1066,8 @@ function build_crew_models(
     num_time_periods::Int64,
     travel_speed::Float64;
     zero_crew_costs::Bool = false,
+    enforce_rest_penalties::Bool = false,
+    rest_periods::Int = 3,
 )
 
     dists_and_times, crew_status = crew_data_from_path(in_path, travel_speed)
@@ -1073,10 +1078,20 @@ function build_crew_models(
         num_crews,
         num_fires,
         num_time_periods,
+        rest_periods,
     )
 
+    rest_cost_active = enforce_rest_penalties || !zero_crew_costs
+    rest_pen = rest_cost_active ?
+               get_rest_penalties(
+        num_crews,
+        num_time_periods,
+        crew_status.rest_by,
+        1e10,
+        positive,
+    ) : zeros(num_crews, num_time_periods)
+
     if zero_crew_costs
-        rest_pen = zeros(num_crews, num_time_periods)
         ALPHA = 0
         cost_params = Dict(
             "cost_per_mile" => 0,
@@ -1084,13 +1099,6 @@ function build_crew_models(
             "fight_fire" => ALPHA,
         )
     else
-        rest_pen = get_rest_penalties(
-            num_crews,
-            num_time_periods,
-            crew_status.rest_by,
-            1e10,
-            positive,
-        )
         ALPHA = 200
         cost_params = Dict(
             "cost_per_mile" => 1,

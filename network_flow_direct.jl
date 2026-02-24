@@ -70,6 +70,14 @@ function get_command_line_args()
 			help = "label appended to output folders for bookkeeping"
 			arg_type = String
 			default = "baseline"
+			"--crew-costs"
+				help = "crew cost mode: 'on', 'off', or 'rest' to keep only rest penalties (default)"
+				arg_type = String
+				default = "rest"
+			"--rest_periods"
+				help = "number of consecutive periods a crew must rest once they return to base"
+				arg_type = Int
+				default = 3
     end
     return parse_args(arg_parse_settings)  # Execute parsing and return a dictionary of arguments.
 end
@@ -90,6 +98,7 @@ function full_network_flow(
 	num_crews = length(crew_models)  # Count the crew networks provided.
 	num_fires = length(fire_models)  # Count the fire networks provided.
 	_, num_times, _ = size(crew_models[1].state_in_arcs)  # Infer horizon length from state tensors.
+	crew_arc_indices = Vector{Vector{Int}}(undef, num_crews)
 
 
 	# intialize model
@@ -122,6 +131,7 @@ function full_network_flow(
 	for crew ∈ 1:num_crews  # Iterate over crew networks.
 		crew_model = crew_models[crew]  # Local alias for readability.
 		ixs = findall(crew_model.long_arcs[:, CM.CREW_NUMBER] .== crew)  # Identify indices belonging to this crew.
+		crew_arc_indices[crew] = ixs
 		z = @variable(
 			m,
 			[ixs],
@@ -137,7 +147,6 @@ function full_network_flow(
 	end
 
 	@objective(
-		#Ryne added
          m, 
 		 Min,
          sum(
@@ -146,25 +155,12 @@ function full_network_flow(
                  ix ∈ 1:size(fire_models[fire].long_arcs)[1]
              if fire_models[fire].long_arcs[ix, FM.TIME_TO] == num_times + 1
          )
-     
-
-		# Ryne added
-		# I think this sums each fire day so it is like final-snapshot-only being off and alpha = 1
-		# m,
-		# Min,
-		# sum(
-		# 	fire_models[fire].arc_costs[ix] * fire_vars[fire][ix] for
-		# 	fire ∈ 1:num_fires,
-		# 	ix ∈ 1:size(fire_models[fire].long_arcs)[1]
-		# ) 
-
-
-		#Ryne removed so that there are zero crew costs
-		# + sum(
-		# 	crew_models[crew].arc_costs[ix] * crew_vars[crew][ix] for
-		# 	crew ∈ 1:num_crews,
-		# 	ix ∈ findall(crew_models[crew].long_arcs[:, CM.CREW_NUMBER] .== crew)
-		# )
+		 +
+		 sum(
+			 crew_models[crew].arc_costs[ix] * crew_vars[crew][ix] for
+			 crew ∈ 1:num_crews,
+			 ix ∈ crew_arc_indices[crew]
+		 )
 	)  # Minimize combined fire and crew arc costs.
 
 	# fire network flow
@@ -571,6 +567,11 @@ args = get_command_line_args()  # Parse CLI configuration once on startup.
 dataset = joinpath(@__DIR__, "..", "ai_wildfire", "fire_models_" * args["date"])
 raw_gaccs = split(strip(args["gaccs"]), ',')
 target_gaccs = [String(normalize_gacc(strip(g))) for g in raw_gaccs if !isempty(strip(g))]
+crew_costs_mode = lowercase(String(args["crew-costs"]))
+rest_penalties_only = crew_costs_mode in ("rest", "rest-only", "rest_only")
+zero_crew_costs = rest_penalties_only || (crew_costs_mode in ("off","0","false","no"))
+rest_periods = Int(args["rest_periods"])
+@info "Crew cost mode" crew_costs_mode rest_penalties_only=rest_penalties_only zero_crew_costs=zero_crew_costs rest_periods=rest_periods
 
 #Ryne added: creates output folder for this specific run
 # gacc_slug = join([slugify(g) for g in target_gaccs], "-")
@@ -604,6 +605,9 @@ crew_models, crew_info = build_crew_models_from_empirical(
 	crew_gaccs = target_gaccs,
 	fire_gaccs = target_gaccs,
 	fire_folder = dataset,
+	zero_crew_costs = zero_crew_costs,
+	enforce_rest_penalties = rest_penalties_only,
+	rest_periods = rest_periods,
 )
 num_crews = length(crew_models)
 crew_names = hasproperty(crew_info, :crew_names) ? crew_info.crew_names : nothing

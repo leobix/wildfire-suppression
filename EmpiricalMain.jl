@@ -491,7 +491,7 @@ function get_command_line_args()
                 help = "solve the entire horizon once with full knowledge of future fires (no rolling re-solve)"
                 action = :store_true
                 "--crew-costs"
-                help = "crew cost mode: 'on' (default) or 'off' to ignore crew travel/rest costs in the objective"
+                help = "crew cost mode: 'on' (default), 'off', or 'rest' to keep only rest penalties"
                 default = "on"
                 "--crew-gaccs"
                 help = "Allowed crew GACCs: 'all', 'all_no_ak', or comma-separated list of abbreviations (e.g. GB,NW)"
@@ -517,6 +517,10 @@ function get_command_line_args()
                 help = "Time limit in seconds for the branch-and-price algorithm"
                 arg_type = Float64
                 default = 1800.0
+                "--rest-periods"
+                help = "Number of consecutive periods a crew must rest once they return to base"
+                arg_type = Int
+                default = 3
                 "--seed-arc-output-dir"
                 help = "Optional path to a network_flow_direct output folder whose solution will be seeded into the master problem"
                 default = ""
@@ -542,9 +546,11 @@ final_snapshot_only = args["final-snapshot-only"]
 day_one_only = args["day-1-only"] # new flag that activates the day-0 fire filter
 perfect_info_mode = args["perfect-info"]
 crew_costs_mode = lowercase(String(args["crew-costs"]))
-zero_crew_costs = (crew_costs_mode in ("off","0","false","no")) # interpret truthy variations of "off"
+rest_penalties_only = crew_costs_mode in ("rest", "rest-only", "rest_only")
+zero_crew_costs = rest_penalties_only || (crew_costs_mode in ("off","0","false","no")) # treat rest-only like "off" for travel/fight costs
 firefighters_per_crew = args["firefighters-per-crew"]
 personnel_per_crew = args["personnel-per-crew"]
+rest_periods = Int(args["rest-periods"])
 fires_by_gacc = parse_fires_by_gacc(args["fires"]) # optional explicit fire list
 time_limit = args["time-limit"]
 input_folder = resolve_input_folder(args["input-folder"]) # locate arc_arrays directory automatically if needed
@@ -596,7 +602,7 @@ global_logger(DualLogger((console_logger, file_logger)))
 @info "Final snapshot only" final_snapshot_only
 @info "Day 1 only" day_one_only
 @info "Perfect info mode" perfect_info_mode
-@info "Crew costs mode" (zero_crew_costs ? "off" : "on")
+@info "Crew costs mode" crew_costs_mode rest_penalties_only=rest_penalties_only rest_periods=rest_periods
 @info "Arc CSV baseline label" baseline_label
 
 num_fires = count_selected_fires(fire_gaccs, fires_by_gacc, input_folder)
@@ -624,6 +630,8 @@ crew_routes, fire_plans, crew_models, fire_models, cut_data, init_info = initial
         fires_by_gacc = fires_by_gacc,
         sorted_fire_output_folder = output_folder,
         zero_crew_costs = zero_crew_costs,
+        enforce_rest_penalties = rest_penalties_only,
+        rest_periods = rest_periods,
 )
 
 num_crews = length(crew_models)
@@ -1307,6 +1315,7 @@ for t in 0:rolling_loop_end
                 gaccs = crew_gaccs,
                 fire_gaccs = fire_gaccs,
                 travel_speed = travel_speed,
+                rest_periods = rest_periods,
                 firefighters_per_crew = firefighters_per_crew,
                 initial_firefighters_per_crew = personnel_per_crew,
                 fires_by_gacc = fires_by_gacc,

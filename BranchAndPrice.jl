@@ -297,6 +297,7 @@ function branch_and_price(
         firefighters_per_crew = 50,
         initial_firefighters_per_crew = 20,
         travel_speed = 640.0,
+        rest_periods::Int = 0,
         fires_by_gacc::Dict{String,Vector{Int64}} = Dict{String,Vector{Int64}}(),
         input_folder = "data/empirical_fire_models/raw/arc_arrays",
         output_folder = "data/output",
@@ -355,6 +356,7 @@ function branch_and_price(
                                 firefighters_per_crew = firefighters_per_crew,
                                 initial_firefighters_per_crew = initial_firefighters_per_crew,
                                 fires_by_gacc = fires_by_gacc,
+                                rest_periods = rest_periods,
                         )
 		GC.gc()
                 algo_tracking ?
@@ -725,6 +727,8 @@ function initialize_data_structures(
         fires_by_gacc::Dict{String,Vector{Int64}} = Dict{String,Vector{Int64}}(),
         sorted_fire_output_folder::Union{Nothing,String} = nothing,
         zero_crew_costs::Bool = false,
+        enforce_rest_penalties::Bool = false,
+        rest_periods::Int = 0,
 )
         if !from_empirical
                 # Synthetic test case used for regression/unit tests.
@@ -735,6 +739,8 @@ function initialize_data_structures(
                         num_time_periods,
                         travel_speed;
                         zero_crew_costs = zero_crew_costs,
+                        enforce_rest_penalties = enforce_rest_penalties,
+                        rest_periods = rest_periods,
                 )
 
                 fire_models = build_fire_models(
@@ -756,6 +762,8 @@ function initialize_data_structures(
                         fire_folder = input_folder,
                         sorted_fire_output_folder = sorted_fire_output_folder,
                         zero_crew_costs = zero_crew_costs,
+                        enforce_rest_penalties = enforce_rest_penalties,
+                        rest_periods = rest_periods,
                 )
                 num_crews = length(crew_models)
                 fire_models, fire_info = build_fire_models_from_empirical(

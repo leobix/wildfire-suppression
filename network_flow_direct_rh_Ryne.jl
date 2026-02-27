@@ -329,6 +329,34 @@ function full_network_flow(
         )
     end
 
+    # Pre-solve diagnostic: check for crew-network nodes reachable via committed
+    # arcs that have no valid outgoing arc.  A missing out-arc causes the equality
+    # crew_flow constraint to be unsatisfiable (in == 1, out == 0).
+    if fixed_crew_values !== nothing
+        for crew in 1:num_crews
+            cm = crew_models[crew]
+            arcs = cm.long_arcs
+            for (arc_ix, val) in fixed_crew_values[crew]
+                val < 0.5 && continue
+                arc = arcs[arc_ix, :]
+                l_to   = arc[CM.LOC_TO]
+                t_to   = arc[CM.TIME_TO]
+                r_to   = arc[CM.REST_TO] + 1   # Julia 1-indexed rest dimension
+                to_type = arc[CM.TO_TYPE]
+                # Map (to_type, l_to) → location index used in state_in_arcs.
+                # Fire locations occupy indices 1:num_fires; base follows.
+                loc_idx = to_type == CM.FIRE_CODE ? l_to : (num_fires + l_to)
+                if loc_idx <= locs && t_to >= 1 && t_to <= times && r_to >= 1 && r_to <= rests
+                    out_arcs = cm.state_out_arcs[loc_idx, t_to, r_to]
+                    if isempty(out_arcs)
+                        loc_label = to_type == CM.FIRE_CODE ? "fire $l_to" : "base $l_to"
+                        @warn "Committed arc leads to node with NO outgoing arcs → likely infeasible" crew=crew committed_arc=arc_ix location=loc_label time_to=t_to rest_to=(r_to-1)
+                    end
+                end
+            end
+        end
+    end
+
     # Solve a standard JuMP model. Rolling-horizon behavior comes entirely from
     # the fixed arc values passed in above.
     optimize!(m)
@@ -638,6 +666,96 @@ function full_network_flow(
                 write(io, JSON.json(summary_payload))
             end
         end
+    else
+        @warn "No feasible solution found" termination_status = termination
+        # Attempt IIS computation to identify conflicting constraints.
+        if termination == MOI.INFEASIBLE || termination == MOI.INFEASIBLE_OR_UNBOUNDED
+            @info "Computing IIS (Irreducible Infeasible Subsystem)..."
+            try
+                compute_conflict!(m)
+                conflict_found = MOI.get(m, MOI.ConflictStatus()) == MOI.CONFLICT_FOUND
+
+                if conflict_found
+                    @info "IIS found — printing infeasible constraints:"
+
+                    # crew_flow: equality flow constraint at each (crew, loc, time, rest) node
+                    for crew in 1:num_crews
+                        for l in 1:locs
+                            for t in 1:times
+                                for r in 1:rests
+                                    cs = MOI.get(m, MOI.ConstraintConflictStatus(), crew_flow[crew, l, t, r])
+                                    if cs == MOI.IN_CONFLICT
+                                        loc_label = l <= num_fires ? "fire $l" : "base $(l - num_fires)"
+                                        cm = crew_models[crew]
+                                        in_arc_ixs  = cm.state_in_arcs[l, t, r]
+                                        out_arc_ixs = cm.state_out_arcs[l, t, r]
+                                        @warn "  IIS crew_flow" crew=crew location=loc_label time=t rest_state=(r-1) in_arcs=length(in_arc_ixs) out_arcs=length(out_arc_ixs)
+
+                                        # Print each in-arc with its fixed value and key fields.
+                                        @info "    Incoming arcs to infeasible node (time_from → time_to, from_type, loc_from, rest_from → rest_to, fixed_val):"
+                                        for ix in in_arc_ixs
+                                            arc = cm.long_arcs[ix, :]
+                                            fv = get(fixed_crew_values !== nothing ? fixed_crew_values[crew] : Dict{Int64,Float64}(), ix, NaN)
+                                            from_label = arc[CM.FROM_TYPE] == CM.FIRE_CODE ? "fire $(arc[CM.LOC_FROM])" : "base $(arc[CM.LOC_FROM])"
+                                            @info "      in-arc" index=ix time_from=arc[CM.TIME_FROM] time_to=arc[CM.TIME_TO] from=from_label rest_from=arc[CM.REST_FROM] rest_to=arc[CM.REST_TO] fixed=fv
+                                        end
+
+                                        # Print each out-arc with its fixed value and key fields.
+                                        @info "    Outgoing arcs from infeasible node (time_from → time_to, to_type, loc_to, rest_from → rest_to, fixed_val):"
+                                        for ix in out_arc_ixs
+                                            arc = cm.long_arcs[ix, :]
+                                            fv = get(fixed_crew_values !== nothing ? fixed_crew_values[crew] : Dict{Int64,Float64}(), ix, NaN)
+                                            to_label = arc[CM.TO_TYPE] == CM.FIRE_CODE ? "fire $(arc[CM.LOC_TO])" : "base $(arc[CM.LOC_TO])"
+                                            @info "      out-arc" index=ix time_from=arc[CM.TIME_FROM] time_to=arc[CM.TIME_TO] to=to_label rest_from=arc[CM.REST_FROM] rest_to=arc[CM.REST_TO] fixed=fv
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+
+                    # crew_start: each crew selects exactly one starting arc
+                    for crew in 1:num_crews
+                        cs = MOI.get(m, MOI.ConstraintConflictStatus(), crew_start[crew])
+                        if cs == MOI.IN_CONFLICT
+                            @warn "  IIS crew_start" crew=crew
+                        end
+                    end
+
+                    # fire_flow and fire_start
+                    for fire in active_fire_list
+                        cs = MOI.get(m, MOI.ConstraintConflictStatus(), fire_start[fire])
+                        if cs == MOI.IN_CONFLICT
+                            @warn "  IIS fire_start" fire=fire
+                        end
+                        for t in 1:num_times
+                            for s in 1:size(fire_models[fire].state_out_arcs, 1)
+                                cs = MOI.get(m, MOI.ConstraintConflictStatus(), fire_flow[fire, t, s])
+                                if cs == MOI.IN_CONFLICT
+                                    @warn "  IIS fire_flow" fire=fire time=t state=s
+                                end
+                            end
+                        end
+                    end
+
+                    # linking constraints
+                    if !isempty(active_fire_list)
+                        for fire in active_fire_list
+                            for t in 1:num_times
+                                cs = MOI.get(m, MOI.ConstraintConflictStatus(), linking[fire, t])
+                                if cs == MOI.IN_CONFLICT
+                                    @warn "  IIS linking" fire=fire time=t
+                                end
+                            end
+                        end
+                    end
+                else
+                    @warn "IIS computation did not find a conflict set (status: $(MOI.get(m, MOI.ConflictStatus())))"
+                end
+            catch e
+                @warn "IIS computation failed" exception=e
+            end
+        end
     end
 
        return (
@@ -762,6 +880,10 @@ function rolling_horizon_network_flow()
     crew_arcs_by_time = build_arc_time_lookup(crew_models, CM.TIME_FROM)
     committed_fire_arcs = [Set{Int64}() for _ in 1:num_fires]
     committed_crew_arcs = [Set{Int64}() for _ in 1:num_crews]
+    # Per-crew set of (from_type, loc_from, time_from, rest_from) origin keys that
+    # already have a committed arc.  Prevents two arcs leaving the same node from
+    # both being fixed to 1 across different rolling-horizon solves.
+    committed_origins = [Set{NTuple{4,Int}}() for _ in 1:num_crews]
     fire_has_history = falses(num_fires)
 
     for t in 0:num_time_periods
@@ -839,16 +961,22 @@ function rolling_horizon_network_flow()
                 if tf >= commit_cutoff
                     continue
                 end
-                if tf == 0 && tt == 0
-                    substitute = start_base_arc_indices[c]
-                    if substitute !== nothing
-                        push!(committed_crew_arcs[c], substitute)
-                    else
-                        push!(committed_crew_arcs[c], arc_ix)
-                    end
-                else
-                    push!(committed_crew_arcs[c], arc_ix)
+                # Resolve warm-start sentinel arcs (tf==0, tt==0) to the real
+                # starting base arc so the committed set stays consistent.
+                target_arc = (tf == 0 && tt == 0) ? something(start_base_arc_indices[c], arc_ix) : arc_ix
+                # Guard: skip if another arc already committed from the same
+                # origin node (from_type, loc_from, time_from, rest_from).
+                # This prevents out_flow > 1 when fires activate mid-horizon and
+                # the optimizer re-routes a crew that was already committed.
+                arc_row = crew_models[c].long_arcs[target_arc, :]
+                origin_key = (Int(arc_row[CM.FROM_TYPE]), Int(arc_row[CM.LOC_FROM]),
+                              Int(arc_row[CM.TIME_FROM]), Int(arc_row[CM.REST_FROM]))
+                if origin_key in committed_origins[c]
+                    @warn "Rolling horizon: skipping duplicate arc commitment (origin node already committed)" crew=c day=current_day skipped_arc=target_arc time_from=origin_key[3] loc_from=origin_key[2] from_type=origin_key[1]
+                    continue
                 end
+                push!(committed_crew_arcs[c], target_arc)
+                push!(committed_origins[c], origin_key)
             end
         end
     end

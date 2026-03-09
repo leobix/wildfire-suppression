@@ -826,9 +826,6 @@ function build_crew_models_from_empirical(
     fires_start_day = selected_fires[idx, "start_day_of_sim"]
     active_fires = findall(fires_start_day .== 0)
 
-    # convert personnel counts to crew counts using the initial crew size
-    type_1_crews = round.(Int, type_1_crews / initial_firefighters_per_crew)
-
     # but if the fire is not active at day 0, we set the number of crews to 0
     for i in 1:num_fires
         if !(i in active_fires)
@@ -1024,7 +1021,7 @@ function build_crew_models_from_empirical(
         end
 
         for i in 1:length(crew_arc_costs)
-            if (crew_arcs[i, CM.TO_TYPE] == CM.FIRE_CODE) && (crew_arcs[i, CM.TIME_TO] <= num_time_periods)
+            if (crew_arcs[i, CM.TO_TYPE] == CM.FIRE_CODE) && (crew_arcs[i, CM.TIME_TO] >= 1) && (crew_arcs[i, CM.TIME_TO] <= num_time_periods)
                 g = crew_arcs[i, CM.LOC_TO]
                 t = crew_arcs[i, CM.TIME_TO]
                 push!(linking_dual_arc_lookup[g, t], i)
@@ -1146,7 +1143,7 @@ function build_crew_models(
         end
 
         for i in 1:length(crew_arc_costs)
-            if (crew_arcs[i, CM.TO_TYPE] == CM.FIRE_CODE) && (crew_arcs[i, CM.TIME_TO] <= num_time_periods)
+            if (crew_arcs[i, CM.TO_TYPE] == CM.FIRE_CODE) && (crew_arcs[i, CM.TIME_TO] >= 1) && (crew_arcs[i, CM.TIME_TO] <= num_time_periods)
                 g = crew_arcs[i, CM.LOC_TO]
                 t = crew_arcs[i, CM.TIME_TO]
                 push!(linking_dual_arc_lookup[g, t], i)

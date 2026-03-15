@@ -78,6 +78,13 @@ function get_command_line_args()
 				help = "number of consecutive periods a crew must rest once they return to base"
 				arg_type = Int
 				default = 3
+			"--time-limit"
+				help = "solver time limit in seconds (applied to the MIP solve)"
+				arg_type = Float64
+				default = 300.0
+			"--scalability-benchmark"
+				help = "also solve LP relaxation and write output.json to the run subfolder for scalability table replication"
+				action = :store_true
     end
     return parse_args(arg_parse_settings)  # Execute parsing and return a dictionary of arguments.
 end
@@ -91,6 +98,7 @@ function full_network_flow(
 	output_dir::Union{Nothing,String} = nothing,
 	fire_meta = nothing, #to track and export original arcs for debugging
 	crew_rest_deadlines::Union{Nothing,Vector{Int}} = nothing,
+	write_output::Bool = true,  # When false, skip all file I/O (used for LP relaxation pass in scalability benchmark).
 	)
 
 	ub = Inf  # Initialize the best known feasible objective.
@@ -231,6 +239,8 @@ function full_network_flow(
 
 		#Ryne added
 		@info "Solve complete cleanly" objective=ub bound=lb gap=(ub - lb)/max(1, abs(ub)) time=solve_seconds
+
+		if write_output
 
 		fire_id_lookup = Vector{String}(undef, num_fires)
 		if fire_meta !== nothing && hasproperty(fire_meta, :fire_order)
@@ -556,6 +566,8 @@ function full_network_flow(
 			end
 		end
 
+		end # if write_output
+
 	end
 
 	return lb, ub  # Return both bounds to the caller.
@@ -648,13 +660,49 @@ for (f, entry) in enumerate(fire_meta.fire_order)
 end
 crew_step = hasproperty(fire_meta, :crew_step) ? fire_meta.crew_step : 50  #firefighters per crew
 
-full_network_flow(
-	crew_models,
-	fire_models,
-	verbose = false,
-	integer = true,
-	time_limit = 300,
-	output_dir = run_output_dir,
-	fire_meta = fire_meta,
-	crew_rest_deadlines = hasproperty(crew_info, :rest_by) ? crew_info.rest_by : nothing,
-)
+time_limit = Float64(args["time-limit"])
+rest_deadlines = hasproperty(crew_info, :rest_by) ? crew_info.rest_by : nothing
+
+if args["scalability-benchmark"]
+	# LP relaxation pass — no file I/O, just capture bounds and timing
+	t_lp = @elapsed lb_lp, ub_lp = full_network_flow(
+		crew_models,
+		fire_models,
+		verbose = false,
+		integer = false,
+		time_limit = 60.0,
+		output_dir = nothing,
+		write_output = false,
+		fire_meta = fire_meta,
+		crew_rest_deadlines = rest_deadlines,
+	)
+	# MIP pass — normal file I/O
+	t_mip = @elapsed lb_mip, ub_mip = full_network_flow(
+		crew_models,
+		fire_models,
+		verbose = false,
+		integer = true,
+		time_limit = time_limit,
+		output_dir = run_output_dir,
+		fire_meta = fire_meta,
+		crew_rest_deadlines = rest_deadlines,
+	)
+	# Write output.json in the same format as fire-suppression-crew-routing/experiments/network_flow_direct.jl
+	open(joinpath(run_output_dir, "output.json"), "w") do f
+		JSON.print(f, Dict(
+			"linear"  => Dict(string(num_crews) => Dict("ub" => ub_lp,  "lb" => lb_lp,  "time" => t_lp)),
+			"integer" => Dict(string(num_crews) => Dict("ub" => ub_mip, "lb" => lb_mip, "time" => t_mip)),
+		), 4)
+	end
+else
+	full_network_flow(
+		crew_models,
+		fire_models,
+		verbose = false,
+		integer = true,
+		time_limit = time_limit,
+		output_dir = run_output_dir,
+		fire_meta = fire_meta,
+		crew_rest_deadlines = rest_deadlines,
+	)
+end

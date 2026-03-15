@@ -1650,6 +1650,7 @@ function build_fire_models_from_empirical(
         arc_array[:, end] = arc_array[:, end] / firefighters_per_crew
 
         @info "Loading arcs" arc_filename selected_fires[fire, "FIRE_EVENT_ID"] sim_start=selected_fires[fire, "start_day_of_sim"]
+        flush(stderr)
 
         # cast to integer, rounding to nearest
         arc_array = convert(Array{Int64}, round.(arc_array))

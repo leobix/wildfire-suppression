@@ -530,6 +530,9 @@ function get_command_line_args()
                 "--output-folder"
                 help = "Directory to store output files"
                 default = "data/output"
+                "--scalability-benchmark"
+                help = "also write scalability_output.json in the format expected by process_outputs.py scalability table"
+                action = :store_true
         end
         return parse_args(arg_parse_settings)
 end
@@ -1886,6 +1889,21 @@ for t in 0:rolling_loop_end
         end
         open(joinpath(output_folder, "run_summary.json"), "w") do io
                 JSON.print(io, summary_payload)
+        end
+
+        if args["scalability-benchmark"]
+                scalability_payload = Dict{String,Any}(
+                        "explored_nodes" => explored_nodes,
+                        "upper_bounds"   => ubs,
+                        "lower_bounds"   => lbs,
+                        "times"          => times,
+                        "heuristic_times" => heuristic_times,
+                        "num_columns"    => columns,
+                        "init_time"      => time_1,
+                )
+                open(joinpath(output_folder, "scalability_output.json"), "w") do io
+                        JSON.print(io, scalability_payload, 4)
+                end
         end
 end
 

@@ -409,7 +409,15 @@ function double_column_generation!!!!(
 			# improving discretization... too complicated but should be a better solution
 			# The intent is to stabilize the master problem early on yet return
 			# a solution that exactly respects the physical supply constraints.
-			if maximum(value.(rmp.deferred_num_crews)) > 1e-5
+			#
+			# BUGFIX: guard against OptimizeNotCalled() when the time limit expires
+			# before the first optimize!(rmp.model) call (e.g. when the heuristic is
+			# invoked with almost no time remaining and iteration 1 pricing alone
+			# exhausts the budget).  In that case there is no solution to read
+			# deferral values from, so we skip the deferral-removal step and exit
+			# the loop normally.  The time limit is still respected.
+			# To revert: remove the `rmp.termination_status != MOI.OPTIMIZE_NOT_CALLED &&` guard.
+			if rmp.termination_status != MOI.OPTIMIZE_NOT_CALLED && maximum(value.(rmp.deferred_num_crews)) > 1e-5
 				for g ∈ 1:num_fires
 					for t ∈ 1:num_time_periods
 						fix(rmp.deferred_num_crews[g, t], 0, force = true)

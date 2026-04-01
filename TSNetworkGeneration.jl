@@ -447,9 +447,13 @@ function get_static_crew_arc_costs(gd, arcs, cost_param_dict)
     if "rest_violation" in keys(cost_param_dict)
 
         # find the rest violation scores
+        # Only penalize arcs where the crew is fighting fires or deploying to a fire
+        # (TO_TYPE == FIRE_CODE). Fire-to-base travel arcs are exempt so that crews
+        # can depart for base after rest_by without penalty, matching the baseline
+        # simulation behavior where crews work through rest_by then travel home.
         rest_violation_matrix = cost_param_dict["rest_violation"]
         rest_violations = [
-            (arcs[i, 8] == 0) & (arcs[i, 6] > 0) ?
+            (arcs[i, 8] == 0) & (arcs[i, 6] > 0) & (arcs[i, 4] == CM.FIRE_CODE) ?
             rest_violation_matrix[arcs[i, 1], arcs[i, 6]] : 0
             for i in 1:n_arcs
         ]
@@ -679,6 +683,7 @@ function build_crew_models_from_empirical(
     zero_crew_costs::Bool = false,
     enforce_rest_penalties::Bool = false,
     rest_periods::Int = 0,
+    force_base_start::Bool = false,
 )
 
     # read in the selected fires
@@ -925,6 +930,11 @@ function build_crew_models_from_empirical(
         if current_fire[i] == -1 && rested_periods[i] >= rest_periods
             rest_by[i] = num_time_periods + 1
         end
+    end
+
+    # Override: treat all crews as starting at base regardless of CSV data.
+    if force_base_start
+        fill!(current_fire, -1)
     end
 
     crew_status = LocationAndRestStatus(rest_by, current_fire, rested_periods)

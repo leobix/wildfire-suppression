@@ -635,6 +635,7 @@ crew_routes, fire_plans, crew_models, fire_models, cut_data, init_info = initial
         zero_crew_costs = zero_crew_costs,
         enforce_rest_penalties = rest_penalties_only,
         rest_periods = rest_periods,
+        force_base_start = true,
 )
 
 num_crews = length(crew_models)

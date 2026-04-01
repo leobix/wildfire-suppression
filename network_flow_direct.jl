@@ -620,6 +620,7 @@ crew_models, crew_info = build_crew_models_from_empirical(
 	zero_crew_costs = zero_crew_costs,
 	enforce_rest_penalties = rest_penalties_only,
 	rest_periods = rest_periods,
+	force_base_start = true,
 )
 num_crews = length(crew_models)
 crew_names = hasproperty(crew_info, :crew_names) ? crew_info.crew_names : nothing

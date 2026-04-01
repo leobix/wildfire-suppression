@@ -729,6 +729,7 @@ function initialize_data_structures(
         zero_crew_costs::Bool = false,
         enforce_rest_penalties::Bool = false,
         rest_periods::Int = 0,
+        force_base_start::Bool = false,
 )
         if !from_empirical
                 # Synthetic test case used for regression/unit tests.
@@ -764,6 +765,7 @@ function initialize_data_structures(
                         zero_crew_costs = zero_crew_costs,
                         enforce_rest_penalties = enforce_rest_penalties,
                         rest_periods = rest_periods,
+                        force_base_start = force_base_start,
                 )
                 num_crews = length(crew_models)
                 fire_models, fire_info = build_fire_models_from_empirical(

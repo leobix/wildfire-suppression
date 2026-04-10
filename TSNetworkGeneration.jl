@@ -675,7 +675,7 @@ function build_crew_models_from_empirical(
     travel_fixed_delay::Int64 = 0;
     crew_gaccs::Vector{String} = ["Great Basin"],
     fire_gaccs::Vector{String} = crew_gaccs,
-    firefighters_per_crew::Int64 = 50,
+    firefighters_per_crew::Int64 = 63,
     initial_firefighters_per_crew::Int64 = 20,
     fires_by_gacc::Dict{String,Vector{Int64}} = Dict{String,Vector{Int64}}(),
     fire_folder::String = "data/empirical_fire_models/raw/arc_arrays",
@@ -1607,7 +1607,7 @@ function build_fire_models_from_empirical(
     num_crews::Int64,
     num_time_periods::Int64;
     fire_gaccs::Vector{String} = ["Great Basin"],
-    firefighters_per_crew::Int64 = 50,
+    firefighters_per_crew::Int64 = 63,
     fires_by_gacc::Dict{String,Vector{Int64}} = Dict{String,Vector{Int64}}(),
     fire_folder::String = "data/empirical_fire_models/raw/arc_arrays",
 )
@@ -1787,17 +1787,25 @@ function build_fire_models_from_empirical(
             state_cache = Dict{Int64, Int64}()
             num_bins = length(discretization_bins)
             terminal_base = ACTIVE_OFFSET + num_bins * num_bins
+            # Sequential counter: each unique raw state code gets its own LP node,
+            # preserving the (cur_area, prev_area) distinction. This prevents the
+            # optimizer from bridging across states that share the same current area
+            # but differ in fire momentum (prev_area), which was an LP relaxation.
+            state_counter = Ref(0)
 
             function decode_and_cache!(code::Int64)
                 cache_val = get(state_cache, code, nothing)
                 if isnothing(cache_val)
                     prev_idx_raw, next_idx_raw, state_type = unpack_state(code, num_bins)
-                    idx = if state_type == :terminal
-                        num_bins + next_idx_raw
-                    elseif state_type == :extinguished
+                    idx = if state_type == :extinguished
                         JULIA_EXT_STATE_CODE
                     else
-                        clamp(next_idx_raw, 1, num_bins)
+                        # Unique sequential ID per raw code — covers both active and
+                        # terminal states. Active states with the same cur_area but
+                        # different prev_area now map to distinct LP nodes, so flow
+                        # conservation respects fire momentum across time steps.
+                        state_counter[] += 1
+                        state_counter[]
                     end
                     state_cache[code] = idx
                     area_idx = begin
@@ -1833,7 +1841,7 @@ function build_fire_models_from_empirical(
                 arc_array[i, FM.STATE_FROM] = decode_and_cache!(from_state)
                 arc_array[i, FM.STATE_TO] = decode_and_cache!(to_state)
             end
-            num_states = maximum(values(state_cache))
+            num_states = state_counter[]
         end
 
         # for each arc, we need to update the linking_dual_arc_lookup

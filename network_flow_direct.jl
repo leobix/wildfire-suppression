@@ -85,6 +85,10 @@ function get_command_line_args()
 			"--scalability-benchmark"
 				help = "also solve LP relaxation and write output.json to the run subfolder for scalability table replication"
 				action = :store_true
+			"--firefighters-per-crew"
+				help = "number of firefighters per crew unit (must match arc files, default 63)"
+				arg_type = Int
+				default = 63
     end
     return parse_args(arg_parse_settings)  # Execute parsing and return a dictionary of arguments.
 end
@@ -416,7 +420,7 @@ function full_network_flow(
 					arc = fire_models[fire].long_arcs[ix, :]
 					day = arc[FM.TIME_TO] - 1
 					acres = round(fire_models[fire].arc_costs[ix] * 1e4)
-					crews = arc[FM.CREWS_PRESENT] * crew_step / 50.0
+					crews = Float64(arc[FM.CREWS_PRESENT])  # crew count (crew_personnel already divided by crew_step)
 					push!(progression_summary, (
 						fire = fire,
 						fire_event_id = string(fire_id),
@@ -639,6 +643,7 @@ fire_models, fire_meta = build_fire_models_from_empirical(
 	fire_gaccs = target_gaccs,
 	fires_by_gacc = Dict{String,Vector{Int64}}(),
 	fire_folder = dataset,
+	firefighters_per_crew = args["firefighters-per-crew"],
 )
 
 raw_state_lookup = Vector{Dict{Int,Int}}(undef, length(fire_models))
@@ -659,7 +664,7 @@ for (f, entry) in enumerate(fire_meta.fire_order)
 	end
 	raw_state_lookup[f] = lookup
 end
-crew_step = hasproperty(fire_meta, :crew_step) ? fire_meta.crew_step : 50  #firefighters per crew
+crew_step = hasproperty(fire_meta, :crew_step) ? fire_meta.crew_step : args["firefighters-per-crew"]  #firefighters per crew
 
 time_limit = Float64(args["time-limit"])
 rest_deadlines = hasproperty(crew_info, :rest_by) ? crew_info.rest_by : nothing
